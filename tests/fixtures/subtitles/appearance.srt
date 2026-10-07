@@ -1,0 +1,21 @@
+1
+00:00:00,100 --> 00:00:00,200
+♪ Singing ♪
+
+2
+00:00:00,200 --> 00:00:00,300
+♪ Singing ♪
+
+3
+00:00:01,000 --> 00:00:03,000
+♫ First line
+Second line ♫
+
+4
+00:00:02,000 --> 00:00:04,000
+♬ ♩ Café é — Selamat malam
+مرحبا بالعالم
+
+5
+00:00:05,000 --> 00:00:08,000
+A long line of dialogue that wraps naturally inside one subtitle box while every note ♪ and combining character é remains visible.

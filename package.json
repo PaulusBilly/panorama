@@ -1,0 +1,72 @@
+{
+  "name": "panorama",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "dev": "next dev --webpack",
+    "dev:preview": "NEXT_PUBLIC_PANORAMA_RUNTIME=preview next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "desktop:build:renderer": "node desktop/scripts/build-renderer.mjs",
+    "desktop:build:main": "tsc -p desktop/tsconfig.json",
+    "desktop:package:resources": "node desktop/scripts/copy-standalone.mjs",
+    "desktop:make": "pnpm desktop:build:native && pnpm desktop:build:renderer && pnpm desktop:build:main && pnpm desktop:package:resources && electron-forge make",
+    "desktop:build:native": "node desktop/scripts/build-native.mjs",
+    "desktop:spike:build:native": "pnpm desktop:build:native",
+    "desktop:stage:libmpv:windows": "node desktop/scripts/stage-windows-libmpv.mjs",
+    "desktop:verify:windows": "node desktop/scripts/verify-windows-package.mjs",
+    "desktop:build:native:windows": "pnpm desktop:build:native",
+    "desktop:spike:build": "pnpm desktop:build:native && tsc -p desktop/spike/tsconfig.json && node desktop/scripts/copy-spike-html.mjs",
+    "desktop:spike:start": "pnpm desktop:spike:build && node desktop/scripts/launch-windows-spike.mjs"
+  },
+  "main": "desktop-dist/main/main.js",
+  "config": {
+    "forge": "desktop/forge.config.ts"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.8.0",
+    "@stremio/stremio-core-web": "0.61.0",
+    "@stremio/stremio-video": "0.0.93",
+    "@tabler/icons-react": "^3.46.0",
+    "motion": "13.1.0",
+    "next": "16.3.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "vtt.js": "0.13.0"
+  },
+  "devDependencies": {
+    "7zip-bin": "5.2.0",
+    "@axe-core/playwright": "4.13.0",
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@playwright/test": "1.62.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@types/node": "25.5.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "electron": "43.4.1",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.3.1",
+    "jsdom": "29.0.0",
+    "node-addon-api": "^8.9.2",
+    "node-gyp": "13.0.1",
+    "postcss": "8.5.26",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "8.0.1",
+    "vitest": "4.1.11"
+  }
+}

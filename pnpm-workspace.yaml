@@ -1,0 +1,13 @@
+packages:
+  - "."
+
+blockExoticSubdeps: false
+
+nodeLinker: hoisted
+
+allowBuilds:
+  unrs-resolver: true
+
+patchedDependencies:
+  '@base-ui/react@1.8.0': patches/@base-ui__react@1.8.0.patch
+  '@stremio/stremio-video@0.0.93': patches/@stremio__stremio-video@0.0.93.patch

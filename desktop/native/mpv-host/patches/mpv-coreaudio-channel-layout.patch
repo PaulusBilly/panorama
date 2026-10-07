@@ -1,0 +1,33 @@
+diff --git a/audio/out/ao_coreaudio.c b/audio/out/ao_coreaudio.c
+--- a/audio/out/ao_coreaudio.c
++++ b/audio/out/ao_coreaudio.c
+@@ -324,6 +324,6 @@ static bool init_audiounit(struct ao *ao, AudioStreamBasicDescription asbd, AudioChannelLayout *layout, size_t layout_size)
+     err = AudioUnitSetProperty(p->audio_unit,
+-                               kAudioOutputUnitProperty_ChannelMap,
+-                               kAudioUnitScope_Global, 0, layout, layout_size);
++                               kAudioUnitProperty_AudioChannelLayout,
++                               kAudioUnitScope_Input, 0, layout, layout_size);
+
+     CHECK_CA_ERROR_L(coreaudio_error_audiounit,
+                      "unable to set the input channel layout on the audio unit");
+diff --git a/audio/out/ao_coreaudio_chmap.c b/audio/out/ao_coreaudio_chmap.c
+--- a/audio/out/ao_coreaudio_chmap.c
++++ b/audio/out/ao_coreaudio_chmap.c
+@@ -285,7 +285,7 @@ AudioChannelLayout *ca_find_standard_layout(void *talloc_ctx, AudioChannelLayout *l)
+     if (l->mChannelLayoutTag != kAudioChannelLayoutTag_UseChannelDescriptions)
+         return l;
+
+-    AudioChannelLayout *s = talloc_size(talloc_ctx, sizeof(AudioChannelLayout));
++    AudioChannelLayout *s = talloc_zero_size(talloc_ctx, sizeof(AudioChannelLayout));
+
+     for (int i = 0; ; ++i) {
+         if ((s->mChannelLayoutTag = std_layouts[i]) == kAudioChannelLayoutTag_Unknown) {
+@@ -319,7 +319,7 @@ AudioChannelLayout *ca_get_acl(struct ao *ao, size_t *out_layout_size)
+ {
+     size_t layout_size = sizeof(AudioChannelLayout)
+                          + (ao->channels.num - 1) * sizeof(AudioChannelDescription);
+-    AudioChannelLayout *layout = talloc_size(ao, layout_size);
++    AudioChannelLayout *layout = talloc_zero_size(ao, layout_size);
+     layout->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
+     layout->mNumberChannelDescriptions = ao->channels.num;
+     for (int i = 0; i < ao->channels.num; ++i) {

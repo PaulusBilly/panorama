@@ -1,0 +1,81 @@
+name: Desktop validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shared:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node node_modules/electron/install.js
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm exec tsc -p desktop/tsconfig.json --noEmit
+      - run: pnpm test
+      - run: pnpm build
+        env:
+          PANORAMA_DIST_DIR: .next-validation
+      - run: git diff --exit-code
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results-${{ github.sha }}
+          path: test-results/
+          retention-days: 7
+
+  windows:
+    needs: [shared, e2e]
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - run: node node_modules/electron/install.js
+      - run: pnpm desktop:make
+      - run: pnpm desktop:verify:windows
+      - uses: actions/upload-artifact@v7
+        with:
+          name: panorama-windows-x64-${{ github.sha }}
+          path: out/make/zip/win32/x64/*.zip
+          if-no-files-found: error

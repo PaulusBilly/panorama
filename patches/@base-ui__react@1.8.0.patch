@@ -1,0 +1,24 @@
+diff --git a/utils/FocusGuard.js b/utils/FocusGuard.js
+index 1927d40379f7083ef761b7eab5fb8184ce10f398..04104095a2e986eefc21aae64b2c1ff3911309b0 100644
+--- a/utils/FocusGuard.js
++++ b/utils/FocusGuard.js
+@@ -35,6 +35,7 @@ const FocusGuard = exports.FocusGuard = /*#__PURE__*/React.forwardRef(function F
+     ref: ref,
+     style: _visuallyHidden.visuallyHidden,
+     "aria-hidden": role ? undefined : true,
++    "aria-label": role ? "Focus boundary" : undefined,
+     ...restProps,
+     "data-base-ui-focus-guard": ""
+   });
+diff --git a/utils/FocusGuard.mjs b/utils/FocusGuard.mjs
+index 9e45e5858600ef6c25bd1c887f438cac09ec222d..fbc9734172c3eef5c1d344252b7568a27e63d098 100644
+--- a/utils/FocusGuard.mjs
++++ b/utils/FocusGuard.mjs
+@@ -30,6 +30,7 @@ export const FocusGuard = /*#__PURE__*/React.forwardRef(function FocusGuard(prop
+     ref: ref,
+     style: visuallyHidden,
+     "aria-hidden": role ? undefined : true,
++    "aria-label": role ? "Focus boundary" : undefined,
+     ...restProps,
+     "data-base-ui-focus-guard": ""
+   });

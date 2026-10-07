@@ -1,0 +1,26 @@
+[
+  {
+    "name": "SPIRV-Cross",
+    "revision": "7918775748c5e2f5c40d9918ce68825035b5a1e1",
+    "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Cross/7918775748c5e2f5c40d9918ce68825035b5a1e1/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "name": "SPIRV-Headers",
+    "revision": "bab63ff679c41eb75fc67dac76e1dc44426101e1",
+    "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/bab63ff679c41eb75fc67dac76e1dc44426101e1/LICENSE",
+    "sha256": "ff04ae7e6a468587fe59434fee2e67c0e2a749b592c794b764ff80f30b94a084"
+  },
+  {
+    "name": "SPIRV-Tools",
+    "revision": "783d7033613cedaa7147d0700b517abc5c32312d",
+    "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Tools/783d7033613cedaa7147d0700b517abc5c32312d/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "name": "cereal",
+    "revision": "51cbda5f30e56c801c07fe3d3aba5d7fb9e6cca4",
+    "url": "https://raw.githubusercontent.com/USCiLab/cereal/51cbda5f30e56c801c07fe3d3aba5d7fb9e6cca4/LICENSE",
+    "sha256": "18fd7618c44c9fe28b5f54cd19747df3c0472ed33e8507fea571e2acf6e72f34"
+  }
+]

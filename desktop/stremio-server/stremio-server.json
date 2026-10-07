@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "version": "4.21.2",
+  "source": {
+    "url": "https://dl.strem.io/server/v4.21.2/desktop/server.js",
+    "sha256": "7ff516ad510b12e61ab164b779ffdda208b15c7e9db94b3a19baff3a86bb416b"
+  }
+}

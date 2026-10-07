@@ -1,0 +1,257 @@
+--- a/video/out/gpu/context.c
++++ b/video/out/gpu/context.c
+@@ -51,6 +51,8 @@
+ extern const struct ra_ctx_fns ra_ctx_vulkan_display;
+ extern const struct ra_ctx_fns ra_ctx_vulkan_mac;
+ 
++extern const struct ra_ctx_fns ra_ctx_vulkan_panorama;
++
+ /* Direct3D 11 */
+ extern const struct ra_ctx_fns ra_ctx_d3d11;
+ 
+@@ -84,6 +86,9 @@
+ 
+ // Vulkan contexts:
+ #if HAVE_VULKAN
++#if HAVE_DARWIN
++    &ra_ctx_vulkan_panorama,
++#endif
+ #if HAVE_WIN32_DESKTOP
+     &ra_ctx_vulkan_win,
+ #endif
+--- a/meson.build
++++ b/meson.build
+@@ -416,8 +416,10 @@
+     path_source += files('osdep/path-mac.m')
+     sources += files('osdep/language-mac.c',
+                      'osdep/utils-mac.c',
+-                     'osdep/mac/app_bridge.m',
+-                     'player/clipboard/clipboard-mac.m')
++                     'osdep/mac/app_bridge.m')
++    if not get_option('swift-build').disabled()
++        sources += files('player/clipboard/clipboard-mac.m')
++    endif
+     main_fn_source = files('osdep/main-fn-mac.c')
+ endif
+ 
+@@ -1314,6 +1316,10 @@
+                      'video/filter/vf_gpu_vulkan.c')
+ endif
+ 
++if features['vulkan'] and darwin
++    sources += files('video/out/vulkan/context_panorama.c')
++endif
++
+ if features['vulkan'] and features['android']
+     sources += files('video/out/vulkan/context_android.c')
+ endif
+--- /dev/null
++++ b/video/out/vulkan/context_panorama.c
+@@ -0,0 +1,115 @@
++#define VK_USE_PLATFORM_METAL_EXT
++#include "context.h"
++#include "utils.h"
++#include "options/options.h"
++#include "panorama_surface.h"
++
++struct priv {
++    struct mpvk_ctx vk;
++    struct panorama_surface *surface;
++    struct panorama_surface_state state;
++};
++
++static void uninit(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    ra_vk_ctx_uninit(ctx);
++    mpvk_uninit(&p->vk);
++}
++
++static bool visible(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    return p->surface->snapshot(p->surface->opaque).visible;
++}
++
++static void swapped(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    p->surface->swapped(p->surface->opaque);
++}
++
++static pl_color_space_t preferred_csp(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    const double headroom = p->surface->snapshot(p->surface->opaque).headroom;
++    return (pl_color_space_t) {
++        .primaries = PL_COLOR_PRIM_BT_709,
++        .transfer = headroom > 1.0 ? PL_COLOR_TRC_LINEAR : PL_COLOR_TRC_SRGB,
++        .hdr.max_luma = PL_COLOR_SDR_WHITE * headroom,
++    };
++}
++
++static bool init(struct ra_ctx *ctx)
++{
++    if (ctx->opts.probing || ctx->vo->opts->WinID <= 0) return false;
++    struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
++    p->surface = (struct panorama_surface *)(uintptr_t)ctx->vo->opts->WinID;
++    if (p->surface->version != 1 || !p->surface->layer || !p->surface->snapshot || !p->surface->swapped)
++        return false;
++    if (!mpvk_init(&p->vk, ctx, VK_EXT_METAL_SURFACE_EXTENSION_NAME)) return false;
++    VkMetalSurfaceCreateInfoEXT info = {
++        .sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
++        .pLayer = p->surface->layer,
++    };
++    if (vkCreateMetalSurfaceEXT(p->vk.vkinst->instance, &info, NULL, &p->vk.surface) != VK_SUCCESS) {
++        mpvk_uninit(&p->vk);
++        return false;
++    }
++    struct ra_ctx_params params = {
++        .check_visible = visible,
++        .swap_buffers = swapped,
++        .preferred_csp = preferred_csp,
++    };
++    if (!ra_vk_ctx_init(ctx, &p->vk, params, VK_PRESENT_MODE_FIFO_KHR)) {
++        mpvk_uninit(&p->vk);
++        return false;
++    }
++    p->state = p->surface->snapshot(p->surface->opaque);
++    return ra_vk_ctx_resize(ctx, MPMAX(1, p->state.width), MPMAX(1, p->state.height));
++}
++
++static bool reconfig(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    p->state = p->surface->snapshot(p->surface->opaque);
++    return ra_vk_ctx_resize(ctx, MPMAX(1, p->state.width), MPMAX(1, p->state.height));
++}
++
++static int control(struct ra_ctx *ctx, int *events, int request, void *arg)
++{
++    struct priv *p = ctx->priv;
++    struct panorama_surface_state state = p->surface->snapshot(p->surface->opaque);
++    if (request == VOCTRL_CHECK_EVENTS) {
++        if (state.generation != p->state.generation) {
++            p->state = state;
++            *events |= VO_EVENT_RESIZE | VO_EVENT_EXPOSE | VO_EVENT_WIN_STATE;
++            if (!ra_vk_ctx_resize(ctx, MPMAX(1, state.width), MPMAX(1, state.height))) return VO_ERROR;
++        }
++        return VO_TRUE;
++    }
++    if (request == VOCTRL_GET_DISPLAY_FPS) {
++        *(double *)arg = state.fps;
++        return state.fps > 0 ? VO_TRUE : VO_NOTIMPL;
++    }
++    if (request == VOCTRL_GET_HIDPI_SCALE) {
++        *(double *)arg = state.scale;
++        return VO_TRUE;
++    }
++    if (request == VOCTRL_GET_DISPLAY_RES) {
++        ((int *)arg)[0] = state.width;
++        ((int *)arg)[1] = state.height;
++        return VO_TRUE;
++    }
++    return VO_NOTIMPL;
++}
++
++const struct ra_ctx_fns ra_ctx_vulkan_panorama = {
++    .type = "vulkan",
++    .name = "panorama-macvk",
++    .description = "Panorama embedded Metal surface",
++    .init = init,
++    .uninit = uninit,
++    .reconfig = reconfig,
++    .control = control,
++};
+--- /dev/null
++++ b/video/out/vulkan/panorama_surface.h
+@@ -0,0 +1,20 @@
++#pragma once
++#include <stdint.h>
++
++struct panorama_surface_state {
++    int width;
++    int height;
++    int visible;
++    double fps;
++    double scale;
++    double headroom;
++    uint64_t generation;
++};
++
++struct panorama_surface {
++    uint64_t version;
++    void *layer;
++    void *opaque;
++    struct panorama_surface_state (*snapshot)(void *opaque);
++    void (*swapped)(void *opaque);
++};
+--- a/player/clipboard/clipboard.c
++++ b/player/clipboard/clipboard.c
+@@ -39,7 +39,7 @@
+ #if HAVE_WIN32_DESKTOP
+     &clipboard_backend_win32,
+ #endif
+-#if HAVE_COCOA
++#if HAVE_COCOA && HAVE_SWIFT
+     &clipboard_backend_mac,
+ #endif
+ #if HAVE_WAYLAND && HAVE_WAYLAND_PROTOCOLS_1_39
+--- a/input/input.c
++++ b/input/input.c
+@@ -49,7 +49,7 @@
+ #include "stream/stream.h"
+ #include "common/common.h"
+ 
+-#if HAVE_COCOA
++#if HAVE_COCOA && HAVE_SWIFT
+ #include "osdep/mac/app_bridge.h"
+ #endif
+ 
+@@ -1700,7 +1700,7 @@
+ {
+     m_config_cache_update(ictx->opts_cache);
+ 
+-#if HAVE_COCOA
++#if HAVE_COCOA && HAVE_SWIFT
+     struct input_opts *opts = ictx->opts;
+ 
+     if (ictx->using_cocoa_media_keys != (opts->use_media_keys && !shutdown)) {
+--- a/player/main.c
++++ b/player/main.c
+@@ -81,7 +81,7 @@
+ #include "osdep/w32_register.h"
+ #endif
+ 
+-#if HAVE_COCOA
++#if HAVE_COCOA && HAVE_SWIFT
+ #include "osdep/mac/app_bridge.h"
+ #endif
+ 
+@@ -192,7 +192,7 @@
+ 
+     osd_free(mpctx->osd);
+ 
+-#if HAVE_COCOA
++#if HAVE_COCOA && HAVE_SWIFT
+     cocoa_set_input_context(NULL);
+ #endif
+ 
+@@ -314,7 +314,7 @@
+     mp_clients_init(mpctx);
+     mpctx->osd = osd_create(mpctx->global);
+ 
+-#if HAVE_COCOA
++#if HAVE_COCOA && HAVE_SWIFT
+     cocoa_set_input_context(mpctx->input);
+ #endif
+ 
+@@ -409,7 +409,7 @@
+ 
+     MP_STATS(mpctx, "start init");
+ 
+-#if HAVE_COCOA
++#if HAVE_COCOA && HAVE_SWIFT
+     mpv_handle *ctx = mp_new_client(mpctx->clients, "mac");
+     cocoa_set_mpv_handle(ctx);
+ #endif

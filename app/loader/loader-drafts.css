@@ -1,0 +1,113 @@
+.loader-draft__stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 8rem;
+  overflow: hidden;
+  background: color-mix(in oklch, var(--theme-player-ink) 7%, transparent);
+}
+
+.loader-draft__stage::after {
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1px;
+  background: color-mix(in oklch, var(--theme-player-ink) 12%, transparent);
+  content: "";
+}
+
+.loader-draft__mark {
+  position: relative;
+  width: 12rem;
+  height: 5.38rem;
+  overflow: hidden;
+}
+
+.loader-draft__bar {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0.75rem;
+  z-index: 1;
+  display: block;
+  width: 10rem;
+  height: 5.38rem;
+}
+
+.loader-draft__bar:nth-child(1) {
+  clip-path: inset(0 69.26% 0 0);
+}
+
+.loader-draft__bar:nth-child(2) {
+  clip-path: inset(0 38.52% 0 38.42%);
+}
+
+.loader-draft__bar:nth-child(3) {
+  clip-path: inset(0 15.98% 0 69.26%);
+}
+
+.loader-draft__bar:nth-child(4) {
+  clip-path: inset(0 0 0 92.21%);
+}
+
+.loader-draft__bar img {
+  width: 100%;
+  height: auto;
+}
+
+.loader-draft__mark--cascade .loader-draft__bar {
+  animation: loader-bar-cascade 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.loader-draft__mark--frames .loader-draft__bar {
+  animation: loader-bar-frames 1.6s steps(4, end) infinite;
+}
+
+.loader-draft__mark--lockstep .loader-draft__bar {
+  animation: loader-bar-lockstep 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.loader-draft__bar:nth-child(2) {
+  animation-delay: 100ms;
+}
+
+.loader-draft__bar:nth-child(3) {
+  animation-delay: 200ms;
+}
+
+.loader-draft__bar:nth-child(4) {
+  animation-delay: 300ms;
+}
+
+.loader-drafts--paused .loader-draft__bar {
+  animation-play-state: paused;
+}
+
+@keyframes loader-bar-cascade {
+  0%, 12%, 88%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  38%, 62% {
+    transform: translate3d(1.25rem, 0, 0);
+  }
+}
+
+@keyframes loader-bar-frames {
+  0%, 16%, 84%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  40%, 68% {
+    transform: translate3d(1.5rem, 0, 0);
+  }
+}
+
+@keyframes loader-bar-lockstep {
+  0%, 10% {
+    transform: translate3d(0, 0, 0);
+  }
+  24%, 76% {
+    transform: translate3d(1rem, 0, 0);
+  }
+  92%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+}

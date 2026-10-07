@@ -1,0 +1,13 @@
+--- a/src/vulkan/malloc.c
++++ b/src/vulkan/malloc.c
+@@ -611,6 +611,10 @@
+         // happen down the line at VkBuffer creation time, but this should give
+         // us a rough idea of what the driver supports.
+         enum pl_handle_type type = vk_mem_handle_list[i];
++#ifdef __APPLE__
++        if (type == PL_HANDLE_HOST_PTR)
++            continue;
++#endif
+         if (buf_external_check(vk, VK_BUFFER_USAGE_TRANSFER_DST_BIT, type, import))
+             caps |= type;
+     }
