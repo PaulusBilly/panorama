@@ -38,7 +38,11 @@ fn main() {
                     }),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|_| Panorama),
+                |window, cx| {
+                    // gpui-component dialogs, sheets and notifications need a Root at the top.
+                    let view = cx.new(|_| Panorama);
+                    cx.new(|cx| gpui_component::Root::new(view, window, cx))
+                },
             )
             .expect("failed to open Panorama window");
             cx.activate(true);
