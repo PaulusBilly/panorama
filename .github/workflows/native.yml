@@ -25,6 +25,8 @@ jobs:
         working-directory: native
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
