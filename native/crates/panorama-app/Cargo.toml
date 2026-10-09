@@ -1,0 +1,19 @@
+[package]
+name = "panorama-app"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "panorama"
+path = "src/main.rs"
+
+[dependencies]
+panorama-core = { path = "../panorama-core" }
+gpui.workspace = true
+gpui-component.workspace = true
+gpui-platform.workspace = true
+
+[lints]
+workspace = true
