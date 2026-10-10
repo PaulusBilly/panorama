@@ -2,6 +2,7 @@ use super::*;
 
 mod fixture;
 mod policy;
+mod stall;
 mod swarm;
 mod teardown;
 

@@ -141,10 +141,10 @@ before registering an HTTP reader and resuming. Other files are never opened for
 playback unless another lease explicitly chooses them. The torrent pauses when
 no reader is active (50 ms monitor interval), including between open's one-byte
 availability probe and mpv's first request. Multiple readers have independent
-positions and 32 MiB lookaheads. Adding a reader to a live torrent, or dropping
-one while others remain, refreshes its live generation via public pause/resume;
-this prevents a connected peer's piece requester from remaining asleep across
-reader changes with an empty background queue. With no connected or connecting
+positions and 32 MiB lookaheads. Reader changes retain a healthy live generation;
+pausing during librqbit's piece verification can strand a received piece before
+it is marked verified. Its piece requester observes the updated stream queues
+on subsequent requests or its five-second idle wake. With no connected or connecting
 peers, the monitor also retries at most every 500 ms without extending the
 no-peers deadline. Pieces can overlap neighboring files, and seeks,
 failed pieces, and in-flight requests retain work from earlier windows. This is
@@ -213,6 +213,15 @@ An inactive entry with `NoPeers` clears that playback error and progress/retry
 clocks on its next open; readers and active leases retain their current errors.
 The local test pauses the seeder, records `NoPeers`, closes, resumes the seeder,
 then reopens and reads a previously unavailable distant range.
+
+HTTP reads wait through seeks while peers are live or connecting, or received
+payload keeps progressing. `NoPeers` requires no live or connecting peers and a
+full configured window without received-byte progress. Pauses, reader resumes,
+new readers, and seeks reset that window; automatic peer retries do not. A body
+failure is propagated to Hyper to abort the connection
+with an incomplete Content-Length, so HTTP clients report a truncated response.
+Tests that enable DHT are ignored because librqbit binds it on 0.0.0.0 and can
+trigger Windows Firewall prompts. Default-run tests bind only to 127.0.0.1.
 
 The old fixed 30 ms startup probe was reproduced with a held startup barrier:
 it panicked on an absent Host. The pending-open test now waits for a local peer

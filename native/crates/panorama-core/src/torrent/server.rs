@@ -1,4 +1,8 @@
-use super::{TorrentError, lock, runtime::Shared};
+use super::{
+    TorrentError, lock,
+    runtime::Shared,
+    stream::{Playback, Reader},
+};
 use bytes::Bytes;
 use http::{Method, Request, Response, header};
 use http_body_util::{BodyExt, Full, StreamBody, combinators::UnsyncBoxBody};
@@ -194,9 +198,15 @@ async fn serve(
     if reader.inner.seek(SeekFrom::Start(start)).await.is_err() {
         return empty(503);
     }
+    lock(&playback.entry.activity).last_progress = tokio::time::Instant::now();
+    *response.body_mut() = body(reader, length, playback);
+    response
+}
+
+pub(super) fn body(reader: Reader, length: u64, playback: Arc<Playback>) -> Body {
     let stream = futures::stream::try_unfold(
-        (reader, length, playback, shared.options.no_peers_timeout),
-        |(mut reader, remaining, playback, deadline)| async move {
+        (reader, length, playback),
+        |(mut reader, remaining, playback)| async move {
             if remaining == 0 {
                 return Ok(None);
             }
@@ -204,18 +214,24 @@ async fn serve(
                 return Err(error);
             }
             let mut buf = vec![0; remaining.min(64 * 1024) as usize];
-            let count = tokio::select! {
-                _ = playback.stop.cancelled() => return Err(TorrentError::Cancelled),
-                result = tokio::time::timeout(deadline, reader.inner.read(&mut buf)) => {
-                    result.map_err(|_| {
-                        let error = playback.entry.snapshot().error.unwrap_or(TorrentError::NoPeers);
-                        playback.entry.fail(error);
-                        error
-                    })?.map_err(|_| {
-                        let error = playback.entry.snapshot().error.unwrap_or(TorrentError::Engine);
-                        playback.entry.fail(error);
-                        error
-                    })?
+            let count = {
+                let read = reader.inner.read(&mut buf);
+                tokio::pin!(read);
+                let mut interval = tokio::time::interval(Duration::from_millis(50));
+                loop {
+                    tokio::select! {
+                        _ = playback.stop.cancelled() => return Err(TorrentError::Cancelled),
+                        _ = interval.tick() => {
+                            if let Some(error) = playback.entry.snapshot().error {
+                                return Err(error);
+                            }
+                        }
+                        result = &mut read => break result.map_err(|_| {
+                            let error = playback.entry.snapshot().error.unwrap_or(TorrentError::Engine);
+                            playback.entry.fail(error);
+                            error
+                        })?,
+                    }
                 }
             };
             if count == 0 {
@@ -224,12 +240,11 @@ async fn serve(
             buf.truncate(count);
             Ok(Some((
                 Frame::data(Bytes::from(buf)),
-                (reader, remaining - count as u64, playback, deadline),
+                (reader, remaining - count as u64, playback),
             )))
         },
     );
-    *response.body_mut() = StreamBody::new(stream).boxed_unsync();
-    response
+    StreamBody::new(stream).boxed_unsync()
 }
 
 fn insert(response: &mut Response<Body>, name: header::HeaderName, value: String) {

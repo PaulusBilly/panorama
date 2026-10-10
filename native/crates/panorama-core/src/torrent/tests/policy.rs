@@ -27,7 +27,7 @@ async fn stream_queue_lookahead_and_no_reader_pause() {
     assert_eq!(first, data[..4 * 1024 * 1024]);
     let bound = (4 + 32) * 1024 * 1024 + 64 * 1024;
     timeout(Duration::from_secs(45), async {
-        while stream.stats().verified_bytes < 32 * 1024 * 1024 {
+        while stream.stats().verified_bytes < 36 * 1024 * 1024 {
             assert!(stream.stats().error.is_none(), "{:?}", stream.stats());
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -36,6 +36,7 @@ async fn stream_queue_lookahead_and_no_reader_pause() {
     .unwrap_or_else(|_| panic!("window did not fill: {:?}", stream.stats()));
     timeout(Duration::from_secs(10), async {
         let mut progress = stream.stats();
+        let mut quiet_since = Instant::now();
         loop {
             tokio::time::sleep(Duration::from_millis(200)).await;
             let next = stream.stats();
@@ -43,9 +44,11 @@ async fn stream_queue_lookahead_and_no_reader_pause() {
                 next.verified_bytes <= bound,
                 "stationary reader exceeded lookahead: {next:?}"
             );
-            if next.verified_bytes == progress.verified_bytes
-                && next.downloaded_bytes == progress.downloaded_bytes
+            if next.verified_bytes != progress.verified_bytes
+                || next.downloaded_bytes != progress.downloaded_bytes
             {
+                quiet_since = Instant::now();
+            } else if quiet_since.elapsed() >= Duration::from_secs(1) {
                 break;
             }
             progress = next;
@@ -134,7 +137,10 @@ async fn no_peers_after_metadata_is_reported_in_stats() {
     );
     let stream = engine.open(source, CancellationToken::new()).await.unwrap();
     assert!(stream.stats().verified_bytes < stream.file_size);
-    swarm.seeder.stop().await;
+    let seeding = swarm
+        .seeder
+        .with_torrents(|torrents| torrents.next().unwrap().1.clone());
+    swarm.seeder.pause(&seeding).await.unwrap();
     let mut client = connect(&stream.url, Some("bytes=8388508-8388607"), None).await;
     let mut body = Vec::new();
     let _ = timeout(Duration::from_secs(2), client.read_to_end(&mut body))
@@ -149,7 +155,10 @@ async fn no_peers_after_metadata_is_reported_in_stats() {
     .unwrap();
     assert_eq!(stream.stats().state, TorrentState::Stalled);
     assert_eq!(stream.stats().error, Some(TorrentError::NoPeers));
+    assert_eq!(stream.stats().peers_live, 0);
+    assert_eq!(stream.stats().peers_connecting, 0);
     engine.shutdown().await.unwrap();
+    swarm.seeder.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

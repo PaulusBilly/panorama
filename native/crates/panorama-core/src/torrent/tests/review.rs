@@ -9,6 +9,16 @@ use tokio::{
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tracker_only_metadata_uses_a_dht_disabled_session() {
+    tracker_session_discovery(false).await;
+}
+
+#[ignore = "binds DHT on 0.0.0.0; triggers a Windows Firewall prompt"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dht_marker_uses_a_separate_outbound_only_session() {
+    tracker_session_discovery(true).await;
+}
+
+async fn tracker_session_discovery(dht: bool) {
     let swarm = Swarm::new().await;
     let (source, data) = swarm.video("private.mp4", 64 * 1024).await;
     let tracker = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -83,41 +93,43 @@ async fn tracker_only_metadata_uses_a_dht_disabled_session() {
             .await
             .is_err()
     );
-    let (public, _) = swarm.video("public.mp4", 64 * 1024).await;
-    let public = TorrentSource::from_stream(
-        public.info_hash(),
-        None,
-        &[
-            format!("tracker:http://127.0.0.1:{}/announce", tracker_port),
-            format!("dht:{}", public.info_hash()),
-        ],
-    )
-    .unwrap();
-    let public = engine.open(public, CancellationToken::new()).await.unwrap();
-    assert!(
-        public
-            .playback
-            .entry
-            .session
-            .upgrade()
-            .unwrap()
-            .get_dht()
-            .is_some()
-    );
-    assert!(
-        public
-            .playback
-            .entry
-            .session
-            .upgrade()
-            .unwrap()
-            .listen_addr()
-            .is_none()
-    );
-    timeout(Duration::from_secs(1), bootstrap.recv_from(&mut packet))
-        .await
-        .unwrap()
+    if dht {
+        let (public, _) = swarm.video("public.mp4", 64 * 1024).await;
+        let public = TorrentSource::from_stream(
+            public.info_hash(),
+            None,
+            &[
+                format!("tracker:http://127.0.0.1:{}/announce", tracker_port),
+                format!("dht:{}", public.info_hash()),
+            ],
+        )
         .unwrap();
+        let public = engine.open(public, CancellationToken::new()).await.unwrap();
+        assert!(
+            public
+                .playback
+                .entry
+                .session
+                .upgrade()
+                .unwrap()
+                .get_dht()
+                .is_some()
+        );
+        assert!(
+            public
+                .playback
+                .entry
+                .session
+                .upgrade()
+                .unwrap()
+                .listen_addr()
+                .is_none()
+        );
+        timeout(Duration::from_secs(1), bootstrap.recv_from(&mut packet))
+            .await
+            .unwrap()
+            .unwrap();
+    }
     engine.shutdown().await.unwrap();
     worker.abort();
     let _ = worker.await;

@@ -10,6 +10,9 @@ use tracing::{
     span::{Attributes, Id, Record},
 };
 
+// librqbit 9.0.1 always binds DHT on all interfaces, so each new test binary triggers a
+// Windows Firewall prompt. Run on demand: `cargo test -p panorama-core -- --ignored`.
+#[ignore = "binds DHT on 0.0.0.0; triggers a Windows Firewall prompt"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn peer_and_dht_sockets_are_released_after_join_without_bootstrap() {
     let dir = tempfile::tempdir().unwrap();

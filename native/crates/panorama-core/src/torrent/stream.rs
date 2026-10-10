@@ -99,7 +99,10 @@ impl Entry {
             stats.download_bps = 0;
             stats.upload_bps = 0;
         }
-        if stats.downloaded_bytes > activity.snapshot.downloaded_bytes {
+        if stats.downloaded_bytes > activity.snapshot.downloaded_bytes
+            || self.torrent.is_paused()
+            || self.readers.load(Ordering::Acquire) == 0
+        {
             activity.last_progress = Instant::now();
         }
         stats.error = lock(&self.cache.error).or(stats.error);
@@ -124,6 +127,9 @@ impl Entry {
     }
 
     pub async fn monitor(&self, timeout: Duration) {
+        let Ok(_guard) = self.control.try_lock() else {
+            return;
+        };
         let stats = self.snapshot();
         let unfinished = self.torrent.metadata.load_full().is_some_and(|metadata| {
             let raw = self.torrent.stats();
@@ -158,7 +164,7 @@ impl Entry {
                 lock(&self.cache.error).get_or_insert(TorrentError::Disk(super::DiskError::Full));
             }
         }
-        if let Ok(_guard) = self.control.try_lock() {
+        {
             let stats = self.snapshot();
             let inactive = self.readers.load(Ordering::Acquire) == 0;
             let refresh = self.refresh.load(Ordering::Acquire);
@@ -166,10 +172,13 @@ impl Entry {
                 if (inactive || stats.error.is_some()) && !self.torrent.is_paused() {
                     let _ = session.pause(&self.torrent).await;
                     self.refresh.store(false, Ordering::Release);
+                } else if refresh && (stats.peers_live > 0 || stats.peers_connecting > 0) {
+                    self.refresh.store(false, Ordering::Release);
                 } else if !inactive
                     && unfinished
                     && stats.error.is_none()
-                    && (refresh || (stats.peers_live == 0 && stats.peers_connecting == 0))
+                    && stats.peers_live == 0
+                    && stats.peers_connecting == 0
                     && (refresh
                         || lock(&self.activity).last_retry.elapsed() >= Duration::from_millis(500))
                 {
@@ -181,18 +190,25 @@ impl Entry {
                     let _ = session
                         .update_only_files(&self.torrent, &HashSet::new())
                         .await;
-                    self.resume(&session).await.ok();
+                    self.resume(&session, refresh).await.ok();
                 }
             }
         }
     }
 
-    async fn resume(&self, session: &Arc<Session>) -> Result<(), TorrentError> {
+    async fn resume(
+        &self,
+        session: &Arc<Session>,
+        reset_progress: bool,
+    ) -> Result<(), TorrentError> {
         if self.torrent.is_paused() {
             {
                 let mut activity = lock(&self.activity);
                 activity.fetched_offset += activity.previous_fetched;
                 activity.previous_fetched = 0;
+                if reset_progress {
+                    activity.last_progress = Instant::now();
+                }
             }
             session
                 .unpause(&self.torrent)
@@ -237,7 +253,7 @@ impl Entry {
             .stream(index)
             .await
             .map_err(|_| TorrentError::Engine)?;
-        self.resume(&session).await?;
+        self.resume(&session, true).await?;
         self.readers.fetch_add(1, Ordering::AcqRel);
         if live {
             self.refresh.store(true, Ordering::Release);
