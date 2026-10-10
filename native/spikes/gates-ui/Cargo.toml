@@ -1,0 +1,20 @@
+[package]
+name = "gates-ui"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gpui.workspace = true
+gpui-platform.workspace = true
+reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+png = "=0.18.1"
+raw-window-handle = "=0.6.2"
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_DirectWrite", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[lints]
+workspace = true
