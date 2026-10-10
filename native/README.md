@@ -16,3 +16,8 @@ cargo test --workspace
 ```
 
 The Electron app remains the shipping app.
+
+## Dependencies
+
+- `rusqlite` (=0.40.2, `bundled`): the native key-value store; ships SQLite without a system dependency.
+- `tempfile` (=3.27.0, dev-dependency): isolated directories for store tests.
