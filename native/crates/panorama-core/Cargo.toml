@@ -19,13 +19,15 @@ tracing.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
 getrandom.workspace = true
+image.workspace = true
 
 [dev-dependencies]
 tiny_http.workspace = true
 rcgen.workspace = true
 tokio-rustls.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["test-util"] }
+axum.workspace = true
+tokio = { workspace = true, features = ["test-util", "io-util"] }
 
 [lints]
 workspace = true
