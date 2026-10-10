@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/panorama-core", "crates/panorama-app", "spikes/gate1-video", "spikes/gate3-core", "spikes/gate6-torrent"]
+members = ["crates/panorama-core", "crates/panorama-app", "crates/panorama-mpv", "spikes/gate1-video", "spikes/gate3-core", "spikes/gate6-torrent"]
 exclude = ["vendor"]
 
 [workspace.package]
@@ -9,6 +9,10 @@ license = "MIT"
 rust-version = "1.99"
 
 [workspace.dependencies]
+libloading = "=0.8.9"
+raw-window-handle = "=0.6.2"
+serde_json = "=1.0.151"
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 tempfile = "=3.27.0"
 gpui = { package = "gpui-pre", version = "=0.3.8" }
