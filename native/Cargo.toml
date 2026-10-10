@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/panorama-core", "crates/panorama-app", "spikes/gate1-video"]
+members = ["crates/panorama-core", "crates/panorama-app", "spikes/gate1-video", "spikes/gate3-core"]
+exclude = ["vendor"]
 
 [workspace.package]
 edition = "2024"
@@ -18,3 +19,7 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = "warn"
+
+# stremio-core's bitfield crate pins flate2 to 1.0.x, which conflicts with GPUI. See vendor/README.md.
+[patch."https://github.com/Stremio/stremio-core"]
+stremio-watched-bitfield = { path = "vendor/stremio-watched-bitfield" }
