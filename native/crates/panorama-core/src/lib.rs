@@ -1,3 +1,4 @@
+pub mod media;
 pub mod store;
 
 pub const APP_NAME: &str = "Panorama";
