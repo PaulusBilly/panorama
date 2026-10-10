@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/panorama-core", "crates/panorama-app", "spikes/gate1-video", "spikes/gate3-core"]
+members = ["crates/panorama-core", "crates/panorama-app", "spikes/gate1-video", "spikes/gate3-core", "spikes/gate6-torrent"]
 exclude = ["vendor"]
 
 [workspace.package]
