@@ -65,3 +65,23 @@ The production adapter bounds encoded request URIs before invoking the core's in
 | Metadata/streams | `details_chain_prefers_meta_addon_then_matching_addons_then_cinemeta`, `streams_grouped_by_addon_in_account_order_with_failures_isolated` |
 | Security | `spoofed_addon_id_cannot_poison_another_addons_cache`, `cache_keys_and_errors_never_contain_transport_urls`, `non_https_images_dropped_and_oversized_fields_truncated`, `film_id_validation_rejects_path_injection`, byte/list-cap and sign-out/salt tests |
 | Production adapter | `core_addon_transport_encodes_opaque_ids_preserves_credits_and_enforces_fetch_cap` (local HTTPS only) |
+
+
+## Progress and presence for PR 3.4
+
+`panorama_core::stremio::progress` (re-exported from `stremio`) ports the Electron watch-progress behaviour onto the core's own `Player` model, added to the core model as a field next to `Ctx`. Calls only dispatch core actions and never block; the core creates library items, applies the watched threshold, persists through the Env storage and syncs with the API. Like the TS runtime, everything is a no-op while signed out (`resume` is `None`, `in_library` is `false`, the others return `NotSignedIn` or do nothing).
+
+- `resume(film_id)`: `ResumePoint { offset_secs, duration_secs }` from the library item, only when at least 30 s in with at least 60 s left (`normalizeResumeState`).
+- `begin_playback(PlaybackTarget, start_secs)` loads the player (`beginPlayback`); the target carries the chosen core `Stream`, the meta addon URL (the core loads the film's meta to create a temporary library item when none exists) and the stream addon URL.
+- `report_progress(film_id, PlaybackSample)` sends `PausedChanged` when the pause state changes (also flushing, unless it is the first sample) and `TimeChanged` once the position is 10 s or more from the last push (`PROGRESS_SYNC_INTERVAL_SECONDS`, `flushPlaybackProgress`). Samples without a positive duration are not pushed. `report_seek` sends `Seek` and restarts the window. The core itself throttles library pushes to one per 90 s and pushes on pause and unload.
+- `finish(film_id)` pushes the final position at the duration and sends `Ended`; the core's 70 % watched threshold then marks the film watched. `stop_playback(film_id)` flushes the last position and unloads the player (`stopPlayback`), which pushes the library item.
+- `set_in_library(&FilmMeta, saved)` / `in_library(film_id)`: `AddToLibrary` / `RemoveFromLibrary`; saved means neither removed nor temporary (`normalizeWatchlisted`). The change lands asynchronously; observe `CoreChange::LibraryChanged`.
+
+`panorama_core::discord` ports `desktop/main/discord-presence.ts` and `desktop/shared/discord-presence.ts`. `DiscordPresence::new(&runtime_handle, settings_file, discord_paths(Platform::current(), env), SystemConnector)` starts a task; `update`/`update_value`/`clear`/`set_enabled` only queue work. The transport is a `Connector` trait: `SystemConnector` uses `tokio::net::windows::named_pipe` on `\\?\pipe\discord-ipc-0..9` and Unix sockets in `$XDG_RUNTIME_DIR`/`$TMPDIR`/`$TMP`/`$TEMP`/`/tmp` elsewhere; tests use in-process duplex streams. Presence is opt-in (default off, persisted atomically with owner-only permissions), coalesced to one `SET_ACTIVITY` per 5 s, walks the ten paths on failure then retries every 15 s, drops oversized (over 64 KiB) or error frames, answers PING and fails silently when Discord is not running. Text limits count Unicode scalar values where the TS counted UTF-16 units. Tokio gained the `net` and `io-util` features (no new crate).
+
+| TS test (`tests/unit/discord-presence.test.ts`) | Rust test (`discord::tests`) |
+| --- | --- |
+| maps watching, artwork and seek timing without advancing paused or buffering activities | `maps_watching_artwork_and_seek_timing_without_advancing_paused_or_buffering_activities` |
+| defaults off, persists opt-in, handles split frames, coalesces updates and clears immediately | `defaults_off_persists_opt_in_handles_split_frames_coalesces_updates_and_clears_immediately` |
+| retries disconnected clients after 15 seconds and cancels retries on clear | `retries_disconnected_clients_after_15_seconds_and_cancels_retries_on_clear` |
+| rejects oversized frames and discovers platform socket paths | `rejects_oversized_frames_and_discovers_platform_socket_paths` |

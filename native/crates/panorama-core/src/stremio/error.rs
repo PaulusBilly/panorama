@@ -17,6 +17,8 @@ pub enum CoreErrorKind {
     AlreadyInstalled,
     /// The Env configuration is invalid or has not been installed.
     Environment,
+    /// The operation needs a signed-in account.
+    NotSignedIn,
     /// Another core failure, including incomplete account collection fetches.
     Other,
 }
@@ -43,6 +45,7 @@ impl fmt::Display for CoreError {
             CoreErrorKind::Storage => "core storage failed",
             CoreErrorKind::AlreadyInstalled => "core environment already installed",
             CoreErrorKind::Environment => "core environment unavailable or invalid",
+            CoreErrorKind::NotSignedIn => "sign in required",
             CoreErrorKind::Other => "core operation failed",
         })
     }
