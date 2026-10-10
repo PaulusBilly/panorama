@@ -3,9 +3,11 @@
 use gpui::{Bounds, QuitMode, TitlebarOptions, WindowBounds, WindowOptions, prelude::*, px, size};
 use panorama_app::{
     app::AppShell,
+    app_state::AppState,
     args::Args,
     assets::{self, Assets},
     debug,
+    services::{self, ServicesHost, StartupError},
     theme::Theme,
 };
 use std::{process::ExitCode, sync::mpsc, time::Duration};
@@ -18,6 +20,17 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let _logger = debug::logger();
+    let runtime = match services::runtime() {
+        Ok(runtime) => runtime,
+        Err(StartupError::Failed(message)) => {
+            return panorama_app::startup_error::show(message);
+        }
+        Err(StartupError::Locked) => return ExitCode::FAILURE,
+    };
+    let host = ServicesHost::new(runtime.handle().clone(), args.fixtures);
+    let initial = runtime.block_on(host.start());
+    let locked = matches!(initial, Err(StartupError::Locked));
     let screenshot = args.screenshot.clone();
     let capture_requested = screenshot.is_some();
     let (outcome, results) = mpsc::channel();
@@ -27,6 +40,30 @@ fn main() -> ExitCode {
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx| {
             gpui_component::init(cx);
+            cx.bind_keys([
+                gpui::KeyBinding::new(
+                    "tab",
+                    panorama_app::routes::home::NextCard,
+                    Some("PanoramaCard"),
+                ),
+                gpui::KeyBinding::new(
+                    "shift-tab",
+                    panorama_app::routes::home::PreviousCard,
+                    Some("PanoramaCard"),
+                ),
+                gpui::KeyBinding::new("tab", panorama_app::login::NextField, Some("PanoramaLogin")),
+                gpui::KeyBinding::new(
+                    "shift-tab",
+                    panorama_app::login::PreviousField,
+                    Some("PanoramaLogin"),
+                ),
+                gpui::KeyBinding::new(
+                    "escape",
+                    panorama_app::login::CloseDialog,
+                    Some("PanoramaLogin"),
+                ),
+                gpui::KeyBinding::new("enter", panorama_app::login::Submit, Some("PanoramaLogin")),
+            ]);
             if let Err(error) = assets::register_fonts(cx) {
                 let _ = startup_outcome.send(Err(error));
                 cx.quit();
@@ -54,7 +91,12 @@ fn main() -> ExitCode {
                     if capture_requested {
                         window.activate_window();
                     }
-                    let view = cx.new(|cx| AppShell::new(args, outcome, window, cx));
+                    if locked {
+                        let view = cx.new(|_| AlreadyRunning);
+                        return cx.new(|cx| gpui_component::Root::new(view, window, cx));
+                    }
+                    let state = cx.new(|cx| AppState::new(host.clone(), initial, cx));
+                    let view = cx.new(|cx| AppShell::new(args, state, outcome, window, cx));
                     cx.new(|cx| gpui_component::Root::new(view, window, cx))
                 },
             );
@@ -92,5 +134,23 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
         Err(_) => ExitCode::SUCCESS,
+    }
+}
+
+struct AlreadyRunning;
+impl gpui::Render for AlreadyRunning {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        _: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        gpui::div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::white())
+            .text_color(gpui::black())
+            .child("Panorama is already running.")
     }
 }

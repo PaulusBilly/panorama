@@ -5728,11 +5728,16 @@ dependencies = [
 name = "panorama-app"
 version = "0.0.0"
 dependencies = [
+ "futures",
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
+ "image",
+ "panorama-core",
  "png 0.18.1",
  "raw-window-handle",
+ "tokio",
+ "url",
  "windows 0.62.2",
 ]
 

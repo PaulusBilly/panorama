@@ -40,3 +40,7 @@ pub(crate) fn check_default_font(window: &gpui::Window) -> Result<(), String> {
     }
     Ok(())
 }
+
+mod logger;
+pub mod performance;
+pub use logger::{Logger, log, logger};

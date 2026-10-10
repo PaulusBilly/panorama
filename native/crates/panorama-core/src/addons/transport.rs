@@ -27,6 +27,8 @@ pub enum TransportResponse {
         director: Vec<String>,
         /// Bounded cast names.
         cast: Vec<String>,
+        /// Bounded legacy display fields, indexed by movie identifier.
+        previews: Vec<super::PreviewCredits>,
     },
 }
 
@@ -104,6 +106,7 @@ impl AddonTransport for CoreAddonTransport {
                                         response,
                                         director: credits.director.clone(),
                                         cast: credits.cast.clone(),
+                                        previews: credits.previews.clone(),
                                     }
                                 })
                             })

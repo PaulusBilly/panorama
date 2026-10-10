@@ -84,7 +84,7 @@ target/release/panorama.exe --screenshot search:arrival search.png --size 1280x8
 Screenshot sizes use logical pixels and respect the 960x600 window minimum.
 On Windows capture maps the client rectangle to screen coordinates for desktop BitBlt;
 keep the interactive desktop visible and the window unobscured. Capture and PNG
-writing run off the UI thread, after a settled frame and at least 500 ms.
+writing run off the UI thread, after a settled frame and at least 1600 ms.
 
 Every `--screenshot` invocation checks the shell's inherited GPUI text style at
 400/500/700. It fails with a non-zero exit if the resolved family or the bundled
@@ -158,3 +158,43 @@ timeout; clear during downloads; zero-budget retention and abandoned temporary c
 The GPUI adapter remains separate: own a byte-bounded memory LRU of `RenderImage`s,
 convert straight RGBA8 to BGRA, and call `cx.drop_image` on eviction. Avoid synchronous
 logging or file work on the UI thread, as established by Phase 0 Gate 2.
+
+## Home and account services
+
+`--fixtures` uses the nine Electron preview films and `preview@panorama.local`,
+without network or persistent storage. Screenshot mode implies fixtures. Capture
+options are `--scroll <delta|end>` (repeatable), `--hover-first-card`,
+`--focus-first-card`, `--open-account-menu`, and `--open-sign-in`.
+`--fixtures --bench-scroll` measures five seconds of scrolling through 200 cards;
+frame-completion results go to the background diagnostics channel.
+
+`services` creates two named Tokio workers before GPUI starts. Storage and image
+cache initialization run on blocking workers. `app_state` consumes futures mpsc
+channels from Tokio catalog, authentication and CoreSession subscription jobs;
+dropping a GPUI consumer aborts its producer. Profile/addon changes refresh Home,
+retaining cached cards until fresh data arrives. Startup errors expose Reload
+Panorama; store lock contention opens the single-instance error window.
+
+`header_state`, `header`, `account_menu`, `login`, and `transition` own fixed chrome,
+modal focus, and reversible motion. `routes/home` retains scroll and keyboard
+state; `home_view` virtualizes fixed-height rows; `hero` and `film_card` paint the
+Electron layouts. `home_layout` owns the breakpoint calculations.
+
+`image_cache` requests physical sizes rounded up to 64 px, allows six visible
+loads, and cancels futures that leave the viewport. Its shared 160 MiB pixel LRU
+calls `cx.drop_image` on replacement, eviction, and teardown. Disk originals use
+`<store directory>/cache/images` with a 256 MiB budget. RGBA pixels are converted
+to **straight BGRA8**, retaining alpha: GPUI 0.3.8 `src/assets.rs:42` documents
+BGRA and `src/elements/img.rs:678-681` swaps R/B without premultiplication;
+`gpui-pre-windows-0.3.8/src/directx_renderer.rs:1500-1502` uses SRC_ALPHA blending.
+The hero's radial-over-linear gradient is generated once per physical size on a
+blocking worker and uploaded as a RenderImage. Poster saturation is omitted
+because GPUI has no saturation filter. Explicit `--reduced-motion` disables
+transforms and makes transitions instant; this GPUI version exposes no OS reduced
+motion preference.
+
+Home paging requires the core `catalog_next` API and page cursor fields. Core also
+preserves bounded legacy catalog director/country fields that Stremio's typed
+preview drops. Paging tests verify raw skip offsets, terminal empty pages, and
+preservation of the first-page cache; fixture/layout/header/error/cache tests live
+in the app crate.
