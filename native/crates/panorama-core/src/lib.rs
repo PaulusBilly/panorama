@@ -1,4 +1,5 @@
 pub mod addons;
+pub mod discord;
 pub mod store;
 pub mod stremio;
 
