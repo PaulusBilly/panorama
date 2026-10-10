@@ -469,8 +469,11 @@ async fn execute() -> Result<bool> {
             .context("cannot delete download directory")?;
         println!("download directory deleted");
     }
+    // shortcut: a timed-out HTTP shutdown detaches Axum connection tasks; they die with the
+    // runtime at exit. Phase 4 must track connections and force-close them on a deadline.
     println!(
-        "clean shutdown: PASS; total elapsed {:.3} s",
+        "clean shutdown: {}; total elapsed {:.3} s",
+        if result.is_ok() { "PASS" } else { "FAIL" },
         start.elapsed().as_secs_f64()
     );
     result
