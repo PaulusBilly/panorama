@@ -7,9 +7,18 @@ rust-version.workspace = true
 
 [dependencies]
 rusqlite.workspace = true
+image.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+axum.workspace = true
+tokio-rustls.workspace = true
+rcgen.workspace = true
+tokio = { workspace = true, features = ["test-util", "io-util"] }
 
 [lints]
 workspace = true
