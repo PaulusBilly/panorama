@@ -4,6 +4,7 @@
 
 mod catalog;
 mod details;
+pub mod manage;
 mod sanitize;
 mod search;
 mod transport;

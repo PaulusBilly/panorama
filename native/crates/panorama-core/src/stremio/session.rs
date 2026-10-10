@@ -1,19 +1,18 @@
 use std::{
     fmt,
     sync::{
-        Arc, Weak,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
 };
 
-use futures::StreamExt;
 use stremio_core::{
     models::ctx::Ctx,
     runtime::{
-        Env, Runtime, RuntimeAction, RuntimeEvent,
-        msg::{Action, ActionCtx, Event},
+        Env, Runtime, RuntimeAction,
+        msg::{Action, ActionCtx},
     },
-    types::{api::AuthRequest, library::LibraryBucket, profile::Profile as CoreProfile},
+    types::{addon::Descriptor as CoreDescriptor, api::AuthRequest},
 };
 use tokio::{
     sync::{OwnedMutexGuard, broadcast},
@@ -24,7 +23,6 @@ use tracing::subscriber::{NoSubscriber, with_default};
 use super::{
     CoreChange, CoreError, CoreErrorKind, Descriptor, Profile,
     env::{PanoramaEnv, State},
-    error::classify,
     fetch::TIMEOUT,
     model::{self, CoreModel, SessionCtx},
 };
@@ -32,19 +30,26 @@ use super::{
 type CoreRuntime = Runtime<PanoramaEnv, CoreModel>;
 
 #[derive(Clone)]
-enum Progress {
+pub(super) enum Progress {
     Authenticated(AuthRequest),
     AddonsReady,
     LibraryReady,
     AuthFailed(AuthRequest, CoreErrorKind),
     AddonsFailed(CoreErrorKind),
     LibraryFailed(CoreErrorKind),
+    Collection(
+        Vec<url::Url>,
+        Result<(), crate::addons::manage::InstallError>,
+    ),
+    AddonRejected(url::Url, crate::addons::manage::InstallError),
 }
 
-struct Running {
-    runtime: Arc<CoreRuntime>,
+pub(super) struct Running {
+    pub(super) runtime: Arc<CoreRuntime>,
     active: Arc<AtomicBool>,
-    progress: broadcast::Sender<Progress>,
+    pub(super) progress: broadcast::Sender<Progress>,
+    pub(super) order: Arc<std::sync::Mutex<Option<Vec<CoreDescriptor>>>>,
+    pub(super) replacement: Arc<std::sync::Mutex<Option<CoreDescriptor>>>,
     pump: JoinHandle<()>,
 }
 
@@ -72,11 +77,15 @@ impl Running {
         let active = Arc::new(AtomicBool::new(true));
         let previous_profile = ctx.profile.clone();
         let previous_library = ctx.library.clone();
+        let order = Arc::new(std::sync::Mutex::new(None));
+        let replacement = Arc::new(std::sync::Mutex::new(None));
         let (runtime, events) = Runtime::new(
             CoreModel {
                 ctx: SessionCtx {
                     inner: ctx,
                     active: Arc::clone(&active),
+                    order: Arc::clone(&order),
+                    replacement: Arc::clone(&replacement),
                 },
             },
             vec![],
@@ -84,7 +93,7 @@ impl Running {
         );
         let runtime = Arc::new(runtime);
         let (progress, _) = broadcast::channel(64);
-        let pump = state.runtime.spawn(pump(
+        let pump = state.runtime.spawn(super::events::pump(
             events,
             Arc::downgrade(&runtime),
             changes,
@@ -96,11 +105,13 @@ impl Running {
             runtime,
             active,
             progress,
+            order,
+            replacement,
             pump,
         }
     }
 
-    fn dispatch(&self, action: ActionCtx) {
+    pub(super) fn dispatch(&self, action: ActionCtx) {
         with_default(NoSubscriber::default(), || {
             self.runtime.dispatch(RuntimeAction {
                 field: None,
@@ -151,11 +162,12 @@ impl Running {
 /// The single active, persisted account session; debug output contains no secrets.
 pub struct CoreSession {
     pub(super) sign_in_deadline: std::time::Duration,
-    running: Option<Running>,
+    pub(super) running: Option<Running>,
     pending_sign_out: Option<JoinHandle<Result<(), CoreError>>>,
-    state: Arc<State>,
+    pub(super) state: Arc<State>,
     changes: broadcast::Sender<CoreChange>,
     lease: Option<Arc<OwnedMutexGuard<()>>>,
+    pub(super) management: super::manage::Management,
 }
 
 impl CoreSession {
@@ -179,6 +191,7 @@ impl CoreSession {
             state,
             changes,
             lease: Some(lease),
+            management: Default::default(),
         })
     }
 
@@ -220,6 +233,8 @@ impl CoreSession {
     /// Credentials and raw core errors never enter the returned error.
     /// Cancelling this future cancels the login and resets the in-memory account.
     pub async fn sign_in(&mut self, email: String, password: String) -> Result<Profile, CoreError> {
+        let _ = self.settle_addons().await;
+        self.management.tokens.clear();
         self.finish_sign_out().await?;
         PanoramaEnv::migrate_storage_schema()
             .await
@@ -288,6 +303,8 @@ impl CoreSession {
     /// The in-memory account is cleared even on storage failure; callers may retry.
     /// Cleanup continues if this future is cancelled or the session is dropped.
     pub async fn sign_out(&mut self) -> Result<(), CoreError> {
+        let _ = self.settle_addons().await;
+        self.management.tokens.clear();
         if self.pending_sign_out.is_none() {
             let running = self.running.take().ok_or(CoreErrorKind::Other)?;
             self.pending_sign_out = Some(running.logout(Arc::clone(&self.state)));
@@ -337,9 +354,13 @@ impl Drop for CoreSession {
             running.active.store(false, Ordering::Release);
         }
         let pending = self.pending_sign_out.take();
+        let pending_addons = self.management.pending.take();
         let lease = self.lease.take();
         let state = Arc::clone(&self.state);
         self.state.runtime.spawn(async move {
+            if let Some(pending_addons) = pending_addons {
+                let _ = pending_addons.await;
+            }
             if let Some(pending) = pending {
                 let _ = pending.await;
             }
@@ -347,105 +368,6 @@ impl Drop for CoreSession {
                 let _ = running.stop(&state, false).await;
             }
             drop(lease);
-        });
-    }
-}
-
-async fn pump(
-    mut events: futures::channel::mpsc::Receiver<RuntimeEvent<PanoramaEnv, CoreModel>>,
-    runtime: Weak<CoreRuntime>,
-    changes: broadcast::Sender<CoreChange>,
-    progress: broadcast::Sender<Progress>,
-    mut profile: CoreProfile,
-    mut library: LibraryBucket,
-) {
-    while let Some(event) = events.next().await {
-        match event {
-            RuntimeEvent::NewState(_) => {
-                if let Some(runtime) = runtime.upgrade() {
-                    let model = runtime.model().unwrap_or_else(|p| p.into_inner());
-                    let ctx = &model.ctx.inner;
-                    if profile.addons != ctx.profile.addons {
-                        let _ = changes.send(CoreChange::AddonsChanged);
-                    }
-                    if profile != ctx.profile {
-                        profile = ctx.profile.clone();
-                        let _ = changes.send(CoreChange::ProfileChanged);
-                    }
-                    if library != ctx.library {
-                        library = ctx.library.clone();
-                        let _ = changes.send(CoreChange::LibraryChanged);
-                    }
-                }
-            }
-            RuntimeEvent::CoreEvent(event) => {
-                let status = match event {
-                    Event::UserAuthenticated { auth_request } => {
-                        Some(Progress::Authenticated(auth_request))
-                    }
-                    Event::UserAddonsLocked {
-                        addons_locked: false,
-                    } => Some(Progress::AddonsReady),
-                    Event::UserLibraryMissing {
-                        library_missing: false,
-                    } => Some(Progress::LibraryReady),
-                    Event::Error { error, source } => {
-                        let kind = classify(&error);
-                        let _ = changes.send(CoreChange::Error(kind));
-                        match *source {
-                            Event::UserAuthenticated { auth_request } => {
-                                Some(Progress::AuthFailed(auth_request, kind))
-                            }
-                            Event::UserAddonsLocked { .. } => Some(Progress::AddonsFailed(kind)),
-                            Event::UserLibraryMissing { .. } => Some(Progress::LibraryFailed(kind)),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(status) = status {
-                    let _ = progress.send(status);
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use futures::SinkExt;
-    use stremio_core::models::ctx::CtxError;
-    use stremio_core::types::profile::AuthKey;
-
-    #[test]
-    fn unrelated_core_error_does_not_enter_auth_progress() {
-        futures::executor::block_on(async {
-            let (mut events, receiver) = futures::channel::mpsc::channel(4);
-            let (changes, _) = broadcast::channel(4);
-            let (progress, mut received) = broadcast::channel(4);
-            events
-                .send(RuntimeEvent::CoreEvent(Event::Error {
-                    error: CtxError::Env(stremio_core::runtime::EnvError::Fetch(
-                        "unrelated".into(),
-                    )),
-                    source: Box::new(Event::SessionDeleted {
-                        auth_key: AuthKey("old".into()),
-                    }),
-                }))
-                .await
-                .unwrap();
-            drop(events);
-            pump(
-                receiver,
-                Weak::new(),
-                changes,
-                progress,
-                CoreProfile::default(),
-                LibraryBucket::default(),
-            )
-            .await;
-            assert!(received.try_recv().is_err());
         });
     }
 }
