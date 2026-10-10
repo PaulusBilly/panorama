@@ -16,6 +16,7 @@ pub(super) struct TlsMock {
     pub(super) certificate: reqwest::Certificate,
     pub(super) requests: Arc<Mutex<Vec<String>>>,
     pub(super) redirect: Arc<Mutex<Option<Url>>>,
+    pub(super) body: Arc<Mutex<Vec<u8>>>,
     task: JoinHandle<()>,
 }
 
@@ -41,6 +42,8 @@ impl TlsMock {
         let redirect: Arc<Mutex<Option<Url>>> = Arc::new(Mutex::new(None));
         let worker_requests = Arc::clone(&requests);
         let worker_redirect = Arc::clone(&redirect);
+        let body = Arc::new(Mutex::new(b"{\"ok\":true}".to_vec()));
+        let worker_body = Arc::clone(&body);
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -50,6 +53,7 @@ impl TlsMock {
                         let acceptor = acceptor.clone();
                         let requests = Arc::clone(&worker_requests);
                         let redirect = Arc::clone(&worker_redirect);
+                        let body = Arc::clone(&worker_body);
                         connections.spawn(async move {
                             let Ok(mut socket) = acceptor.accept(socket).await else {
                                 return;
@@ -70,7 +74,10 @@ impl TlsMock {
                                 Some(target) => format!(
                                     "HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                                 ),
-                                None => "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}".into(),
+                                None => {
+                                    let body = body.lock().unwrap();
+                                    format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), String::from_utf8_lossy(&body))
+                                },
                             };
                             let _ = socket.write_all(response.as_bytes()).await;
                             let _ = socket.shutdown().await;
@@ -87,6 +94,7 @@ impl TlsMock {
             certificate,
             requests,
             redirect,
+            body,
             task,
         }
     }

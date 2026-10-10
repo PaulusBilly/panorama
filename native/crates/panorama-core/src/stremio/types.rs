@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use super::CoreErrorKind;
 
@@ -19,7 +19,12 @@ impl Profile {
 
     /// Returns installed addons in account order, with redacted debug output.
     pub fn installed_addons(&self) -> Vec<Descriptor> {
-        self.0.addons.iter().cloned().map(Descriptor).collect()
+        self.0
+            .addons
+            .iter()
+            .cloned()
+            .map(Descriptor::from_core)
+            .collect()
     }
 }
 
@@ -34,12 +39,21 @@ impl fmt::Debug for Profile {
 
 /// A cloned addon descriptor that never formats its transport URL or manifest.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Descriptor(pub(super) stremio_core::types::addon::Descriptor);
+pub struct Descriptor(pub(super) Arc<stremio_core::types::addon::Descriptor>);
 
 impl Descriptor {
+    /// Wraps an explicitly supplied core descriptor with redacted debug formatting.
+    pub fn from_core(descriptor: stremio_core::types::addon::Descriptor) -> Self {
+        Self(Arc::new(descriptor))
+    }
+
     /// Borrows the core descriptor for explicit manifest or transport access.
     pub fn as_core(&self) -> &stremio_core::types::addon::Descriptor {
         &self.0
+    }
+
+    pub(crate) fn shared_core(&self) -> Arc<stremio_core::types::addon::Descriptor> {
+        Arc::clone(&self.0)
     }
 }
 

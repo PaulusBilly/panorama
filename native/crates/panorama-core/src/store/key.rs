@@ -2,7 +2,7 @@ use std::fmt;
 
 use super::StoreError;
 
-/// Maximum UTF-8 byte length of an individual key component.
+/// Maximum UTF-8 byte length of a general key component; movie IDs allow 800.
 pub const MAX_COMPONENT_BYTES: usize = 512;
 
 /// The persistence policy associated with a key.
@@ -38,9 +38,14 @@ impl Key {
         Ok(Self(format!("catalog:{addon_id}|{catalog_id}")))
     }
 
-    /// Identifies cached film details by film ID.
+    /// Identifies cached film details; supports 200 Unicode characters (800 bytes).
     pub fn meta(film_id: &str) -> Result<Self, StoreError> {
-        Self::single("meta", film_id)
+        if film_id.chars().count() <= 200 {
+            validate_with_limit(film_id, 800, "film ID exceeds 800 bytes")?;
+        } else {
+            validate(film_id)?;
+        }
+        Ok(Self(format!("meta:{film_id}")))
     }
 
     /// Identifies a preference by name.
@@ -77,10 +82,22 @@ impl fmt::Display for Key {
 }
 
 fn validate(component: &str) -> Result<(), StoreError> {
+    validate_with_limit(
+        component,
+        MAX_COMPONENT_BYTES,
+        "component exceeds 512 bytes",
+    )
+}
+
+fn validate_with_limit(
+    component: &str,
+    limit: usize,
+    length_reason: &'static str,
+) -> Result<(), StoreError> {
     let reason = if component.is_empty() {
         Some("components cannot be empty")
-    } else if component.len() > MAX_COMPONENT_BYTES {
-        Some("component exceeds 512 bytes")
+    } else if component.len() > limit {
+        Some(length_reason)
     } else if component.chars().any(char::is_control) {
         Some("components cannot contain control characters")
     } else if component.contains("://") || component.starts_with("//") {
