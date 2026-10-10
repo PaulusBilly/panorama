@@ -129,6 +129,7 @@ pub(super) async fn fetch<
         }
         bytes.extend_from_slice(&chunk);
     }
+    crate::addons::capture_metadata(&bytes);
     serde_json::from_slice(&bytes)
         .map_err(|_| EnvError::Serde("response deserialization failed".into()))
 }

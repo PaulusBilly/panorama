@@ -17,12 +17,15 @@ http.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 rusqlite.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
 
 [dev-dependencies]
 tiny_http.workspace = true
 rcgen.workspace = true
 tokio-rustls.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true
