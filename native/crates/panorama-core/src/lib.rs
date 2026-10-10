@@ -1,4 +1,5 @@
 pub mod store;
+pub mod torrent;
 
 pub const APP_NAME: &str = "Panorama";
 
