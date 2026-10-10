@@ -5681,6 +5681,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "panorama-mpv"
+version = "0.0.0"
+dependencies = [
+ "libloading",
+ "raw-window-handle",
+ "serde_json",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
