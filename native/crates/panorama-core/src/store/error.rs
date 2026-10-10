@@ -37,6 +37,8 @@ pub enum StoreError {
     Corrupt,
     /// Another connection prevented the sign-out WAL from being truncated.
     CheckpointBusy,
+    /// Another `Store` (in this or another process) already has this database open.
+    Locked,
 }
 
 impl StoreError {
@@ -76,6 +78,7 @@ impl fmt::Display for StoreError {
             Self::CheckpointBusy => {
                 f.write_str("sign-out WAL truncation was blocked by another connection")
             }
+            Self::Locked => f.write_str("the database is already open in another store"),
         }
     }
 }

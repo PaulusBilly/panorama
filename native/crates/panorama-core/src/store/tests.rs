@@ -800,6 +800,10 @@ fn sign_out_deletes_quarantined_copies_holding_session_bytes() {
     assert!(quarantines(&path).is_empty());
     for entry in fs::read_dir(dir.path()).unwrap() {
         let entry = entry.unwrap();
+        // The lock file is empty and held exclusively (unreadable on Windows while open).
+        if entry.path() == recovery::sibling(&path, ".lock") {
+            continue;
+        }
         assert!(
             !fs::read(entry.path())
                 .unwrap()
@@ -813,4 +817,41 @@ fn sign_out_deletes_quarantined_copies_holding_session_bytes() {
         store.get(&Key::pref("theme").unwrap()).unwrap(),
         Some(b"dark".to_vec())
     );
+}
+
+#[test]
+fn second_open_is_locked_until_first_store_drops() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("panorama.db");
+    let (first, _) = Store::open(&path).unwrap();
+    assert!(matches!(Store::open(&path), Err(StoreError::Locked)));
+    drop(first);
+    let (second, outcome) = Store::open(&path).unwrap();
+    assert_eq!(outcome, OpenOutcome::Opened);
+    drop(second);
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_permissive_sidecars_are_restricted_before_open() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("panorama.db");
+    drop(Store::open(&path).unwrap());
+    let wal = recovery::sibling(&path, "-wal");
+    let quarantined = recovery::sibling(&path, ".corrupt-1");
+    for file in [&wal, &quarantined] {
+        fs::write(file, b"").unwrap();
+    }
+    for file in [&path, &wal, &quarantined] {
+        fs::set_permissions(file, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let (store, _) = Store::open(&path).unwrap();
+    for file in [&path, &wal, &quarantined] {
+        if file.exists() {
+            let mode = fs::metadata(file).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "{}", file.display());
+        }
+    }
+    drop(store);
 }

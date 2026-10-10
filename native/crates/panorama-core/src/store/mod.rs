@@ -4,7 +4,9 @@
 //! On Windows, use [`default_path`] under `%LOCALAPPDATA%` to inherit the user's
 //! profile ACL; arbitrary caller-supplied paths must have appropriate ACLs.
 //! No Windows ACL editing is performed. Values are not encrypted at rest.
-//! Share one `Store` across threads and finish core writes before signing out.
+//! Share one `Store` across threads and finish core writes before signing out. Only one
+//! `Store` per database may be open at a time, across processes: a second `open` returns
+//! [`StoreError::Locked`] (enforced with an exclusive `<db>.lock` file).
 //! SQLite schema versions are independent of `core:schema_version`.
 
 mod error;
@@ -52,6 +54,8 @@ pub struct Store {
     clock: Box<dyn Clock>,
     /// Database path for persistent stores; `None` in memory.
     path: Option<PathBuf>,
+    /// Exclusive `<db>.lock` handle; released when the store is dropped.
+    _lock: Option<File>,
 }
 
 /// Describes whether opening a store created or recovered its database.
@@ -97,6 +101,8 @@ impl Store {
         path: &Path,
         clock: impl Clock + 'static,
     ) -> Result<(Self, OpenOutcome), StoreError> {
+        let lock = recovery::lock(path)?;
+        recovery::restrict_siblings(path)?;
         let existing = path.try_exists()?;
         let attempt: Result<(Connection, bool), StoreError> = (|| {
             if existing {
@@ -137,6 +143,7 @@ impl Store {
                 connection: Mutex::new(connection),
                 clock: Box::new(clock),
                 path: Some(path.to_path_buf()),
+                _lock: Some(lock),
             },
             outcome,
         ))
@@ -156,6 +163,7 @@ impl Store {
             connection: Mutex::new(connection),
             clock: Box::new(clock),
             path: None,
+            _lock: None,
         })
     }
 

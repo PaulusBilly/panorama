@@ -21,6 +21,59 @@ pub(super) fn parent(path: &Path) -> &Path {
     }
 }
 
+/// Takes the exclusive per-database lock file (`<db>.lock`), held for the store's lifetime.
+/// One holder at a time means no other connection exists while this process opens the
+/// database through raw file handles (which on Unix would drop SQLite's POSIX locks) or
+/// quarantines it, so a healthy replacement can never be quarantined by a stale opener.
+pub(super) fn lock(path: &Path) -> Result<fs::File, StoreError> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(parent(path))?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(sibling(path, ".lock"))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(fs::TryLockError::WouldBlock) => Err(StoreError::Locked),
+        Err(fs::TryLockError::Error(error)) => Err(error.into()),
+    }
+}
+
+/// Restricts the database's existing sidecars and quarantined copies to the owner (Unix).
+/// SQLite derives new sidecar modes from the database file, so this runs before it opens.
+pub(super) fn restrict_siblings(path: &Path) -> Result<(), StoreError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        for entry in fs::read_dir(parent(path))? {
+            let entry = entry?;
+            let file_name = entry.file_name().to_string_lossy().into_owned();
+            let ours = name
+                .as_deref()
+                .is_some_and(|name| file_name.starts_with(name) && file_name != name);
+            if ours && entry.file_type()?.is_file() {
+                fs::set_permissions(entry.path(), fs::Permissions::from_mode(0o600))?;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 pub(super) fn prepare(path: &Path) -> Result<bool, StoreError> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
