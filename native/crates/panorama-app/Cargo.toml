@@ -10,10 +10,14 @@ name = "panorama"
 path = "src/main.rs"
 
 [dependencies]
-panorama-core = { path = "../panorama-core" }
+raw-window-handle = "=0.6.2"
+png = "=0.18.1"
 gpui.workspace = true
 gpui-component.workspace = true
 gpui-platform.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
 
 [lints]
 workspace = true
