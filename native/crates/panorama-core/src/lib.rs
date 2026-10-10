@@ -1,3 +1,5 @@
+pub mod store;
+
 pub const APP_NAME: &str = "Panorama";
 
 pub fn version() -> &'static str {
