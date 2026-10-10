@@ -29,6 +29,7 @@ fn image(value: Option<Url>) -> Option<Url> {
 pub(super) struct Credits {
     pub director: Vec<String>,
     pub cast: Vec<String>,
+    pub previews: Vec<super::PreviewCredits>,
 }
 
 pub(super) struct Response {
@@ -50,6 +51,39 @@ pub(super) fn credits(value: &serde_json::Value) -> Credits {
     Credits {
         director: names("director"),
         cast: names("cast"),
+        previews: value
+            .get("metas")
+            .and_then(|v| v.as_array())
+            .map(|items| items.iter().take(200).collect::<Vec<_>>())
+            .unwrap_or_else(|| value.get("meta").into_iter().collect())
+            .into_iter()
+            .filter_map(|item| {
+                let id = item.get("id")?.as_str()?;
+                if !valid_id(id) {
+                    return None;
+                }
+                let director = match item.get("director") {
+                    Some(serde_json::Value::String(name)) => vec![text(name, 300)],
+                    Some(serde_json::Value::Array(names)) => names
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .take(100)
+                        .map(|v| text(v, 300))
+                        .collect(),
+                    _ => vec![],
+                };
+                let country = item
+                    .get("country")
+                    .or_else(|| item.get("originCountry"))
+                    .and_then(|v| v.as_str())
+                    .map(|v| text(v, 300));
+                Some(super::PreviewCredits {
+                    id: id.into(),
+                    director,
+                    country,
+                })
+            })
+            .collect(),
     }
 }
 
@@ -77,6 +111,7 @@ pub(super) fn parse(response: TransportResponse) -> Result<Response, FailureKind
             response,
             director,
             cast,
+            previews,
         } => {
             let mut parsed = parse(TransportResponse::Core(response))?;
             parsed.credits = Credits {
@@ -86,6 +121,16 @@ pub(super) fn parse(response: TransportResponse) -> Result<Response, FailureKind
                     .map(|name| text(name, 300))
                     .collect(),
                 cast: cast.iter().take(100).map(|name| text(name, 300)).collect(),
+                previews: previews
+                    .into_iter()
+                    .take(200)
+                    .filter(|p| valid_id(&p.id))
+                    .map(|p| super::PreviewCredits {
+                        id: p.id,
+                        director: p.director.iter().take(100).map(|v| text(v, 300)).collect(),
+                        country: optional(p.country, 300),
+                    })
+                    .collect(),
             };
             return Ok(parsed);
         }
@@ -111,7 +156,7 @@ pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> 
     let director = category("Director");
     let cast = category("Cast");
     let imdb_rating = category("imdb").into_iter().next();
-    let links = preview
+    let links: Vec<_> = preview
         .links
         .into_iter()
         .filter(|link| {
@@ -137,6 +182,7 @@ pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> 
         genres,
         description: optional(preview.description, 5000),
         director,
+        origin_country: category_country(&links),
         cast,
         poster: image(preview.poster),
         background: image(preview.background),
@@ -158,8 +204,26 @@ pub(super) fn films(response: Response, thin: bool) -> Result<Vec<FilmDetails>, 
     Ok(previews
         .into_iter()
         .filter_map(|preview| film(preview, thin))
+        .map(|mut film| {
+            if let Some(credits) = response.credits.previews.iter().find(|p| p.id == film.id) {
+                if !credits.director.is_empty() {
+                    film.director.clone_from(&credits.director);
+                }
+                if credits.country.is_some() {
+                    film.origin_country.clone_from(&credits.country);
+                }
+            }
+            film
+        })
         .take(200)
         .collect())
+}
+
+fn category_country(links: &[stremio_core::types::resource::Link]) -> Option<String> {
+    links
+        .iter()
+        .find(|link| link.category.eq_ignore_ascii_case("country"))
+        .map(|link| link.name.clone())
 }
 
 pub(super) fn sources(response: Response) -> Result<Vec<StreamSource>, FailureKind> {

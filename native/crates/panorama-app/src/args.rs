@@ -15,6 +15,20 @@ pub struct Args {
     pub dark: bool,
     /// Disable route motion.
     pub reduced_motion: bool,
+    /// Use the in-process Electron preview data.
+    pub fixtures: bool,
+    /// Ordered scroll deltas; an infinite delta scrolls to the end.
+    pub scroll: Vec<f32>,
+    /// Expand the first visible card's image.
+    pub hover_first_card: bool,
+    /// Show the first card's keyboard focus ring.
+    pub focus_first_card: bool,
+    /// Open the account popup before capture.
+    pub open_account_menu: bool,
+    /// Open the sign-in dialog before capture.
+    pub open_sign_in: bool,
+    /// Measure five seconds of scrolling with 200 fixture cards.
+    pub bench_scroll: bool,
 }
 
 impl Args {
@@ -27,6 +41,13 @@ impl Args {
             size: (1280.0, 800.0),
             dark: false,
             reduced_motion: false,
+            fixtures: false,
+            scroll: vec![],
+            hover_first_card: false,
+            focus_first_card: false,
+            open_account_menu: false,
+            open_sign_in: false,
+            bench_scroll: false,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -70,12 +91,35 @@ impl Args {
                     };
                 }
                 "--reduced-motion" => result.reduced_motion = true,
+                "--fixtures" => result.fixtures = true,
+                "--bench-scroll" => {
+                    result.bench_scroll = true;
+                    result.fixtures = true;
+                }
+                "--hover-first-card" => result.hover_first_card = true,
+                "--focus-first-card" => result.focus_first_card = true,
+                "--open-account-menu" => result.open_account_menu = true,
+                "--open-sign-in" => result.open_sign_in = true,
+                "--scroll" => {
+                    let value = args.next().ok_or("--scroll needs a pixel delta or end")?;
+                    let value = value.to_str().ok_or("Invalid scroll delta")?;
+                    let delta = if value == "end" {
+                        f32::INFINITY
+                    } else {
+                        value.parse::<f32>().map_err(|_| "Invalid scroll delta")?
+                    };
+                    if delta.is_nan() || delta == f32::NEG_INFINITY {
+                        return Err("Invalid scroll delta".into());
+                    }
+                    result.scroll.push(delta);
+                }
                 _ => return Err(format!("Unknown argument: {}", arg.to_string_lossy())),
             }
         }
         if screenshot_options && result.screenshot.is_none() {
             return Err("--theme and --size require --screenshot".into());
         }
+        result.fixtures |= result.screenshot.is_some();
         Ok(result)
     }
 }

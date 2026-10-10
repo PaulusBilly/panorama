@@ -10,6 +10,11 @@ name = "panorama"
 path = "src/main.rs"
 
 [dependencies]
+panorama-core = { path = "../panorama-core" }
+tokio.workspace = true
+futures.workspace = true
+image.workspace = true
+url.workspace = true
 raw-window-handle = "=0.6.2"
 png = "=0.18.1"
 gpui.workspace = true

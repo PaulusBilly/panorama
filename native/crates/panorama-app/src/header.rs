@@ -1,20 +1,31 @@
-//! Shared three-column Panorama header.
 use crate::{
     app::AppShell,
     router::Route,
-    theme::{Theme, Typography, content_width, focus_ring},
+    theme::{Theme, content_width, focus_ring},
 };
 use gpui::{Context, Div, FocusHandle, Window, div, prelude::*, px, svg};
 
-/// Retained keyboard focus for the shared header controls.
+/// Retained focus for the shared three-column header.
 pub struct Header {
     back: FocusHandle,
     home: FocusHandle,
-    account: FocusHandle,
+    /// Account trigger focus restored after sign-in.
+    pub account: FocusHandle,
 }
 
+/// Sampled header appearance supplied by the shell's retained timelines.
+pub struct HeaderAppearance {
+    pub(crate) theme: Theme,
+    pub(crate) active: bool,
+    pub(crate) keyboard: bool,
+    pub(crate) foreground: gpui::Rgba,
+    pub(crate) logo: gpui::Rgba,
+    pub(crate) background: gpui::Rgba,
+    pub(crate) y: f32,
+    pub(crate) pressed: f32,
+}
 impl Header {
-    /// Allocate the shared focus handles.
+    /// Allocate header controls once for each history entry.
     pub fn new(cx: &mut Context<AppShell>) -> Self {
         Self {
             back: cx.focus_handle(),
@@ -22,102 +33,174 @@ impl Header {
             account: cx.focus_handle(),
         }
     }
-
-    /// Render the leading, centered logo, and trailing slots.
+    /// Focus the leading route control.
+    pub(crate) fn focus_search(&self, window: &mut Window, cx: &mut Context<AppShell>) {
+        self.back.focus(window, cx);
+    }
+    /// Render fixed header chrome with sampled Home colors and translation.
     pub fn render(
         &self,
         route: &Route,
-        active: bool,
-        theme: Theme,
-        keyboard_navigation: bool,
+        appearance: HeaderAppearance,
         window: &Window,
         cx: &mut Context<AppShell>,
     ) -> Div {
-        let width: f32 = window.viewport_size().width.into();
-        let mut leading = div().flex_1().min_w_0().flex().items_center();
-        if route != &Route::Home {
-            leading = leading.child(focus_ring(
-                div()
-                    .id("header-back")
-                    .size(px(44.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .cursor_pointer()
-                    .aria_label("Back")
-                    .role(gpui::Role::Button)
-                    .on_click(cx.listener(|shell, _, window, cx| shell.back(window, cx)))
-                    .child(svg().path("back.svg").size(px(22.0)).text_color(theme.ink)),
-                &self.back,
-                theme,
-                active,
-                keyboard_navigation,
-                window,
-            ));
-        }
+        let width = f32::from(window.viewport_size().width);
+        let HeaderAppearance {
+            theme,
+            active,
+            keyboard,
+            foreground,
+            logo,
+            background,
+            y,
+            pressed,
+        } = appearance;
+        let home_route = route == &Route::Home;
         div()
-            .w(px(content_width(width)))
-            .mx_auto()
-            .pt(px(20.0))
-            .min_h(px(40.0))
-            .flex()
-            .items_center()
-            .gap(px(16.0))
-            .child(leading)
-            .child(focus_ring(
-                div()
-                    .id("header-home")
-                    .w(px(154.0))
-                    .h(px(44.0))
-                    .p(px(8.0))
-                    .flex_shrink_0()
-                    .cursor_pointer()
-                    .aria_label("Panorama home")
-                    .role(gpui::Role::Link)
-                    .on_click(
-                        cx.listener(|shell, _, window, cx| shell.navigate(Route::Home, window, cx)),
-                    )
-                    .child(
-                        svg()
-                            .path("logo.svg")
-                            .w(px(138.0))
-                            .h(px(28.0))
-                            .text_color(theme.ink),
-                    ),
-                &self.home,
-                theme,
-                active,
-                keyboard_navigation,
-                window,
-            ))
+            .absolute()
+            .top(px(y))
+            .left_0()
+            .w_full()
+            .h(px(60.0))
+            .bg(background)
+            .text_color(foreground)
             .child(
                 div()
-                    .flex_1()
-                    .min_w_0()
+                    .w(px(content_width(width)))
+                    .mx_auto()
+                    .pt(px(20.0))
+                    .h(px(60.0))
                     .flex()
-                    .justify_end()
                     .items_center()
-                    .child(focus_ring(
+                    .gap(px(16.0))
+                    .child(
                         div()
-                            .id("header-account")
-                            .caption()
-                            .min_w(px(44.0))
-                            .min_h(px(44.0))
-                            .px(px(8.0))
+                            .flex_1()
+                            .min_w_0()
                             .flex()
                             .items_center()
-                            .justify_center()
+                            .child(focus_ring(
+                                div()
+                                    .id("header-back")
+                                    .w(px(if home_route { 22.0 } else { 40.0 }))
+                                    .h(px(28.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .aria_label(if home_route { "Search" } else { "Back" })
+                                    .role(gpui::Role::Button)
+                                    .on_click(cx.listener(move |shell, _, window, cx| {
+                                        if home_route {
+                                            shell.navigate(
+                                                Route::Search {
+                                                    query: String::new(),
+                                                },
+                                                window,
+                                                cx,
+                                            );
+                                        } else {
+                                            shell.back(window, cx);
+                                        }
+                                    }))
+                                    .child(
+                                        svg()
+                                            .path(if home_route {
+                                                "search.svg"
+                                            } else {
+                                                "back.svg"
+                                            })
+                                            .size(px(22.0))
+                                            .text_color(foreground),
+                                    ),
+                                &self.back,
+                                theme,
+                                active,
+                                keyboard,
+                                window,
+                            )),
+                    )
+                    .child(focus_ring(
+                        div()
+                            .id("header-home")
+                            .w(px(138.0))
+                            .h(px(28.0))
+                            .flex_shrink_0()
                             .cursor_pointer()
-                            .aria_label("Sign in")
-                            .role(gpui::Role::Button)
-                            .on_click(|_, _, _| {})
-                            .child("Sign in"),
-                        &self.account,
+                            .aria_label("Panorama home")
+                            .role(gpui::Role::Link)
+                            .on_click(cx.listener(|shell, _, window, cx| {
+                                shell.navigate(Route::Home, window, cx)
+                            }))
+                            .child(
+                                svg()
+                                    .path("logo.svg")
+                                    .w(px(138.0))
+                                    .h(px(28.0))
+                                    .text_color(logo),
+                            ),
+                        &self.home,
                         theme,
                         active,
-                        keyboard_navigation,
+                        keyboard,
                         window,
-                    )),
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .justify_end()
+                            .items_center()
+                            .child(focus_ring(
+                                div()
+                                    .id("header-account")
+                                    .size(px(40.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .aria_label("Account menu")
+                                    .role(gpui::Role::Button)
+                                    .on_mouse_down(
+                                        gpui::MouseButton::Left,
+                                        cx.listener(|shell, _, _, cx| {
+                                            shell.press_trigger(true);
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .on_mouse_up(
+                                        gpui::MouseButton::Left,
+                                        cx.listener(|shell, _, _, cx| {
+                                            shell.press_trigger(false);
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .on_mouse_up_out(
+                                        gpui::MouseButton::Left,
+                                        cx.listener(|shell, _, _, cx| {
+                                            shell.press_trigger(false);
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .on_click(cx.listener(|shell, _, _, cx| {
+                                        shell.menu.set_open(!shell.menu.open);
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        svg()
+                                            .path("menu-2.svg")
+                                            .size(px(22.0 * pressed))
+                                            .text_color(foreground),
+                                    ),
+                                &self.account,
+                                theme,
+                                active,
+                                keyboard,
+                                window,
+                            )),
+                    ),
             )
     }
 }

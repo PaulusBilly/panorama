@@ -9,6 +9,12 @@ impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
         let data: Option<&'static [u8]> = match path {
             "logo.svg" => Some(include_bytes!("../assets/logo.svg")),
+            "panorama.svg" => Some(include_bytes!("../assets/panorama.svg")),
+            "search.svg" => Some(include_bytes!("../assets/icons/search.svg")),
+            "menu-2.svg" => Some(include_bytes!("../assets/icons/menu-2.svg")),
+            "player-play-filled.svg" => {
+                Some(include_bytes!("../assets/icons/player-play-filled.svg"))
+            }
             "back.svg" => Some(include_bytes!("../assets/back.svg")),
             "minimize.svg" => Some(include_bytes!("../assets/minimize.svg")),
             "maximize.svg" => Some(include_bytes!("../assets/maximize.svg")),

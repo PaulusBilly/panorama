@@ -158,3 +158,5 @@ fn fresh_page(events: &[ResourceEvent<Page>]) -> &Page {
         })
         .unwrap()
 }
+
+mod paging;
