@@ -11,6 +11,14 @@ rust-version = "1.99"
 [workspace.dependencies]
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 tempfile = "=3.27.0"
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls", "stream"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+futures = "=0.3.34"
+sha2 = "=0.10.9"
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring"] }
+rcgen = { version = "=0.14.7", default-features = false, features = ["ring", "crypto"] }
 gpui = { package = "gpui-pre", version = "=0.3.8" }
 gpui-component = "=0.7.1"
 # font-kit: without it macOS falls back to a no-op text system and renders no text.
