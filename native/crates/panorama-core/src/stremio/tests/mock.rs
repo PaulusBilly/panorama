@@ -20,6 +20,8 @@ pub(super) struct MockApi {
     pub(super) base: Url,
     stop: Arc<AtomicBool>,
     pub(super) reject_addons: Arc<AtomicBool>,
+    pub(super) reject_push: Arc<AtomicBool>,
+    pub(super) pushed: Arc<Mutex<Vec<Value>>>,
     pub(super) login_error: Arc<AtomicU64>,
     pub(super) network_error: Arc<AtomicBool>,
     pub(super) stall_login: Arc<AtomicBool>,
@@ -37,6 +39,10 @@ impl MockApi {
         let base = format!("http://{}/", server.server_addr()).parse().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let reject_addons = Arc::new(AtomicBool::new(false));
+        let reject_push = Arc::new(AtomicBool::new(false));
+        let worker_reject_push = Arc::clone(&reject_push);
+        let pushed = Arc::new(Mutex::new(Vec::new()));
+        let worker_pushed = Arc::clone(&pushed);
         let login_error = Arc::new(AtomicU64::new(0));
         let network_error = Arc::new(AtomicBool::new(false));
         let stall_login = Arc::new(AtomicBool::new(false));
@@ -149,6 +155,15 @@ impl MockApi {
                         assert_eq!(body["all"], true);
                         json!({"result": []})
                     }
+                    "/api/addonCollectionSet" => {
+                        assert_eq!(body["authKey"], AUTH_KEY);
+                        worker_pushed.lock().unwrap().push(body["addons"].clone());
+                        if worker_reject_push.load(Ordering::Relaxed) {
+                            json!({"error":{"code":500,"message":"secret-path mock-token mock-secret"}})
+                        } else {
+                            json!({"result":{"success":true}})
+                        }
+                    }
                     "/api/datastoreMeta" => json!({"result": []}),
                     "/api/logout" if worker_reject_logout.load(Ordering::Relaxed) => {
                         json!({"error": {"code": 500, "message": "mock logout failure"}})
@@ -166,6 +181,8 @@ impl MockApi {
             base,
             stop,
             reject_addons,
+            reject_push,
+            pushed,
             login_error,
             network_error,
             stall_login,

@@ -25,6 +25,14 @@ pub(super) fn redirect_error(
         return Some("HTTPS is required for redirects");
     }
     if let Some(first) = previous.first()
+        && first.origin() != API_URL.origin()
+        && override_origin != Some(&first.origin())
+        && !crate::addons::manage::forbidden_host(first)
+        && crate::addons::manage::forbidden_host(url)
+    {
+        return Some("redirect host is forbidden");
+    }
+    if let Some(first) = previous.first()
         && (first.origin() == API_URL.origin() || override_origin == Some(&first.origin()))
         && url.origin() != first.origin()
     {
@@ -143,4 +151,36 @@ fn network_error(error: reqwest::Error) -> EnvError {
         }
         .into(),
     )
+}
+
+pub(super) async fn manifest(
+    state: Arc<State>,
+    url: &str,
+) -> Result<Vec<u8>, crate::addons::manage::InstallError> {
+    use crate::addons::manage::InstallError;
+    const LIMIT: usize = 256 * 1024;
+    let mut response = state.client.get(url).send().await.map_err(|error| {
+        if error.is_timeout() {
+            InstallError::Timeout
+        } else {
+            InstallError::Network
+        }
+    })?;
+    if !response.status().is_success() {
+        return Err(InstallError::Network);
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > LIMIT as u64)
+    {
+        return Err(InstallError::TooLarge);
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| InstallError::Network)? {
+        if chunk.len() > LIMIT - bytes.len() {
+            return Err(InstallError::TooLarge);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
