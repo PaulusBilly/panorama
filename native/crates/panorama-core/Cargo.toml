@@ -7,6 +7,18 @@ rust-version.workspace = true
 
 [dependencies]
 rusqlite.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+http.workspace = true
+bytes.workspace = true
+futures.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+httpdate.workspace = true
+fs4.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
