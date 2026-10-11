@@ -29,6 +29,26 @@ impl AppShell {
 
     pub(super) fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.menu.dismiss();
+        let open = self
+            .search_disclosures
+            .get(&self.history.current_id())
+            .copied()
+            .unwrap_or(matches!(self.history.current(), Route::Search { .. }));
+        self.search.set_open(open);
+        if let Route::Search { query } = self.history.current() {
+            self.search.query.clone_from(query);
+            self.search_input
+                .update(cx, |input, cx| input.set_value(query.clone(), window, cx));
+        }
+        self.search_disclosures
+            .retain(|id, _| self.history.contains(*id));
+        self.search_caret(cx);
+        self.sticky = if matches!(self.history.current(), Route::Home | Route::Film { .. }) {
+            Sticky::home()
+        } else {
+            Sticky::default()
+        };
+        self.header_slide = Tween::fixed(0.0);
         window.focus(&self.focus, cx);
         self.present(cx);
         cx.notify();
@@ -98,6 +118,11 @@ impl AppShell {
         let modifiers = &event.keystroke.modifiers;
         let input = window.has_focused_input(cx);
         match key {
+            "escape"
+                if self.search.open || matches!(self.history.current(), Route::Search { .. }) =>
+            {
+                self.clear_search(window, cx);
+            }
             "escape" if self.menu.open => {
                 self.menu.set_open(false);
                 if let Some(entry) = self
@@ -116,21 +141,10 @@ impl AppShell {
             {
                 self.back(window, cx)
             }
-            "k" if modifiers.control => self.navigate(
-                Route::Search {
-                    query: String::new(),
-                },
-                window,
-                cx,
-            ),
-            "/" if !input && !modifiers.control && !modifiers.alt && !modifiers.platform => self
-                .navigate(
-                    Route::Search {
-                        query: String::new(),
-                    },
-                    window,
-                    cx,
-                ),
+            "k" if modifiers.control => self.toggle_search(window, cx),
+            "/" if !input && !modifiers.control && !modifiers.alt && !modifiers.platform => {
+                self.toggle_search(window, cx)
+            }
             "escape" if matches!(self.history.current(), Route::Player { .. }) => {
                 self.back(window, cx)
             }

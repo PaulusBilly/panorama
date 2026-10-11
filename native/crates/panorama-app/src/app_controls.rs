@@ -1,9 +1,11 @@
 use super::*;
+use gpui::Focusable;
 
 impl AppShell {
     /// Open a fresh sign-in form above all route chrome.
     pub fn open_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.menu.set_open(false);
+        gpui_component::Theme::update(cx, |theme| theme.colors.caret = self.theme.ink.into());
         if self.login.is_none() {
             let shell = cx.weak_entity();
             let state = self.state.clone();
@@ -14,7 +16,10 @@ impl AppShell {
     /// Release the closed dialog and restore focus to its account trigger.
     pub fn finish_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.login = None;
-        if let Some(entry) = self
+        self.search_caret(cx);
+        if self.search.open {
+            self.search_input.focus_handle(cx).focus(window, cx);
+        } else if let Some(entry) = self
             .cache
             .iter()
             .find(|entry| entry.id == self.history.current_id())
@@ -55,10 +60,14 @@ impl AppShell {
             return;
         }
         let previous = (self.sticky.hidden, self.sticky.over_hero);
-        self.sticky.scroll(top, 60.0, height);
+        let header_height = self.search_header_height(f32::from(self.viewport.width));
+        self.sticky.scroll(top, header_height, height);
+        if self.search.open && Instant::now() < self.search.hold_until {
+            self.sticky.hidden = false;
+        }
         self.header_slide.retarget(
             if self.sticky.hidden {
-                -(60.0 + (f32::from(self.viewport.height) - height))
+                -(header_height + (f32::from(self.viewport.height) - height))
             } else {
                 0.0
             },
@@ -66,12 +75,16 @@ impl AppShell {
             Some(EASE_IN_OUT),
             Instant::now(),
         );
-        let color = HeaderColor::at(self.sticky.over_hero, ready);
+        let color = if self.search.open {
+            HeaderColor::SearchOpen
+        } else {
+            HeaderColor::at(self.sticky.over_hero, ready)
+        };
         if color != self.header_color {
             self.header_from = (self.header_foreground(), self.header_background());
             self.header_color = color;
             self.logo_mix.retarget(
-                if color == HeaderColor::HeroReady {
+                if matches!(color, HeaderColor::HeroReady | HeaderColor::SearchOpen) {
                     1.0
                 } else {
                     0.0

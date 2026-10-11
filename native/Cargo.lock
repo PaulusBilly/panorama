@@ -5736,6 +5736,7 @@ dependencies = [
  "panorama-core",
  "png 0.18.1",
  "raw-window-handle",
+ "serde_json",
  "tokio",
  "url",
  "windows 0.62.2",
