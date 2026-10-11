@@ -9,6 +9,8 @@ use panorama_core::{
     },
 };
 use std::sync::Arc;
+#[path = "services_search.rs"]
+mod search;
 use tokio::{
     runtime::{Handle, Runtime},
     sync::Mutex,

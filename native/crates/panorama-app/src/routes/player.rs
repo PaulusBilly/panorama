@@ -6,14 +6,16 @@ use gpui::{Context, Render, ScrollHandle, Window, div, prelude::*, px};
 pub struct Player {
     scroll: ScrollHandle,
     id: String,
+    _source: Option<panorama_core::addons::StreamSource>,
 }
 
 impl Player {
     /// Create one history entry's independent view.
-    pub fn new(id: String) -> Self {
+    pub fn new(id: String, source: Option<panorama_core::addons::StreamSource>) -> Self {
         Self {
             scroll: ScrollHandle::new(),
             id,
+            _source: source,
         }
     }
 }

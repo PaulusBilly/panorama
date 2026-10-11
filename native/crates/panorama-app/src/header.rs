@@ -23,6 +23,8 @@ pub struct HeaderAppearance {
     pub(crate) background: gpui::Rgba,
     pub(crate) y: f32,
     pub(crate) pressed: f32,
+    pub(crate) chrome_opacity: f32,
+    pub(crate) search_open: bool,
 }
 impl Header {
     /// Allocate header controls once for each history entry.
@@ -55,8 +57,10 @@ impl Header {
             background,
             y,
             pressed,
+            chrome_opacity,
+            search_open,
         } = appearance;
-        let home_route = route == &Route::Home;
+        let home_route = matches!(route, Route::Home | Route::Search { .. });
         div()
             .absolute()
             .top(px(y))
@@ -83,23 +87,26 @@ impl Header {
                             .child(focus_ring(
                                 div()
                                     .id("header-back")
-                                    .w(px(if home_route { 22.0 } else { 40.0 }))
+                                    .w(px(22.0))
                                     .h(px(28.0))
                                     .flex()
                                     .items_center()
                                     .justify_center()
                                     .cursor_pointer()
-                                    .aria_label(if home_route { "Search" } else { "Back" })
+                                    .aria_label(if home_route {
+                                        if search_open {
+                                            "Close search"
+                                        } else {
+                                            "Search"
+                                        }
+                                    } else {
+                                        "Back to films"
+                                    })
                                     .role(gpui::Role::Button)
+                                    .aria_expanded(search_open)
                                     .on_click(cx.listener(move |shell, _, window, cx| {
                                         if home_route {
-                                            shell.navigate(
-                                                Route::Search {
-                                                    query: String::new(),
-                                                },
-                                                window,
-                                                cx,
-                                            );
+                                            shell.toggle_search(window, cx);
                                         } else {
                                             shell.back(window, cx);
                                         }
@@ -107,7 +114,7 @@ impl Header {
                                     .child(
                                         svg()
                                             .path(if home_route {
-                                                "search.svg"
+                                                if search_open { "x.svg" } else { "search.svg" }
                                             } else {
                                                 "back.svg"
                                             })
@@ -126,12 +133,15 @@ impl Header {
                             .id("header-home")
                             .w(px(138.0))
                             .h(px(28.0))
+                            .opacity(chrome_opacity)
                             .flex_shrink_0()
                             .cursor_pointer()
                             .aria_label("Panorama home")
                             .role(gpui::Role::Link)
                             .on_click(cx.listener(|shell, _, window, cx| {
-                                shell.navigate(Route::Home, window, cx)
+                                if !shell.search.open {
+                                    shell.navigate(Route::Home, window, cx);
+                                }
                             }))
                             .child(
                                 svg()
@@ -142,7 +152,7 @@ impl Header {
                             ),
                         &self.home,
                         theme,
-                        active,
+                        active && !search_open,
                         keyboard,
                         window,
                     ))
@@ -157,6 +167,7 @@ impl Header {
                                 div()
                                     .id("header-account")
                                     .size(px(40.0))
+                                    .opacity(chrome_opacity)
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -185,7 +196,9 @@ impl Header {
                                         }),
                                     )
                                     .on_click(cx.listener(|shell, _, _, cx| {
-                                        shell.menu.set_open(!shell.menu.open);
+                                        if !shell.search.open {
+                                            shell.menu.set_open(!shell.menu.open);
+                                        }
                                         cx.notify();
                                     }))
                                     .child(
@@ -196,7 +209,7 @@ impl Header {
                                     ),
                                 &self.account,
                                 theme,
-                                active,
+                                active && !search_open,
                                 keyboard,
                                 window,
                             )),

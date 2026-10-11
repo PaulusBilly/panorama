@@ -3,79 +3,29 @@ use crate::{
     film_card::{self, CardProps},
     hero::{self, HeroProps},
     home_layout::Grid,
-    theme::{Typography, content_width, focus_ring},
+    theme::{content_width, focus_ring},
 };
 use gpui::{Div, Render, div, relative, svg};
 
 impl Home {
-    fn alert(
-        &self,
-        message: String,
-        label: &'static str,
-        view: ViewSettings,
-        window: &Window,
-        _cx: &mut Context<Self>,
-    ) -> Div {
-        let theme = view.theme;
-        let state = self.state.clone();
-        div()
-            .mt(px(32.0))
-            .py(px(22.0))
-            .border_y_1()
-            .border_color(theme.rule)
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(32.0))
-            .when(view.width < 700.0, |row| row.flex_col().items_start())
-            .child(div().body().child(message))
-            .child(focus_ring(
-                div()
-                    .id(label)
-                    .min_h(px(40.0))
-                    .px(px(4.0))
-                    .text_size(px(13.0))
-                    .line_height(relative(1.4))
-                    .border_b_1()
-                    .border_color(theme.ink)
-                    .flex()
-                    .items_center()
-                    .cursor_pointer()
-                    .role(gpui::Role::Button)
-                    .aria_label(label)
-                    .on_click(move |_, _, cx| {
-                        state.update(cx, |state, cx| {
-                            if label == "Reload Panorama" {
-                                state.reload(cx)
-                            } else {
-                                state.load(false, cx)
-                            }
-                        })
-                    })
-                    .child(label),
-                if label == "Reload Panorama" {
-                    &self.reload
-                } else {
-                    &self.retry
-                },
-                theme,
-                view.active,
-                view.keyboard,
-                window,
-            ))
-    }
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {
         let grid = Grid::at(view.width);
-        let skeletons = self.films.is_empty() && self.state.read(cx).loading;
+        let skeletons = self.films.is_empty()
+            && self
+                .search
+                .as_ref()
+                .map_or(self.state.read(cx).loading, |search| search.loading);
         let count = if skeletons { 9 } else { self.films.len() };
         let rows = count.div_ceil(grid.columns);
         let height = (rows as f32 * grid.stride() - if rows > 0 { 36.0 } else { 0.0 }).max(0.0);
         let top = -f32::from(self.scroll.offset().y);
-        let start = ((top - view.height - 32.0) / grid.stride())
-            .floor()
-            .max(0.0) as usize;
+        let origin = self.content_start(view, cx) + if self.search.is_some() { 72.0 } else { 0.0 };
+        let start = ((top - origin - 32.0) / grid.stride()).floor().max(0.0) as usize;
         let start = start.saturating_sub(1).min(rows);
-        let end = ((top - 32.0) / grid.stride()).ceil().max(0.0) as usize + 2;
+        let end = ((top + view.height - origin - 32.0) / grid.stride())
+            .ceil()
+            .max(0.0) as usize
+            + 2;
         let end = end.min(rows);
         let mut result = div()
             .relative()
@@ -107,10 +57,8 @@ impl Home {
                         film,
                         (grid.width, grid.height()),
                         view.active
-                            && view.height + 32.0 + row as f32 * grid.stride() + grid.height()
-                                > top
-                            && view.height + 32.0 + (row as f32) * grid.stride()
-                                < top + view.height,
+                            && origin + 32.0 + row as f32 * grid.stride() + grid.height() > top
+                            && origin + 32.0 + (row as f32) * grid.stride() < top + view.height,
                         window,
                         cx,
                     )
@@ -162,14 +110,16 @@ impl Render for Home {
         }
         let view = self.settings(window, cx);
         let theme = view.theme;
-        self.ensure_overlay(view, window, cx);
+        if self.search.is_none() {
+            self.ensure_overlay(view, window, cx);
+        }
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         } else {
             self.images.update(cx, |images, _| images.cancel());
         }
         let films = self.films.clone();
-        let film = films.first();
+        let film = films.first().filter(|_| self.search.is_none());
         let (artwork, poster, unavailable) = if -f32::from(self.scroll.offset().y) < view.height {
             film.map(|f| self.artwork(f, (view.width, view.height), view.active, window, cx))
                 .unwrap_or((None, false, true))
@@ -187,11 +137,16 @@ impl Render for Home {
             );
         }
         if view.active {
+            let hero_height = if self.search.is_some() {
+                0.0
+            } else {
+                self.content_start(view, cx)
+            };
             let _ = self.shell.update(cx, |shell, cx| {
                 shell.update_home_header(
                     self.id,
                     -f32::from(self.scroll.offset().y),
-                    view.height,
+                    hero_height,
                     ready,
                     cx,
                 )
@@ -230,14 +185,25 @@ impl Render for Home {
         );
         let state = self.state.read(cx);
         let runtime_error = state.runtime_error.clone();
-        let error = state.catalog_error.clone();
-        let empty = state.catalog.is_some() && self.films.is_empty();
-        let more = state.catalog.as_ref().is_some_and(|p| p.has_more);
+        let error = self.search.as_ref().map_or_else(
+            || state.catalog_error.clone(),
+            |search| search.error.clone(),
+        );
+        let empty = self
+            .search
+            .as_ref()
+            .map_or(state.catalog.is_some() && self.films.is_empty(), |search| {
+                !search.loading && search.error.is_none() && self.films.is_empty()
+            });
+        let more = self.search.is_none() && state.catalog.as_ref().is_some_and(|p| p.has_more);
         let fetching = state.loading_more;
         let mut section = div()
             .w(px(content_width(view.width)))
             .mx_auto()
             .pb(px(112.0));
+        if self.search.is_some() {
+            section = section.child(self.tabs(view, window));
+        }
         if let Some(message) = runtime_error {
             section = section.child(self.alert(message, "Reload Panorama", view, window, cx));
         }
@@ -246,14 +212,28 @@ impl Render for Home {
         }
         if empty {
             section = section.child(self.alert(
-                "No popular films are available right now.".into(),
-                "Refresh catalog",
+                self.search.as_ref().map_or_else(
+                    || "No popular films are available right now.".into(),
+                    |search| format!("No films found for \u{201c}{}\u{201d}.", search.query),
+                ),
+                if self.search.is_some() {
+                    "Clear search"
+                } else {
+                    "Refresh catalog"
+                },
                 view,
                 window,
                 cx,
             ));
         }
-        section = section.child(self.grid(view, window, cx));
+        if !self.films.is_empty()
+            || self
+                .search
+                .as_ref()
+                .map_or(self.state.read(cx).loading, |search| search.loading)
+        {
+            section = section.child(self.grid(view, window, cx));
+        }
         if more {
             let state = self.state.clone();
             section =
@@ -318,7 +298,10 @@ impl Render for Home {
                 .hovered
                 .values()
                 .any(|t| t.moving(Instant::now(), view.reduced))
-            || self.state.read(cx).loading
+            || self
+                .search
+                .as_ref()
+                .map_or(self.state.read(cx).loading, |search| search.loading)
             || self.args.bench_scroll
             || self.debug_step < self.args.scroll.len()
             || self.args.focus_first_card && !self.debug_focus;
@@ -338,8 +321,29 @@ impl Render for Home {
                 cx.on_next_frame(window, |home, window, cx| home.tick(window, cx));
                 window.request_animation_frame();
             }))
-            .child(hero)
+            .when(self.search.is_none(), |root| {
+                root.child(
+                    div()
+                        .pt(px((self.content_start(view, cx) - view.height).max(0.0)))
+                        .child(hero),
+                )
+            })
+            .when(self.search.is_some(), |root| {
+                root.pt(px(self.content_start(view, cx)))
+            })
             .child(section)
             .child(footer)
+            .when_some(self.search.as_ref(), |root, search| {
+                root.child(crate::a11y::status(
+                    "search-status",
+                    if search.loading {
+                        format!("Searching for {}.", search.query)
+                    } else if search.error.is_some() {
+                        String::new()
+                    } else {
+                        format!("{} films found for {}.", self.films.len(), search.query)
+                    },
+                ))
+            })
     }
 }

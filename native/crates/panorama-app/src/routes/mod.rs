@@ -21,9 +21,21 @@ pub fn create(
         Route::Home => cx
             .new(|cx| home::Home::new(shell, state, args, id, cx))
             .into(),
-        Route::Search { query } => cx.new(|_| search::Search::new(query.clone())).into(),
-        Route::Film { id } => cx.new(|_| film::Film::new(id.clone())).into(),
-        Route::Player { id } => cx.new(|_| player::Player::new(id.clone())).into(),
+        Route::Search { query } => cx
+            .new(|cx| home::Home::new_search(shell, state, args, id, query.clone(), cx))
+            .into(),
+        Route::Film { id: film_id } => cx
+            .new(|cx| film::Film::new(film_id.clone(), id, shell, state, args, cx))
+            .into(),
+        Route::Player { id } => {
+            let source = state
+                .read(cx)
+                .playback
+                .as_ref()
+                .filter(|selection| selection.film_id == *id)
+                .map(|selection| selection.source.clone());
+            cx.new(|_| player::Player::new(id.clone(), source)).into()
+        }
         Route::Addons => cx.new(|_| addons::Addons::new()).into(),
     }
 }

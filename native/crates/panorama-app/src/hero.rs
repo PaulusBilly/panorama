@@ -160,36 +160,7 @@ pub fn render(
         }
         if !film.director.is_empty() || film.origin_country.is_some() || film.release_info.is_some()
         {
-            let mut credits = div()
-                .mt(px(16.0))
-                .text_size(px(14.0))
-                .line_height(relative(1.0))
-                .text_color(theme.inverse.opacity(0.85))
-                .flex()
-                .flex_col();
-            if !film.director.is_empty() {
-                credits = credits.child(
-                    div().flex().child("DIRECTED BY ").child(
-                        div()
-                            .font_weight(FontWeight::BOLD)
-                            .child(film.director.join(", ").to_uppercase()),
-                    ),
-                );
-            }
-            credits = credits.child(
-                div()
-                    .mt(px(2.0))
-                    .flex()
-                    .gap(px(8.0))
-                    .font_features(gpui::FontFeatures(Arc::new(vec![
-                        ("tnum".into(), 1),
-                        ("kern".into(), 1),
-                    ])))
-                    .when_some(film.origin_country.clone(), |row, country| {
-                        row.child(country.to_uppercase())
-                    })
-                    .when_some(film.release_info.clone(), |row, year| row.child(year)),
-            );
+            let credits = credits(film, theme).mt(px(16.0));
             title = title.child(credits);
         }
         let shell = props.shell;
@@ -316,4 +287,38 @@ fn mix(a: gpui::Rgba, b: gpui::Rgba, t: f32) -> gpui::Rgba {
         b: a.b + (b.b - a.b) * t,
         a: a.a + (b.a - a.a) * t,
     }
+}
+
+/// Shared director and country-year block used by Home and Film.
+pub fn credits(film: &FilmDetails, theme: Theme) -> Div {
+    let mut credits = div()
+        .text_size(px(14.0))
+        .line_height(relative(1.0))
+        .text_color(theme.inverse.opacity(0.85))
+        .flex()
+        .flex_col();
+    if !film.director.is_empty() {
+        credits = credits.child(
+            div().flex().child("DIRECTED BY ").child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .child(film.director.join(", ").to_uppercase()),
+            ),
+        );
+    }
+    credits = credits.child(
+        div()
+            .mt(px(2.0))
+            .flex()
+            .gap(px(8.0))
+            .font_features(gpui::FontFeatures(Arc::new(vec![
+                ("tnum".into(), 1),
+                ("kern".into(), 1),
+            ])))
+            .when_some(film.origin_country.clone(), |row, country| {
+                row.child(country.to_uppercase())
+            })
+            .when_some(film.release_info.clone(), |row, year| row.child(year)),
+    );
+    credits
 }

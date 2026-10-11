@@ -1,4 +1,6 @@
-use panorama_core::addons::FilmDetails;
+use panorama_core::addons::{
+    AddonKey, FilmDetails, StreamGroup, StreamSource, StreamState, StreamsEvent,
+};
 
 /// The nine film records from runtime/fake-runtime.ts, in exactly the same order.
 pub fn films() -> Vec<FilmDetails> {
@@ -20,6 +22,92 @@ pub fn films() -> Vec<FilmDetails> {
             links: vec![],
         })
         .collect()
+}
+
+/// Match Electron's fixture name containment or complete director equality.
+pub fn search(query: &str) -> Vec<FilmDetails> {
+    let query = query.to_lowercase();
+    films()
+        .into_iter()
+        .filter(|film| {
+            film.name.to_lowercase().contains(&query)
+                || film
+                    .director
+                    .iter()
+                    .any(|director| director.to_lowercase() == query)
+        })
+        .collect()
+}
+
+/// Electron's film-details fixture, with the selected card's opaque identifier.
+pub fn details(id: &str) -> Option<FilmDetails> {
+    let mut film = films().into_iter().find(|film| film.id == id)?;
+    film.runtime = Some("102 min".into());
+    film.genres = vec!["Drama".into()];
+    film.description = Some("A quiet, observant portrait shaped by memory and time.".into());
+    film.imdb_rating = Some(
+        ["7.6", "7.9", "7.8"][id
+            .strip_prefix("tmdb:")?
+            .parse::<usize>()
+            .ok()?
+            .checked_sub(100)?
+            % 3]
+        .into(),
+    );
+    Some(film)
+}
+
+/// One fixture addon with a single HD, 5.1 source, or none when `empty`.
+pub fn streams(empty: bool) -> StreamsEvent {
+    if empty {
+        return StreamsEvent::NoSources;
+    }
+    let stream = serde_json::from_value(serde_json::json!({
+        "url": "https://fixture.invalid/aftersun.mp4",
+        "name": "Fixture 1080p",
+        "description": "1080p DDP5.1",
+    }));
+    let key = serde_json::from_value::<AddonKey>("fixture#0".into());
+    match (stream, key) {
+        (Ok(stream), Ok(addon)) => StreamsEvent::Groups(vec![StreamGroup {
+            addon,
+            name: "Fixture".into(),
+            state: StreamState::Ready(vec![StreamSource {
+                stream,
+                name: Some("Fixture 1080p".into()),
+                title: Some("1080p DDP5.1".into()),
+                description: Some("1080p DDP5.1".into()),
+            }]),
+        }]),
+        _ => StreamsEvent::NoSources,
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    #[test]
+    fn fixture_stream_is_playable_hd_surround() {
+        let panorama_core::addons::StreamsEvent::Groups(groups) = super::streams(false) else {
+            panic!("fixture groups");
+        };
+        let source = crate::film_display::first_playable(&groups).expect("playable");
+        let quality = crate::film_display::Quality::from_source(&source);
+        assert_eq!((quality.video, quality.surround), (Some("HD"), true));
+        assert!(matches!(
+            super::streams(true),
+            panorama_core::addons::StreamsEvent::NoSources
+        ));
+    }
+
+    #[test]
+    fn fixture_matching_rule() {
+        assert_eq!(super::search("past").len(), 3);
+        assert_eq!(super::search("PAST").len(), 3);
+        assert_eq!(super::search("Charlotte Wells").len(), 3);
+        assert!(super::search("Charlotte").is_empty());
+        assert!(super::search("night").is_empty());
+        assert_eq!(super::search("").len(), 9);
+    }
 }
 
 #[cfg(test)]
