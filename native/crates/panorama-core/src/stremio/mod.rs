@@ -12,10 +12,12 @@ mod error;
 mod fetch;
 mod migration;
 mod model;
+mod progress;
 mod session;
 mod types;
 
 pub use error::{CoreError, CoreErrorKind};
+pub use progress::{FilmMeta, PlaybackSample, PlaybackTarget, ResumePoint};
 pub use session::CoreSession;
 pub use types::{CoreChange, Descriptor, Profile};
 

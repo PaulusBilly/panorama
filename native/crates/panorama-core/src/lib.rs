@@ -1,6 +1,7 @@
 pub mod addons;
 pub mod images;
 pub mod media;
+pub mod discord;
 pub mod store;
 pub mod stremio;
 pub mod torrent;

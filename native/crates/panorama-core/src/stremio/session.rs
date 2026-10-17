@@ -43,8 +43,9 @@ enum Progress {
     LibraryFailed(CoreErrorKind),
 }
 
-struct Running {
-    runtime: Arc<CoreRuntime>,
+pub(super) struct Running {
+    pub(super) runtime: Arc<CoreRuntime>,
+    pub(super) tracker: std::sync::Mutex<super::progress::Tracker>,
     active: Arc<AtomicBool>,
     progress: broadcast::Sender<Progress>,
     pump: JoinHandle<()>,
@@ -80,6 +81,7 @@ impl Running {
                     inner: ctx,
                     active: Arc::clone(&active),
                 },
+                player: Default::default(),
             },
             vec![],
             1024,
@@ -96,6 +98,7 @@ impl Running {
         ));
         Self {
             runtime,
+            tracker: Default::default(),
             active,
             progress,
             pump,
@@ -103,11 +106,12 @@ impl Running {
     }
 
     fn dispatch(&self, action: ActionCtx) {
+        self.dispatch_to(None, Action::Ctx(action));
+    }
+
+    pub(super) fn dispatch_to(&self, field: Option<model::CoreModelField>, action: Action) {
         with_default(NoSubscriber::default(), || {
-            self.runtime.dispatch(RuntimeAction {
-                field: None,
-                action: Action::Ctx(action),
-            })
+            self.runtime.dispatch(RuntimeAction { field, action })
         });
     }
 
@@ -201,6 +205,10 @@ impl CoreSession {
                 })
                 .unwrap_or_default(),
         )
+    }
+
+    pub(super) fn running(&self) -> Option<&Running> {
+        self.running.as_ref()
     }
 
     /// Returns whether the current profile has an authenticated account.
