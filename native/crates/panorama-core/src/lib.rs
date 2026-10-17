@@ -1,5 +1,6 @@
 pub mod addons;
 pub mod images;
+pub mod media;
 pub mod store;
 pub mod stremio;
 
