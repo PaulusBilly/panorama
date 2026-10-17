@@ -15,6 +15,8 @@ struct CachedMeta {
 }
 
 impl AddonClient {
+    /// The transport URL of the addon that supplied the cached metadata, for the core's
+    /// playback target. It can carry addon credentials, so it must never be logged.
     pub async fn metadata_base(&self, addons: &[Descriptor], film_id: &str) -> Option<url::Url> {
         if !sanitize::valid_id(film_id) {
             return None;
