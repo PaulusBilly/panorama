@@ -41,6 +41,54 @@ The Electron app remains the shipping app.
 - `raw-window-handle` (=0.6.2): obtain the GPUI window's HWND without platform assumptions.
 - `png` (=0.18.1): encode debug window captures on a background executor.
 
+mpv host (PR 3.1):
+
+- `libloading` (=0.8.9): Gate 1's runtime loader; no link-time mpv dependency.
+- `windows` (=0.62.2): matches GPUI and Gate 1; only Foundation, GDI (window
+  class/background), LibraryLoader, Threading (window owner validation), keyboard
+  window disabling, and WindowsAndMessaging features are enabled here.
+- `raw-window-handle` (=0.6.2): matches GPUI's `HasWindowHandle` contract.
+- `panorama-mpv` uses standard-library mpsc channels; no channel dependency.
+- `serde_json` (=1.0.151, Windows dev-dependency): parses explicit mpv IPC clock
+  readings in playback tests; reuses the version already in the lockfile.
+
+Media proxy (PR 3.2):
+
+- `tokio` (=1.53.2): asynchronous media requests, loopback sockets, cancellation, tracked tasks and virtual-time tests.
+- `reqwest` (=0.12.28, defaults disabled, `rustls-tls`, `stream`): cookie-free streaming upstream HTTP with manual redirects; no native TLS.
+- `hyper` (=1.12.0, `server`, `http1`): direct loopback HTTP server without a web framework.
+- `hyper-util` (=0.1.21, `tokio`): adapts Tokio sockets to Hyper.
+- `http-body-util` (=0.1.5): bounded streaming response bodies.
+- `http` (=1.5.0): shared HTTP methods, status codes and headers.
+- `bytes` (=1.12.1): chunk buffers and shared immutable cache data.
+- `futures` (=0.3.34): injectable asynchronous transports and streaming bodies.
+- `sha2` (=0.10.9): SHA-256 cache filenames; source URLs never identify cache entries.
+- `getrandom` (=0.3.4): operating-system randomness for 128-bit session tokens and owner names.
+- `httpdate` (=1.0.3): HTTP Retry-After and Last-Modified dates.
+- `fs4` (=0.13.1, `sync`): safe free-space, filesystem block-size and actual file-allocation queries. Owner locks use stable `std::fs::File::try_lock`.
+
+Torrent engine (PR 4.1):
+
+- `librqbit` (=9.0.1, default features off, `rust-tls`): the spike-proven BTv1 engine;
+  excludes its control HTTP API/client and native TLS backend.
+- `tokio` (=1.53.2), `tokio-util` (=0.7.20): private asynchronous runtime,
+  cancellable I/O, timers, and cancellation tokens; versions already in the lockfile.
+- `hyper` (=1.12.0), `hyper-util` (=0.1.21), `http-body-util` (=0.1.5),
+  `http` (=1.5.0), `bytes` (=1.12.1), `futures` (=0.3.34): streaming loopback
+  HTTP/1 and Range responses; match the Phase 3 proxy's pins.
+- `fs4` (=0.13.1, `sync`): free-space/allocation-granularity queries,
+  physical preallocation, and allocated-byte measurement; matches the media cache.
+- `cap-std` / `cap-primitives` (=4.0.3): safe directory-relative I/O and no-follow
+  directory opens; cleanup stays anchored to verified handles.
+- `same-file` (=1.0.6): retained directory identity (Windows volume serial/file
+  index; Unix device/inode), already present transitively in the lockfile.
+- `getrandom` (=0.3.4): 128-bit operating-system-random bearer tokens.
+- `url` (=2.5.8): tracker validation and magnet query encoding.
+- `anyhow` (=1.0.104): required by librqbit's storage interface; public errors
+  discard library diagnostics, which can contain tracker credentials.
+- `tracing` (=0.1.44): disable upstream tracing on every private runtime thread,
+  including its blocking pool, because librqbit logs tracker URLs internally.
+
 ## Addon data for PR 2.4
 
 `panorama_core::addons` contains `mod.rs` (client, installation identity, blocking storage and cancellable delivery), `catalog.rs` (Home selection and fallback), `search.rs` (concurrent search and enrichment), `details.rs` (metadata chain and stream groups), `transport.rs` (core transport adapter), `sanitize.rs` (untrusted response validation), and `types.rs` (screen data and events). Tests live under `addons/tests/`; the production transport also has a local HTTPS test under `stremio/tests/addons.rs`.
@@ -200,14 +248,6 @@ preserves bounded legacy catalog director/country fields that Stremio's typed
 preview drops. Paging tests verify raw skip offsets, terminal empty pages, and
 preservation of the first-page cache; fixture/layout/header/error/cache tests live
 in the app crate.
-- `libloading` (=0.8.9): Gate 1's runtime loader; no link-time mpv dependency.
-- `windows` (=0.62.2): matches GPUI and Gate 1; only Foundation, GDI (window
-  class/background), LibraryLoader, Threading (window owner validation), keyboard
-  window disabling, and WindowsAndMessaging features are enabled here.
-- `raw-window-handle` (=0.6.2): matches GPUI's `HasWindowHandle` contract.
-- `panorama-mpv` uses standard-library mpsc channels; no channel dependency.
-- `serde_json` (=1.0.151, Windows dev-dependency): parses explicit mpv IPC clock
-  readings in playback tests; reuses the version already in the lockfile.
 
 ## panorama-mpv (PR 3.1)
 
@@ -404,18 +444,6 @@ library and all targets also passed a Linux `cargo check` with
 `--target x86_64-unknown-linux-gnu`. The standalone example created its Win32
 window with generated lavfi input and exited 0 after WM_CLOSE. This hidden-window
 probe did not visually assess playback or certify H.264/HEVC hardware decoding.
-- `tokio` (=1.53.2): asynchronous media requests, loopback sockets, cancellation, tracked tasks and virtual-time tests.
-- `reqwest` (=0.12.28, defaults disabled, `rustls-tls`, `stream`): cookie-free streaming upstream HTTP with manual redirects; no native TLS.
-- `hyper` (=1.12.0, `server`, `http1`): direct loopback HTTP server without a web framework.
-- `hyper-util` (=0.1.21, `tokio`): adapts Tokio sockets to Hyper.
-- `http-body-util` (=0.1.5): bounded streaming response bodies.
-- `http` (=1.5.0): shared HTTP methods, status codes and headers.
-- `bytes` (=1.12.1): chunk buffers and shared immutable cache data.
-- `futures` (=0.3.34): injectable asynchronous transports and streaming bodies.
-- `sha2` (=0.10.9): SHA-256 cache filenames; source URLs never identify cache entries.
-- `getrandom` (=0.3.4): operating-system randomness for 128-bit session tokens and owner names.
-- `httpdate` (=1.0.3): HTTP Retry-After and Last-Modified dates.
-- `fs4` (=0.13.1, `sync`): safe free-space, filesystem block-size and actual file-allocation queries. Owner locks use stable `std::fs::File::try_lock`.
 
 ## Native media proxy
 
@@ -423,25 +451,6 @@ probe did not visually assess playback or certify H.264/HEVC hardware decoding.
 manual redirect transport and buffering policy. See
 [`panorama-core/MEDIA_PORT.md`](crates/panorama-core/MEDIA_PORT.md) for the test
 mapping, refresh contract and Phase 3.3 player integration.
-- `librqbit` (=9.0.1, default features off, `rust-tls`): the spike-proven BTv1 engine;
-  excludes its control HTTP API/client and native TLS backend.
-- `tokio` (=1.53.2), `tokio-util` (=0.7.20): private asynchronous runtime,
-  cancellable I/O, timers, and cancellation tokens; versions already in the lockfile.
-- `hyper` (=1.12.0), `hyper-util` (=0.1.21), `http-body-util` (=0.1.5),
-  `http` (=1.5.0), `bytes` (=1.12.1), `futures` (=0.3.34): streaming loopback
-  HTTP/1 and Range responses; match the Phase 3 proxy's pins.
-- `fs4` (=0.13.1, `sync`): free-space/allocation-granularity queries,
-  physical preallocation, and allocated-byte measurement; matches the media cache.
-- `cap-std` / `cap-primitives` (=4.0.3): safe directory-relative I/O and no-follow
-  directory opens; cleanup stays anchored to verified handles.
-- `same-file` (=1.0.6): retained directory identity (Windows volume serial/file
-  index; Unix device/inode), already present transitively in the lockfile.
-- `getrandom` (=0.3.4): 128-bit operating-system-random bearer tokens.
-- `url` (=2.5.8): tracker validation and magnet query encoding.
-- `anyhow` (=1.0.104): required by librqbit's storage interface; public errors
-  discard library diagnostics, which can contain tracker credentials.
-- `tracing` (=0.1.44): disable upstream tracing on every private runtime thread,
-  including its blocking pool, because librqbit logs tracker URLs internally.
 
 ## Torrent engine (PR 4.1)
 

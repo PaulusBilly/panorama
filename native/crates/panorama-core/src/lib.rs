@@ -1,10 +1,13 @@
 pub mod addons;
+pub mod discord;
 pub mod images;
 pub mod media;
-pub mod discord;
 pub mod store;
 pub mod stremio;
 pub mod torrent;
+
+#[cfg(test)]
+mod test_tracing;
 
 pub const APP_NAME: &str = "Panorama";
 

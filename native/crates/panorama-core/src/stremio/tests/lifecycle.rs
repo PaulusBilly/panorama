@@ -240,7 +240,7 @@ fn upstream_diagnostics_are_suppressed_even_with_enabled_app_subscriber() {
     let api = MockApi::start();
     let fixture = TestEnv::memory(Some(api.base.clone()));
     let count = Arc::new(AtomicUsize::new(0));
-    tracing::subscriber::set_global_default(CountEvents(count.clone())).unwrap();
+    let _tracing = crate::test_tracing::capture(CountEvents(count.clone()));
     fixture.runtime.block_on(async {
         tracing::trace!("test subscriber active");
         assert_eq!(count.load(Ordering::SeqCst), 1);

@@ -132,7 +132,7 @@ impl Subscriber for Capture {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn library_runtime_and_blocking_threads_suppress_private_tracker_tracing() {
     let captured = Arc::new(AtomicBool::new(false));
-    tracing::subscriber::set_global_default(Capture(captured.clone())).unwrap();
+    let _tracing = crate::test_tracing::capture(Capture(captured.clone()));
     tracing::error!(target: "panorama_torrent_privacy_probe", "passkey=panorama-test-secret");
     assert!(captured.swap(false, Ordering::AcqRel));
     let swarm = Swarm::new().await;

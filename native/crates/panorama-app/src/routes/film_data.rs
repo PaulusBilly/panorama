@@ -2,7 +2,7 @@ use super::*;
 use futures::{StreamExt, channel::mpsc};
 use panorama_core::{
     addons::{ResourceEvent, StreamState, StreamsEvent},
-    stremio::CoreChange,
+    stremio::{CoreChange, FilmMeta},
 };
 
 impl Film {
@@ -131,7 +131,7 @@ impl Film {
         let job = Job(services.runtime.spawn(async move {
             let mut events = session.lock().await.subscribe();
             loop {
-                let saved = session.lock().await.is_watchlisted(&id);
+                let saved = session.lock().await.in_library(&id);
                 if sender.unbounded_send(saved).is_err() {
                     break;
                 }
@@ -193,12 +193,12 @@ impl Film {
         let (sender, mut receiver) = mpsc::unbounded();
         let job = Job(services.runtime.clone().spawn(async move {
             let result = if let Some(session) = &services.session {
-                session
-                    .lock()
-                    .await
-                    .set_watchlisted(&meta, saved)
-                    .await
-                    .is_ok()
+                let film = FilmMeta {
+                    id: meta.id.clone(),
+                    name: meta.name.clone(),
+                    poster: meta.poster.clone(),
+                };
+                session.lock().await.set_in_library(&film, saved).is_ok()
             } else {
                 true
             };
