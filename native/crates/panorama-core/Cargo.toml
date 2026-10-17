@@ -26,6 +26,12 @@ http-body-util.workspace = true
 bytes.workspace = true
 httpdate.workspace = true
 fs4.workspace = true
+librqbit.workspace = true
+tokio-util.workspace = true
+cap-std.workspace = true
+cap-primitives.workspace = true
+same-file.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]
 tiny_http.workspace = true
