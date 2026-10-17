@@ -182,6 +182,7 @@ pub enum PlayerEvent {
     Duration(Option<f64>),
     /// User pause changed.
     Pause(bool),
+    EofReached(bool),
     /// Cache pause changed.
     PausedForCache(bool),
     /// Buffering completion percent, if known.

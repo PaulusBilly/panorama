@@ -46,6 +46,8 @@ pub struct ServicesHost {
 
 /// Live services, or in-process fixtures with no external I/O.
 pub struct Services {
+    pub data_dir: std::path::PathBuf,
+    pub discord: Option<panorama_core::discord::DiscordPresence>,
     /// Executor retained by the process host.
     pub runtime: Handle,
     /// Persisted account session, used only on Tokio.
@@ -71,6 +73,10 @@ impl ServicesHost {
         if self.fixtures {
             return Ok(Arc::new(Services {
                 runtime: self.runtime.clone(),
+                data_dir: store::default_path()
+                    .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+                    .unwrap_or_default(),
+                discord: None,
                 session: None,
                 addons: None,
                 images: None,
@@ -127,7 +133,22 @@ impl ServicesHost {
         .await
         .map_err(|_| StartupError::Failed("Could not initialize the image cache.".into()))?
         .map_err(|_| StartupError::Failed("Could not initialize the image cache.".into()))?;
+        let data_dir = path
+            .parent()
+            .ok_or_else(|| StartupError::Failed("Could not locate playback storage.".into()))?
+            .to_path_buf();
+        let discord = panorama_core::discord::DiscordPresence::new(
+            &self.runtime,
+            data_dir.join("discord-presence.json"),
+            panorama_core::discord::discord_paths(
+                panorama_core::discord::Platform::current(),
+                |key| std::env::var(key).ok(),
+            ),
+            panorama_core::discord::SystemConnector,
+        );
         Ok(Arc::new(Services {
+            data_dir,
+            discord: Some(discord),
             runtime: self.runtime.clone(),
             session: Some(Arc::new(Mutex::new(session))),
             addons: Some(addons),

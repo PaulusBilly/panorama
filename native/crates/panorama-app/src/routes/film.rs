@@ -10,7 +10,7 @@ use crate::{
 use gpui::{
     Context, Entity, FocusHandle, RenderImage, ScrollHandle, Subscription, Task, WeakEntity, Window,
 };
-use panorama_core::addons::{FilmDetails, StreamGroup, StreamSource};
+use panorama_core::addons::{FilmDetails, StreamGroup};
 use std::{sync::Arc, time::Instant};
 
 #[path = "film_actions.rs"]
@@ -34,7 +34,9 @@ pub struct Film {
     loading: bool,
     details_error: bool,
     groups: Vec<StreamGroup>,
-    selected: Option<StreamSource>,
+    selected: Option<crate::playback::selection::SourceRef>,
+    resume: Option<panorama_core::stremio::ResumePoint>,
+    meta_base: Option<url::Url>,
     sources_loading: bool,
     sources_error: bool,
     saved: bool,
@@ -126,6 +128,8 @@ impl Film {
             details_error: false,
             groups: vec![],
             selected: None,
+            resume: None,
+            meta_base: None,
             sources_loading: true,
             sources_error: false,
             saved: false,

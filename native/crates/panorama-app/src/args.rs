@@ -3,8 +3,13 @@ use crate::router::Route;
 use std::{ffi::OsString, path::PathBuf};
 
 /// One invocation's startup options.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Args {
+    pub player_state: Option<crate::playback::fake::FixtureState>,
+    pub play_file: Option<PathBuf>,
+    pub play_url: Option<url::Url>,
+    pub play_torrent: bool,
+    pub film_resume: bool,
     /// Initial destination.
     pub route: Route,
     /// Optional debug capture path.
@@ -44,6 +49,11 @@ impl Args {
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, String> {
         let mut args = args.into_iter();
         let mut result = Self {
+            player_state: None,
+            play_file: None,
+            play_url: None,
+            play_torrent: false,
+            film_resume: false,
             route: Route::Home,
             screenshot: None,
             size: (1280.0, 800.0),
@@ -104,6 +114,41 @@ impl Args {
                 }
                 "--reduced-motion" => result.reduced_motion = true,
                 "--fixtures" => result.fixtures = true,
+                "--player-state" => {
+                    let state = args.next().ok_or("--player-state needs a state")?;
+                    result.player_state = Some(
+                        crate::playback::fake::FixtureState::parse(
+                            state.to_str().ok_or("Invalid player state")?,
+                        )
+                        .ok_or("Invalid player state")?,
+                    );
+                    result.fixtures = true;
+                }
+                "--play-file" => {
+                    result.play_file = Some(
+                        args.next()
+                            .filter(|value| !value.is_empty())
+                            .ok_or("--play-file needs a path")?
+                            .into(),
+                    );
+                }
+                "--play-url" => {
+                    let value = args.next().ok_or("--play-url needs an HTTPS URL")?;
+                    let url = value
+                        .to_str()
+                        .and_then(|value| url::Url::parse(value).ok())
+                        .ok_or("Invalid playback URL")?;
+                    if url.scheme() != "https"
+                        || url.host_str().is_none()
+                        || !url.username().is_empty()
+                        || url.password().is_some()
+                    {
+                        return Err("Invalid playback URL".into());
+                    }
+                    result.play_url = Some(url);
+                }
+                "--play-torrent" => result.play_torrent = true,
+                "--film-resume" => result.film_resume = true,
                 "--bench-scroll" => {
                     result.bench_scroll = true;
                     result.fixtures = true;
@@ -129,14 +174,41 @@ impl Args {
                     }
                     result.scroll.push(delta);
                 }
-                _ => return Err(format!("Unknown argument: {}", arg.to_string_lossy())),
+                _ => return Err("Unknown argument".into()),
             }
         }
         if screenshot_options && result.screenshot.is_none() {
             return Err("--theme and --size require --screenshot".into());
         }
-        result.fixtures |= result.screenshot.is_some();
+        let real_playback =
+            result.play_file.is_some() || result.play_url.is_some() || result.play_torrent;
+        if usize::from(result.play_file.is_some())
+            + usize::from(result.play_url.is_some())
+            + usize::from(result.play_torrent)
+            > 1
+            || (real_playback && result.player_state.is_some())
+        {
+            return Err("Choose one playback input".into());
+        }
+        if result.play_file.is_some() && !cfg!(debug_assertions) && result.screenshot.is_none() {
+            return Err("--play-file requires a debug build or --screenshot".into());
+        }
+        if real_playback && !matches!(result.route, Route::Player { .. }) {
+            result.route = Route::Player {
+                id: "tmdb:100".into(),
+            };
+        }
+        result.fixtures |= result.screenshot.is_some() || real_playback;
         Ok(result)
+    }
+}
+
+impl std::fmt::Debug for Args {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Args")
+            .field("fixtures", &self.fixtures)
+            .field("player_state", &self.player_state)
+            .finish_non_exhaustive()
     }
 }
 

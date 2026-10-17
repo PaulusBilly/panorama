@@ -96,22 +96,48 @@ fn main() -> ExitCode {
                         return cx.new(|cx| gpui_component::Root::new(view, window, cx));
                     }
                     let state = cx.new(|cx| AppState::new(host.clone(), initial, cx));
+                    let quit_state = state.clone();
+                    cx.on_app_quit(move |cx| {
+                        let done = quit_state
+                            .read(cx)
+                            .playback_host
+                            .as_ref()
+                            .map(|host| host.shutdown());
+                        let executor = cx.background_executor().clone();
+                        async move {
+                            if let Some(done) = done {
+                                panorama_app::playback::window::wait_for_shutdown(
+                                    done,
+                                    |duration| executor.timer(duration),
+                                )
+                                .await;
+                            }
+                        }
+                    })
+                    .detach();
                     let view = cx.new(|cx| AppShell::new(args, state, outcome, window, cx));
                     cx.new(|cx| gpui_component::Root::new(view, window, cx))
                 },
             );
             match result {
-                Ok(_) => {
+                Ok(handle) => {
                     cx.activate(true);
                     if capture_requested {
                         cx.spawn(async move |cx| {
                             cx.background_executor()
-                                .timer(Duration::from_secs(15))
+                                .timer(Duration::from_secs(80))
                                 .await;
                             let _ = startup_outcome.send(Err(
                                 "Screenshot timed out waiting for a settled frame".into(),
                             ));
-                            cx.update(|cx| cx.quit());
+                            let _ = handle.update(cx, |root, window, cx| {
+                                if let Ok(shell) = root.view().clone().downcast::<AppShell>() {
+                                    let state = shell.read(cx).state.clone();
+                                    panorama_app::playback::window::close(state, window, cx);
+                                } else {
+                                    window.remove_window();
+                                }
+                            });
                         })
                         .detach();
                     }

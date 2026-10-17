@@ -42,6 +42,10 @@ impl Film {
         let quality = self
             .selected
             .as_ref()
+            .and_then(|source| match &self.groups.get(source.group)?.state {
+                panorama_core::addons::StreamState::Ready(streams) => streams.get(source.stream),
+                _ => None,
+            })
             .map(Quality::from_source)
             .unwrap_or_default();
         let mut left = div()

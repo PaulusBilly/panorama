@@ -8,14 +8,19 @@ use gpui::{Context, Div, Window, div, prelude::*, px, rgb};
 
 /// Retained keyboard focus for native caption controls.
 pub struct Titlebar {
+    state: gpui::Entity<crate::app_state::AppState>,
     #[cfg(not(target_os = "macos"))]
     controls: [FocusHandle; 3],
 }
 
 impl Titlebar {
     /// Allocate caption focus independently of route views.
-    pub fn new<T: 'static>(_cx: &mut Context<T>) -> Self {
+    pub fn new<T: 'static>(
+        _cx: &mut Context<T>,
+        state: gpui::Entity<crate::app_state::AppState>,
+    ) -> Self {
         Self {
+            state,
             #[cfg(not(target_os = "macos"))]
             controls: std::array::from_fn(|_| _cx.focus_handle()),
         }
@@ -107,6 +112,7 @@ impl Titlebar {
         window: &Window,
     ) -> gpui::Stateful<Div> {
         let (theme, keyboard_navigation) = theme;
+        let state = self.state.clone();
         focus_ring(
             div()
                 .id(("caption", index))
@@ -135,7 +141,11 @@ impl Titlebar {
                     if !cfg!(target_os = "windows")
                         || matches!(event, gpui::ClickEvent::Keyboard(_))
                     {
-                        control_window(area, window, cx);
+                        if area == WindowControlArea::Close {
+                            crate::playback::window::close(state.clone(), window, cx);
+                        } else {
+                            control_window(area, window, cx);
+                        }
                     }
                 })
                 .child(

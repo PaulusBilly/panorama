@@ -83,6 +83,7 @@ pub struct AppShell {
     launched: Instant,
     screenshot: Option<std::path::PathBuf>,
     capture_scheduled: bool,
+    player_transparent: bool,
     outcome: Sender<Result<(), String>>,
 }
 
@@ -127,7 +128,7 @@ impl AppShell {
             },
             reduced_motion: args.reduced_motion,
             keyboard_navigation: false,
-            state,
+            state: state.clone(),
             menu: AccountMenu::new(cx),
             sticky: Sticky::home(),
             search: SearchBand::new(&args.route, args.open_search),
@@ -150,15 +151,24 @@ impl AppShell {
             presence: Vec::new(),
             focus,
             _keystrokes: keystrokes,
-            titlebar: Titlebar::new(cx),
+            titlebar: Titlebar::new(cx, state.clone()),
             launched: Instant::now(),
             screenshot: args.screenshot,
             capture_scheduled: false,
+            player_transparent: false,
             outcome,
         };
         shell
             .search_disclosures
             .insert(shell.history.current_id(), shell.search.open);
+        let close_state = shell.state.clone();
+        window.on_window_should_close(cx, move |window, cx| {
+            if close_state.read(cx).playback_host.is_none() {
+                return true;
+            }
+            crate::playback::window::close(close_state.clone(), window, cx);
+            false
+        });
         shell.present(cx);
         if args.signed_out && args.fixtures {
             shell.state.update(cx, |state, cx| {

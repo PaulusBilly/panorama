@@ -15,6 +15,21 @@ struct CachedMeta {
 }
 
 impl AddonClient {
+    pub async fn metadata_base(&self, addons: &[Descriptor], film_id: &str) -> Option<url::Url> {
+        if !sanitize::valid_id(film_id) {
+            return None;
+        }
+        let cached = self
+            .read::<CachedMeta>(Key::meta(film_id).ok()?)
+            .await
+            .ok()??;
+        let cinemeta = self.cinemeta();
+        self.installations(addons)
+            .chain(film_id.starts_with("tt").then_some(cinemeta))
+            .find(|addon| addon.key == cached.addon)
+            .map(|addon| addon.descriptor.transport_url.clone())
+    }
+
     /// Delivers cached metadata then tries the explicit or persisted preferred addon,
     /// matching installed meta resources, and Cinemeta for IMDb IDs, with 8s deadlines.
     pub fn details(
