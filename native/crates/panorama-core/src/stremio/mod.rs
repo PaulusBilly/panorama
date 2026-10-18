@@ -9,9 +9,12 @@
 
 pub mod env;
 mod error;
+mod events;
 mod fetch;
+mod manage;
 mod migration;
 mod model;
+mod preferences;
 mod progress;
 mod session;
 mod types;
