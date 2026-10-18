@@ -102,6 +102,10 @@ pub struct PlaybackModel {
     pub rebuffers: u32,
     pub audio: Vec<Track>,
     pub subtitles: Vec<Track>,
+    /// The cue now showing, sanitized (`sub-text`).
+    pub cue: Option<String>,
+    /// Audio outputs mpv reported.
+    pub devices: Vec<super::output::Device>,
     pub source: SourceRef,
     pub hwdec: Option<String>,
     pub fullscreen: bool,
@@ -163,6 +167,8 @@ impl PlaybackModel {
             rebuffers: 0,
             audio: vec![],
             subtitles: vec![],
+            cue: None,
+            devices: vec![],
             source,
             hwdec: None,
             fullscreen: false,
@@ -189,6 +195,7 @@ impl PlaybackModel {
                 self.seek_from = None;
                 self.audio.clear();
                 self.subtitles.clear();
+                self.cue = None;
                 self.hwdec = None;
             }
             HostEvent::Loading => {
@@ -273,6 +280,21 @@ impl PlaybackModel {
                 self.cache_seconds = finite(cache.buffered_seconds);
             }
             PlayerEvent::HwdecCurrent(value) => self.hwdec = value,
+            PlayerEvent::SubText(text) => {
+                self.cue = text
+                    .as_deref()
+                    .and_then(super::subtitle_render::sanitize_cue);
+            }
+            PlayerEvent::AudioDeviceList(devices) => {
+                self.devices = devices
+                    .into_iter()
+                    .map(|device| super::output::Device {
+                        name: device.name,
+                        label: device.description,
+                        passthrough: vec![],
+                    })
+                    .collect();
+            }
             PlayerEvent::TrackList(tracks) => {
                 self.audio = tracks
                     .iter()

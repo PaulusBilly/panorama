@@ -18,17 +18,19 @@ pub enum Control {
     Subtitles,
     Audio,
     Sources,
+    Settings,
     Play,
 }
 
 impl Control {
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 8;
     /// The trigger of a panel.
     pub fn trigger(panel: PanelId) -> Self {
         match panel {
             PanelId::Subtitles => Self::Subtitles,
             PanelId::Audio => Self::Audio,
             PanelId::Sources => Self::Sources,
+            PanelId::Settings => Self::Settings,
         }
     }
 }
@@ -62,6 +64,10 @@ pub struct Focuses {
     pub back: FocusHandle,
     pub notice_sources: FocusHandle,
     pub notice_dismiss: FocusHandle,
+    /// The value or colour field being edited.
+    pub edit: FocusHandle,
+    /// Stepper buttons, swatches, tabs and the settings controls, by `panel_widgets::slot`.
+    pub pool: Vec<FocusHandle>,
 }
 
 impl Focuses {
@@ -75,6 +81,10 @@ impl Focuses {
             back: cx.focus_handle(),
             notice_sources: cx.focus_handle(),
             notice_dismiss: cx.focus_handle(),
+            edit: cx.focus_handle(),
+            pool: (0..super::panel_widgets::slot::COUNT)
+                .map(|_| cx.focus_handle())
+                .collect(),
         }
     }
 

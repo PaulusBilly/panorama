@@ -843,3 +843,32 @@ proxy stats, and `Command::Groups` keeps its source list in step with Film
 `--hover-seek`, `--fullscreen`, `--player-state waiting|heavy`; `--player-state`
 without `--screenshot` opens the fixture player live. `--size` accepts 480x400 and
 up in capture mode (no minimum window size there) for the 540 px capture.
+
+## Subtitles, subtitle preferences and playback settings (PR 3.3c)
+
+`playback/subtitle_prefs.rs` holds the preferences (defaults, limits and
+normalisation of `subtitle-preferences.ts`), persisted as JSON under
+`pref:subtitlePreferences`; `playback/output.rs` holds the audio and video output
+settings (`pref:playbackSettings`) and their mpv property mapping;
+`playback/subtitle_render.rs` is the codec to renderer table, the cue sanitiser and the
+mpv style mapping; `playback/prefs.rs` loads and saves on blocking workers and wraps the
+Discord opt-in behind a `DiscordPort`. The UI is in `routes/player/`: `subtitles*.rs`
+(language and track memory, three columns or tabs), `stepper_view.rs` and `edit.rs`
+(`PlayerStepperControl`), `panel_widgets.rs`, `settings_view.rs` (settings, select menu,
+custom colour popover), `cue_view.rs` (the cue GPUI draws), `prefs_actions.rs`.
+
+Text tracks (`subrip`, `webvtt`, `mov_text`, `text`) are drawn by GPUI with mpv
+`sub-visibility=no`; bitmap and ASS/SSA tracks stay with mpv, which receives the
+supported subset, and the Appearance column shows the limitation note. Delay always goes
+through mpv `sub-delay`. The host remembers the latest subtitle and output settings and
+replays them onto every new player.
+
+Capture flags: `--open-panel subtitles|settings`, `--open-control edit|color|select|scroll`,
+`--player-state subtitled|bitmap`, `--subtitle-prefs <json>`, `--playback-settings <json>`.
+
+Receiver passthrough cannot be enabled in this PR: libmpv does not report which codecs an
+output takes undecoded, so `Device.passthrough` is always empty and the checkbox stays
+disabled with its helper copy. The `audio-spdif` mapping is implemented and tested with
+confirmed codecs; a WASAPI probe is the follow-up that fills the list. Preference writes
+go through one ordered writer task, and capture overrides (`--subtitle-prefs`,
+`--playback-settings`) are never written.

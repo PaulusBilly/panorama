@@ -190,7 +190,7 @@ impl Player {
                 icon_size: 20.0,
                 fill: Fill::None,
                 on: open,
-                disabled: panel == PanelId::Subtitles,
+                disabled: false,
             },
             theme,
             keyboard,
@@ -286,8 +286,12 @@ impl Player {
                 (
                     "player-subtitles",
                     "Subtitles",
-                    "badge-cc.svg",
-                    "badge-cc.svg",
+                    if self.model.subtitles.iter().any(|track| track.selected) {
+                        "badge-cc-filled.svg"
+                    } else {
+                        "badge-cc.svg"
+                    },
+                    "badge-cc-filled.svg",
                 ),
                 theme,
                 keyboard,
@@ -314,6 +318,19 @@ impl Player {
                     "Sources",
                     "list-details.svg",
                     "list-details-filled.svg",
+                ),
+                theme,
+                keyboard,
+                window,
+                cx,
+            ))
+            .child(self.trigger(
+                PanelId::Settings,
+                (
+                    "player-settings",
+                    "Playback settings",
+                    "settings.svg",
+                    "settings.svg",
                 ),
                 theme,
                 keyboard,

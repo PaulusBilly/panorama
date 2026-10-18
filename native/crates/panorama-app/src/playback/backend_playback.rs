@@ -64,6 +64,12 @@ impl Playback for NativePlayback {
             Command::SetMuted(muted) => player.set_property("mute", *muted),
             Command::SelectAudio(id) => player.set_audio_track(Some(*id)),
             Command::SelectSubtitle(id) => player.set_subtitle_track(*id),
+            Command::Subtitles(setup) => player
+                .set_property("sub-visibility", setup.mpv_visible)
+                .and_then(|()| player.set_subtitle_style(setup.style.clone())),
+            Command::Output(properties) => properties
+                .iter()
+                .try_for_each(|(name, value)| player.set_property(name, value.as_str())),
             _ => Ok(()),
         }
         .map_err(PlaybackError::from)

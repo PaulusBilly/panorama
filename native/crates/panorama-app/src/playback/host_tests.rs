@@ -280,3 +280,77 @@ async fn channel_host_bridge_runs_without_gpui() {
 
 #[path = "host_regression_tests.rs"]
 mod regression;
+
+#[tokio::test]
+async fn subtitle_and_output_setup_replay_onto_every_new_player() {
+    use super::super::{
+        output::{self, PlaybackSettings},
+        subtitle_prefs::SubtitlePreferences,
+        subtitle_render::{Renderer, SubtitleSetup},
+    };
+    let (mut runner, backend, _) = setup();
+    let prefs = SubtitlePreferences {
+        delay: 1.5,
+        ..Default::default()
+    };
+    let output = output::properties(&PlaybackSettings::default(), &[], true);
+    // Settings sent before any player exists are held, not lost.
+    runner
+        .control(Command::Subtitles(Box::new(SubtitleSetup::new(
+            &prefs,
+            Renderer::Gpui,
+        ))))
+        .await;
+    runner.control(Command::Output(output.clone())).await;
+    assert!(lock(&backend.log).is_empty());
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    let first = lock(&backend.log).clone();
+    let names = output
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>()
+        .join(",");
+    assert_eq!(
+        first,
+        [
+            "load".to_owned(),
+            format!("output:{names}"),
+            "subtitles:gpui:1.5".to_owned()
+        ],
+        "output first, then the subtitles, right after load"
+    );
+    // A later change reaches the live player and is remembered for the next one.
+    let bitmap = SubtitleSetup::new(
+        &prefs,
+        Renderer::Mpv(super::super::subtitle_render::Limitation::Bitmap),
+    );
+    runner.control(Command::Subtitles(Box::new(bitmap))).await;
+    assert_eq!(
+        lock(&backend.log).last().map(String::as_str),
+        Some("subtitles:mpv:1.5")
+    );
+    runner
+        .control(Command::SwitchSource(SourceRef {
+            group: 0,
+            stream: 1,
+        }))
+        .await;
+    resolve(&mut runner).await;
+    let log = lock(&backend.log).clone();
+    let second_load = log
+        .iter()
+        .rposition(|label| label == "load")
+        .expect("second load");
+    assert_eq!(
+        &log[second_load..second_load + 3],
+        [
+            "load".to_owned(),
+            format!("output:{names}"),
+            "subtitles:mpv:1.5".to_owned()
+        ],
+        "the newest setup replays onto the second player"
+    );
+}
