@@ -16,6 +16,47 @@ use crate::addons::{
     manage::{AddonPreview, AddonUrl, InstallError, PreviewToken, parse_manifest, replacement},
 };
 
+/// A manifest fetch detached from the session. Its URL is redacted from Debug.
+pub struct PreviewFetch {
+    state: Arc<super::env::State>,
+    url: AddonUrl,
+}
+
+impl std::fmt::Debug for PreviewFetch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PreviewFetch { .. }")
+    }
+}
+
+/// Manifest bytes waiting for [`CoreSession::finish_preview`]. Redacted from Debug.
+pub struct FetchedManifest {
+    url: AddonUrl,
+    bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for FetchedManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FetchedManifest { .. }")
+    }
+}
+
+impl PreviewFetch {
+    /// Download the bounded manifest on the core runtime.
+    pub async fn run(self) -> Result<FetchedManifest, InstallError> {
+        let Self { state, url } = self;
+        let raw = url.as_str().to_owned();
+        let runtime = state.runtime.clone();
+        let bytes = runtime
+            .spawn(
+                async move { fetch::manifest(state, &raw).await }
+                    .with_subscriber(NoSubscriber::default()),
+            )
+            .await
+            .map_err(|_| InstallError::Network)??;
+        Ok(FetchedManifest { url, bytes })
+    }
+}
+
 pub(super) struct Confirmation {
     pub(super) descriptor: Descriptor,
     pub(super) expires: Instant,
@@ -66,19 +107,30 @@ impl CoreSession {
     /// Fetches a bounded manifest and returns a ten-minute immutable confirmation.
     /// Requires sign-in; URLs, display fields and tokens have redacted Debug output.
     pub async fn preview(&mut self, url: AddonUrl) -> Result<AddonPreview, InstallError> {
+        let fetch = self.begin_preview(url).await?;
+        let fetched = fetch.run().await?;
+        self.finish_preview(fetched).await
+    }
+
+    /// First step of a preview: checks the account and returns the fetch, which owns
+    /// everything it needs so a caller can run it without holding the session.
+    pub async fn begin_preview(&mut self, url: AddonUrl) -> Result<PreviewFetch, InstallError> {
         self.require_addon_account()?;
         self.settle_addons().await?;
-        let state = Arc::clone(&self.state);
-        let raw = url.as_str().to_owned();
-        let bytes = self
-            .state
-            .runtime
-            .spawn(
-                async move { fetch::manifest(state, &raw).await }
-                    .with_subscriber(NoSubscriber::default()),
-            )
-            .await
-            .map_err(|_| InstallError::Network)??;
+        Ok(PreviewFetch {
+            state: Arc::clone(&self.state),
+            url,
+        })
+    }
+
+    /// Last step of a preview: validates the fetched manifest and stores its confirmation.
+    pub async fn finish_preview(
+        &mut self,
+        fetched: FetchedManifest,
+    ) -> Result<AddonPreview, InstallError> {
+        self.require_addon_account()?;
+        self.settle_addons().await?;
+        let FetchedManifest { url, bytes } = fetched;
         let manifest = parse_manifest(&bytes)?;
         let descriptor = Descriptor::from_core(CoreDescriptor {
             transport_url: url.parsed,

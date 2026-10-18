@@ -765,3 +765,16 @@ API failures, cache invalidation, stale preference repair and restart order.
 Token expiry uses paused Tokio time. Review-focus tests are
 `removed_meta_source_falls_back_to_automatic` and
 `removed_home_catalog_falls_back_to_first`.
+
+## Addons screen and catalog switcher (PR 5.2)
+
+`Route::Addons` (`addons`) is reached from the account menu. Modules under
+`panorama-app/src/addons_screen/`: `model.rs` (pure `InstallFlow`, `InstalledRow`,
+`move_row`, `error_copy`, `catalog_groups`, meta-source fallback), `backend.rs`
+(core calls on the services runtime, bridged back over mpsc), `actions.rs`
+(preview, install, remove, reorder, configure, source selection), `install_view.rs`,
+`installed_view.rs`, `source_view.rs`, `widgets.rs`, `fixture.rs`. Home's switcher
+lives in `catalog_switcher.rs` and `routes/home_catalog.rs`. Addon URLs are never
+logged; manifest text is shown as plain text and length-capped. Fixture flags:
+`--addons-preview`, `--addons-confirm-remove`, `--addons-error`,
+`--open-catalog-menu`, `--signed-out`.

@@ -162,6 +162,7 @@ impl Services {
     pub fn catalog(
         self: &Arc<Self>,
         addons: Vec<Descriptor>,
+        remembered: Option<CatalogRef>,
         next: Option<(CatalogRef, usize)>,
         fixture_next: bool,
     ) -> (Job<()>, mpsc::UnboundedReceiver<ResourceEvent<CatalogPage>>) {
@@ -169,7 +170,16 @@ impl Services {
         let services = self.clone();
         let job = self.runtime.spawn(async move {
             let Some(client) = &services.addons else {
+                let catalogs = crate::addons_screen::fixture::catalogs();
+                let chosen = remembered
+                    .and_then(|chosen| {
+                        catalogs
+                            .iter()
+                            .position(|catalog| catalog.catalog_id == chosen.catalog_id)
+                    })
+                    .unwrap_or(0);
                 let mut films = crate::fixtures::films();
+                films.rotate_left(chosen);
                 if fixture_next {
                     for (index, film) in films.iter_mut().enumerate() {
                         film.id = format!("{}-next-{index}", film.id);
@@ -178,14 +188,23 @@ impl Services {
                 let _ = sender.unbounded_send(ResourceEvent::Fresh(CatalogPage {
                     skip: if fixture_next { 18 } else { 9 },
                     films,
-                    source: None,
+                    source: catalogs.get(chosen).cloned(),
                     has_more: !fixture_next,
                 }));
                 return;
             };
             let mut stream = match next {
                 Some((source, skip)) => client.catalog_next(&addons, source, skip),
-                None => client.catalog(&addons, None),
+                None => {
+                    let remembered = match (remembered, &services.session) {
+                        (Some(chosen), _) => Some(chosen),
+                        (None, Some(session)) if !addons.is_empty() => {
+                            session.lock().await.home_catalog().await.ok().flatten()
+                        }
+                        _ => None,
+                    };
+                    client.catalog(&addons, remembered)
+                }
             };
             while let Some(event) = stream.next().await {
                 let event = match event {

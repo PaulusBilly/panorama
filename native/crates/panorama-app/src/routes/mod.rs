@@ -1,12 +1,11 @@
 //! Independent retained route entities.
-pub mod addons;
 pub mod film;
 pub mod home;
 pub mod player;
 pub mod search;
 
 use crate::{app::AppShell, app_state::AppState, args::Args, router::Route};
-use gpui::{AnyView, AppContext, Context, Entity, WeakEntity};
+use gpui::{AnyView, AppContext, Context, Entity, WeakEntity, Window};
 
 /// Construct an independent entity for one history entry.
 pub fn create(
@@ -15,6 +14,7 @@ pub fn create(
     shell: WeakEntity<AppShell>,
     state: Entity<AppState>,
     args: Args,
+    window: &mut Window,
     cx: &mut Context<AppShell>,
 ) -> AnyView {
     match route {
@@ -36,6 +36,8 @@ pub fn create(
                 .map(|selection| selection.source.clone());
             cx.new(|_| player::Player::new(id.clone(), source)).into()
         }
-        Route::Addons => cx.new(|_| addons::Addons::new()).into(),
+        Route::Addons => cx
+            .new(|cx| crate::addons_screen::Addons::new(shell, state, args, id, window, cx))
+            .into(),
     }
 }

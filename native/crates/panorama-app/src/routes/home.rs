@@ -21,6 +21,8 @@ gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 
 #[path = "home_alert.rs"]
 mod alert;
+#[path = "home_catalog.rs"]
+mod catalog;
 #[path = "home_keyboard.rs"]
 mod keyboard;
 #[path = "home_view.rs"]
@@ -37,6 +39,7 @@ pub struct Home {
     pub(crate) cards: Vec<FocusHandle>,
     pub(crate) search: Option<super::search::SearchData>,
     watch: FocusHandle,
+    switcher: crate::catalog_switcher::CatalogSwitcher,
     retry: FocusHandle,
     reload: FocusHandle,
     more: FocusHandle,
@@ -113,6 +116,9 @@ impl Home {
             }
         });
         let watch = cx.focus_handle();
+        let mut switcher =
+            crate::catalog_switcher::CatalogSwitcher::new(cx.focus_handle(), cx.focus_handle());
+        switcher.set_open(args.open_catalog_menu);
         Self {
             shell,
             state,
@@ -123,6 +129,7 @@ impl Home {
             films,
             search: None,
             watch,
+            switcher,
             retry: cx.focus_handle(),
             reload: cx.focus_handle(),
             more: cx.focus_handle(),

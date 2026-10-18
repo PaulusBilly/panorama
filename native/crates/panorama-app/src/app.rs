@@ -159,7 +159,7 @@ impl AppShell {
         shell
             .search_disclosures
             .insert(shell.history.current_id(), shell.search.open);
-        shell.present(cx);
+        shell.present(window, cx);
         if args.signed_out && args.fixtures {
             shell.state.update(cx, |state, cx| {
                 state.account = Account::SignedOut;

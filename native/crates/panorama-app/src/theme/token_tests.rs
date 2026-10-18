@@ -230,3 +230,31 @@ fn type_motion_and_spacing_tokens_match_css() {
         assert!(super::content_width(width as f32 - 1.0) <= limit * 16.0);
     }
 }
+
+fn luminance(color: gpui::Rgba) -> f32 {
+    let linear = |c: f32| {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b)
+}
+
+fn contrast(a: gpui::Rgba, b: gpui::Rgba) -> f32 {
+    let (hi, lo) = (
+        luminance(a).max(luminance(b)),
+        luminance(a).min(luminance(b)),
+    );
+    (hi + 0.05) / (lo + 0.05)
+}
+
+#[test]
+fn muted_text_and_placeholder_meet_aa_on_canvas() {
+    for theme in [Theme::light(), Theme::dark()] {
+        assert!(contrast(theme.ink_muted, theme.canvas) >= 4.5);
+        assert!(contrast(theme.ink_muted, theme.surface) >= 4.5);
+        assert!(contrast(theme.danger, theme.canvas) >= 4.5);
+    }
+}

@@ -37,6 +37,14 @@ pub struct Args {
     pub no_sources: bool,
     /// Hold fixture metadata in its initial loading state.
     pub film_loading: bool,
+    /// Show the fixture addon preview on the Addons screen.
+    pub addons_preview: bool,
+    /// Show Torrentio's inline remove confirmation.
+    pub addons_confirm_remove: bool,
+    /// Show the invalid-link error on the Addons screen.
+    pub addons_error: bool,
+    /// Open Home's catalog menu before capture.
+    pub open_catalog_menu: bool,
 }
 
 impl Args {
@@ -60,6 +68,10 @@ impl Args {
             signed_out: false,
             no_sources: false,
             film_loading: false,
+            addons_preview: false,
+            addons_confirm_remove: false,
+            addons_error: false,
+            open_catalog_menu: false,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -116,6 +128,10 @@ impl Args {
                 "--signed-out" => result.signed_out = true,
                 "--no-sources" => result.no_sources = true,
                 "--film-loading" => result.film_loading = true,
+                "--addons-preview" => result.addons_preview = true,
+                "--addons-confirm-remove" => result.addons_confirm_remove = true,
+                "--addons-error" => result.addons_error = true,
+                "--open-catalog-menu" => result.open_catalog_menu = true,
                 "--scroll" => {
                     let value = args.next().ok_or("--scroll needs a pixel delta or end")?;
                     let value = value.to_str().ok_or("Invalid scroll delta")?;

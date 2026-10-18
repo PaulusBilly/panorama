@@ -3,10 +3,19 @@ use super::*;
 impl Home {
     /// Move keyboard focus from WATCH into the visible first row.
     pub(crate) fn focus_first(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.switcher_visible(cx) {
+            self.focus_switcher(window, cx);
+        } else {
+            self.focus_first_card(window, cx);
+        }
+    }
+    /// Focus the first card, scrolled into view.
+    pub(crate) fn focus_first_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let lead = self.lead(cx);
         if let Some(first) = self.cards.first() {
             let grid = crate::home_layout::Grid::at(self.settings(window, cx).width);
             self.scroll
-                .set_offset(point(px(0.0), px(-(32.0 + grid.height()))));
+                .set_offset(point(px(0.0), px(-(lead + grid.height()))));
             first.focus(window, cx);
             self.tick(window, cx);
             cx.notify();
@@ -39,6 +48,10 @@ impl Home {
         let view = self.settings(window, cx);
         let grid = crate::home_layout::Grid::at(view.width);
         if !forward && index == 0 {
+            if self.switcher_visible(cx) {
+                self.focus_switcher(window, cx);
+                return;
+            }
             self.watch.focus(window, cx);
             self.scroll.set_offset(point(px(0.0), px(0.0)));
         } else if forward && index + 1 >= self.cards.len() {
@@ -59,7 +72,7 @@ impl Home {
                 self.scroll.set_offset(point(
                     px(0.0),
                     px(-(view.height
-                        + 32.0
+                        + self.lead(cx)
                         + self.films.len().div_ceil(grid.columns) as f32 * grid.stride()
                         + 64.0
                         - view.height
@@ -70,7 +83,7 @@ impl Home {
             let next = if forward { index + 1 } else { index - 1 };
             let y = self.content_start(view, cx)
                 + if self.search.is_some() { 72.0 } else { 0.0 }
-                + 32.0
+                + self.lead(cx)
                 + (next / grid.columns) as f32 * grid.stride();
             let top = -f32::from(self.scroll.offset().y);
             if y < top {

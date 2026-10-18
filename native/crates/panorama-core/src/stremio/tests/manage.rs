@@ -85,6 +85,27 @@ fn preview_install_binds_manifest_and_pushes_without_refetch() {
 }
 
 #[test]
+fn detached_preview_fetch_runs_without_the_session_and_installs() {
+    let api = MockApi::start();
+    let mut fixture = TestEnv::memory(Some(api.base.clone()));
+    let (_server, url) = server(&mut fixture);
+    fixture.runtime.block_on(async {
+        let mut session = CoreSession::start().await.unwrap();
+        session
+            .sign_in(EMAIL.into(), PASSWORD.into())
+            .await
+            .unwrap();
+        let fetch = session.begin_preview(url).await.unwrap();
+        // The session is free while the download runs.
+        let fetched = fetch.run().await.unwrap();
+        assert!(!format!("{fetched:?}").contains("SECRET"));
+        let preview = session.finish_preview(fetched).await.unwrap();
+        let installed = session.install(preview.token).await.unwrap();
+        assert_eq!(installed.last().unwrap().as_core().manifest.id, "new-addon");
+    });
+}
+
+#[test]
 fn preview_limits_declared_streamed_json_shape_and_redirects() {
     let api = MockApi::start();
     let mut fixture = TestEnv::memory(Some(api.base.clone()));

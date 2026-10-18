@@ -94,7 +94,7 @@ impl Render for AppShell {
                                 a: 1.0,
                             }
                         } else {
-                            gpui::black().into()
+                            self.theme.ink
                         },
                         background: if band_route || film {
                             self.header_background()
@@ -204,9 +204,13 @@ impl Render for AppShell {
                         let x = f32::from(event.position.x);
                         let y = f32::from(event.position.y)
                             - if window.is_fullscreen() { 0.0 } else { 32.0 };
+                        let popup = crate::account_menu::height(matches!(
+                            shell.state.read(cx).account,
+                            Account::SignedIn(_)
+                        ));
                         let in_popup = x >= width - inset - 192.0
                             && x <= width - inset
-                            && (68.0..=132.0).contains(&y);
+                            && (68.0..=68.0 + popup).contains(&y);
                         let in_trigger = x >= width - inset - 40.0
                             && x <= width - inset
                             && (20.0..=60.0).contains(&y);
