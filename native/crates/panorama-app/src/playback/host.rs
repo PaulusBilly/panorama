@@ -18,6 +18,8 @@ pub enum Command {
         selection: Box<PlaybackSelection>,
     },
     SwitchSource(SourceRef),
+    /// Replace the addon groups while Film still delivers sources.
+    Groups(Vec<panorama_core::addons::StreamGroup>),
     Retry,
     SetPaused(bool),
     TogglePause,
@@ -114,6 +116,8 @@ struct Runner {
     position: f64,
     begun: bool,
     last_presence: Option<Instant>,
+    last_link: Option<Instant>,
+    link_interval: Duration,
     origin: Instant,
 }
 
@@ -123,6 +127,7 @@ impl Runner {
         progress: Arc<dyn ProgressSink>,
         events: mpsc::UnboundedSender<HostEvent>,
     ) -> Self {
+        let link_interval = backend.link_interval();
         Self {
             backend,
             progress,
@@ -139,6 +144,8 @@ impl Runner {
             position: 0.0,
             begun: false,
             last_presence: None,
+            last_link: None,
+            link_interval,
             origin: Instant::now(),
         }
     }
@@ -263,6 +270,11 @@ impl Runner {
                     }
                     selection.start = StartMode::Resume(self.position);
                     self.start(selection, self.window.clone(), true).await;
+                }
+            }
+            Command::Groups(groups) => {
+                if let Some(selection) = &mut self.selection {
+                    selection.groups = groups;
                 }
             }
             Command::Retry => {

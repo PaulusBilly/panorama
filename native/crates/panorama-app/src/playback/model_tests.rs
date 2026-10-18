@@ -246,3 +246,75 @@ fn keep_open_eof_rearms_after_false_and_replay_clears_ended() {
     model.apply(HostEvent::Mpv(PlayerEvent::EofReached(true)));
     assert_eq!(model.status, Status::Ended);
 }
+
+fn playing_model() -> PlaybackModel {
+    let mut model = PlaybackModel::new("Film".into(), SourceRef::default());
+    model.apply(HostEvent::Loading);
+    for time in [1.0, 2.0, 3.0] {
+        model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(time))));
+    }
+    model
+}
+
+#[test]
+fn a_seek_induced_cache_pause_is_not_a_rebuffer() {
+    let mut model = playing_model();
+    model.apply(HostEvent::Seeked(600.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(false)));
+    assert_eq!(model.rebuffers, 0);
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(601.0))));
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+    assert_eq!(model.rebuffers, 1);
+}
+
+#[test]
+fn the_first_buffering_of_a_switched_source_is_not_a_rebuffer() {
+    let mut model = playing_model();
+    model.apply(HostEvent::Resolving);
+    model.apply(HostEvent::Loading);
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(false)));
+    assert_eq!(model.rebuffers, 0);
+}
+
+#[test]
+fn a_real_mid_play_stall_is_a_rebuffer_but_not_while_paused() {
+    let mut model = playing_model();
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+    assert_eq!(model.rebuffers, 1);
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(false)));
+    model.apply(HostEvent::Mpv(PlayerEvent::Pause(true)));
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+    assert_eq!(model.rebuffers, 1);
+}
+
+#[test]
+fn rebuffers_count_stalls_after_the_first_playable_frame() {
+    let mut model = PlaybackModel::new("Film".into(), SourceRef::default());
+    model.apply(HostEvent::Loading);
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+    assert_eq!(model.rebuffers, 0);
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(false)));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(3.0))));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(4.0))));
+    for _ in 0..2 {
+        model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+        model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+        model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(false)));
+    }
+    assert_eq!(model.rebuffers, 2);
+    model.apply(HostEvent::Mpv(PlayerEvent::DemuxerCacheState(
+        panorama_mpv::CacheState {
+            buffered_seconds: Some(4.5),
+            cache_end_seconds: Some(9.0),
+            ..Default::default()
+        },
+    )));
+    assert_eq!(
+        (model.cache_seconds, model.buffered_until),
+        (Some(4.5), Some(9.0))
+    );
+    model.apply(HostEvent::Resolving);
+    assert_eq!((model.rebuffers, model.cache_seconds), (0, None));
+}

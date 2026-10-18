@@ -7,9 +7,11 @@ pub struct ShellPlayerState {
 }
 
 impl ShellPlayerState {
-    pub fn update(state: &mut Option<Self>, model: &PlaybackModel) -> bool {
+    pub fn update(state: &mut Option<Self>, model: &PlaybackModel, ui_settled: bool) -> bool {
         let next = Self {
-            capture_ready: model.has_reached_playable && model.time.is_some_and(|time| time >= 1.0),
+            capture_ready: ui_settled
+                && model.has_reached_playable
+                && model.time.is_some_and(|time| time >= 1.0),
             fullscreen: model.fullscreen,
         };
         if state.as_ref() == Some(&next) {
@@ -31,12 +33,12 @@ mod tests {
         let mut model = PlaybackModel::new("Film".into(), SourceRef::default());
         let mut state = None;
         model.apply(HostEvent::Loading);
-        assert!(ShellPlayerState::update(&mut state, &model));
+        assert!(ShellPlayerState::update(&mut state, &model, true));
         model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(1.0))));
-        assert!(ShellPlayerState::update(&mut state, &model));
+        assert!(ShellPlayerState::update(&mut state, &model, true));
         for seconds in [1.1, 2.0, 60.0] {
             model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(seconds))));
-            assert!(!ShellPlayerState::update(&mut state, &model));
+            assert!(!ShellPlayerState::update(&mut state, &model, true));
         }
         model.apply(HostEvent::Volume(50));
         model.apply(HostEvent::Muted(true));
@@ -48,9 +50,9 @@ mod tests {
             codec: None,
             selected: true,
         });
-        assert!(!ShellPlayerState::update(&mut state, &model));
+        assert!(!ShellPlayerState::update(&mut state, &model, true));
         model.fullscreen = true;
-        assert!(ShellPlayerState::update(&mut state, &model));
-        assert!(!ShellPlayerState::update(&mut state, &model));
+        assert!(ShellPlayerState::update(&mut state, &model, true));
+        assert!(!ShellPlayerState::update(&mut state, &model, true));
     }
 }

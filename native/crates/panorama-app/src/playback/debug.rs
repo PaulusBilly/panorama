@@ -1,6 +1,6 @@
 use super::selection::{PlaybackSelection, SourceRef, StartMode};
 use crate::args::Args;
-use panorama_core::addons::{StreamState, StreamsEvent};
+use panorama_core::addons::StreamState;
 
 pub fn selection(id: &str, args: &Args) -> Option<PlaybackSelection> {
     if !args.fixtures {
@@ -12,9 +12,7 @@ pub fn selection(id: &str, args: &Args) -> Option<PlaybackSelection> {
     if args.play_file.is_some() || args.play_torrent {
         film.name = "Big Buck Bunny".into();
     }
-    let StreamsEvent::Groups(mut groups) = crate::fixtures::streams(false) else {
-        return None;
-    };
+    let mut groups = crate::fixtures::player_groups();
     if let StreamState::Ready(streams) = &mut groups.first_mut()?.state {
         let value = if args.play_torrent {
             serde_json::json!({

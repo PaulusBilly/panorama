@@ -125,27 +125,35 @@ impl Playback for NativePlayback {
         events
     }
 
-    fn cache(&self, cache: &CacheState, now_ms: u64, duration: Option<f64>) {
-        if let Transport::Http(session) = &self.transport {
-            let stats = session.stats();
-            session.set_read_ahead(BufferingSample {
-                now_ms,
-                buffered_seconds: cache.buffered_seconds,
-                source_mbps: stats
-                    .size_bytes
-                    .zip(duration)
-                    .filter(|(_, duration)| *duration > 0.0)
-                    .map(|(bytes, duration)| bytes as f64 * 8.0 / duration / 1_000_000.0),
-                download_mbps: stats.download_mbps.or(cache
-                    .input_bytes_per_second
-                    .map(|rate| rate * 8.0 / 1_000_000.0)),
-                transfer_demanded: stats.transfer_demanded,
-                buffering: cache.buffering,
-                paused: cache.paused,
-                playback_speed: cache.playback_speed,
-                throttled: stats.parallel == 0,
-            });
-        }
+    fn cache(&self, cache: &CacheState, now_ms: u64, duration: Option<f64>) -> Option<LinkHealth> {
+        let Transport::Http(session) = &self.transport else {
+            return None;
+        };
+        let stats = session.stats();
+        let source_mbps = stats
+            .size_bytes
+            .zip(duration)
+            .filter(|(_, duration)| *duration > 0.0)
+            .map(|(bytes, duration)| bytes as f64 * 8.0 / duration / 1_000_000.0);
+        let download_mbps = stats.download_mbps.or(cache
+            .input_bytes_per_second
+            .map(|rate| rate * 8.0 / 1_000_000.0));
+        session.set_read_ahead(BufferingSample {
+            now_ms,
+            buffered_seconds: cache.buffered_seconds,
+            source_mbps,
+            download_mbps,
+            transfer_demanded: stats.transfer_demanded,
+            buffering: cache.buffering,
+            paused: cache.paused,
+            playback_speed: cache.playback_speed,
+            throttled: stats.parallel == 0,
+        });
+        Some(LinkHealth {
+            source_mbps,
+            download_mbps,
+            transfer_demanded: Some(stats.transfer_demanded),
+        })
     }
 
     fn error(&self) -> Option<PlaybackError> {

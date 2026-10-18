@@ -96,6 +96,10 @@ pub struct PlaybackModel {
     pub volume: u8,
     pub muted: bool,
     pub buffered_until: Option<f64>,
+    /// Media buffered ahead of the playhead (`demuxer-cache-duration`).
+    pub cache_seconds: Option<f64>,
+    /// Stalls after playback first became playable.
+    pub rebuffers: u32,
     pub audio: Vec<Track>,
     pub subtitles: Vec<Track>,
     pub source: SourceRef,
@@ -103,6 +107,10 @@ pub struct PlaybackModel {
     pub fullscreen: bool,
     known_file: bool,
     eof_reached: bool,
+    /// This load has advanced its position at least once.
+    moved: bool,
+    /// Where the last seek landed, until playback moves on after it.
+    seek_from: Option<f64>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -116,6 +124,7 @@ pub enum HostEvent {
     Volume(u8),
     Muted(bool),
     Seeked(f64),
+    Link(super::health::LinkHealth),
 }
 
 impl std::fmt::Debug for HostEvent {
@@ -133,6 +142,7 @@ impl std::fmt::Debug for HostEvent {
             Self::Volume(volume) => f.debug_tuple("Volume").field(volume).finish(),
             Self::Muted(muted) => f.debug_tuple("Muted").field(muted).finish(),
             Self::Seeked(seconds) => f.debug_tuple("Seeked").field(seconds).finish(),
+            Self::Link(_) => f.write_str("Link"),
         }
     }
 }
@@ -149,6 +159,8 @@ impl PlaybackModel {
             volume: 100,
             muted: false,
             buffered_until: None,
+            cache_seconds: None,
+            rebuffers: 0,
             audio: vec![],
             subtitles: vec![],
             source,
@@ -156,6 +168,8 @@ impl PlaybackModel {
             fullscreen: false,
             known_file: false,
             eof_reached: false,
+            moved: false,
+            seek_from: None,
         }
     }
 
@@ -169,6 +183,10 @@ impl PlaybackModel {
                 self.time = None;
                 self.duration = None;
                 self.buffered_until = None;
+                self.cache_seconds = None;
+                self.rebuffers = 0;
+                self.moved = false;
+                self.seek_from = None;
                 self.audio.clear();
                 self.subtitles.clear();
                 self.hwdec = None;
@@ -188,12 +206,14 @@ impl PlaybackModel {
             HostEvent::Volume(volume) => self.volume = volume.min(100),
             HostEvent::Muted(muted) => self.muted = muted,
             HostEvent::Seeked(seconds) => {
+                self.seek_from = Some(seconds);
                 self.time = finite(Some(seconds));
                 if self.known_file && self.time.is_some() && self.status == Status::Ended {
                     self.status = Status::Ready;
                 }
             }
             HostEvent::Mpv(event) => self.mpv(event),
+            HostEvent::Link(_) => {}
         }
         self.has_reached_playable |= matches!(
             self.status,
@@ -205,7 +225,16 @@ impl PlaybackModel {
         let live = self.known_file && !matches!(self.status, Status::Idle | Status::Error(_));
         match event {
             PlayerEvent::TimePos(value) => {
-                self.time = finite(value);
+                let value = finite(value);
+                if let (Some(before), Some(now)) = (self.time, value) {
+                    if now != before {
+                        self.moved = true;
+                    }
+                    if self.seek_from.is_some_and(|from| now > from + 0.25) {
+                        self.seek_from = None;
+                    }
+                }
+                self.time = value;
                 if live && self.time.is_some() && matches!(self.status, Status::Preparing(_)) {
                     self.status = Status::Ready;
                 }
@@ -224,13 +253,24 @@ impl PlaybackModel {
                 if live && !matches!(self.status, Status::Ended) =>
             {
                 if buffering {
+                    // A stall is a cache pause while playing: not before this load has
+                    // moved, not while a seek settles, not while the user has paused.
+                    if self.has_reached_playable
+                        && self.moved
+                        && self.seek_from.is_none()
+                        && !self.paused
+                        && self.status != Status::Buffering
+                    {
+                        self.rebuffers = self.rebuffers.saturating_add(1);
+                    }
                     self.status = Status::Buffering;
                 } else if self.has_reached_playable {
                     self.status = Status::Ready;
                 }
             }
             PlayerEvent::DemuxerCacheState(cache) => {
-                self.buffered_until = finite(cache.cache_end_seconds)
+                self.buffered_until = finite(cache.cache_end_seconds);
+                self.cache_seconds = finite(cache.buffered_seconds);
             }
             PlayerEvent::HwdecCurrent(value) => self.hwdec = value,
             PlayerEvent::TrackList(tracks) => {

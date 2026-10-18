@@ -824,3 +824,22 @@ Playback close measures mpv stop, transport close and actual player teardown;
 whole-window exit additionally includes proxy/torrent-engine shutdown.
 The initial HTTP candidate refused requests; the successful HTTPS probe used
 the host listed above. Media was used in place, never copied into this worktree.
+
+## Player controls and panels (PR 3.3b)
+
+`routes/player/` adds, on top of the 3.3a frame: `chrome.rs` (auto-hide state
+machine: 3 s idle timer, pins for keyboard focus, open panel, pause and any
+non-Ready status, timer restart on release), `range.rs` + `range_view.rs` (shared
+seek/volume range: geometry, scrub preview/commit/cancel, painting), `panel.rs`
+(open/switch/close, outside-press swallowing, radio row navigation),
+`panel_motion.rs` + `panel_view.rs` (one surface, measured page switch, sticky
+section labels), `content.rs` (Audio and Sources rows, tags, disabled rules),
+`controls.rs` (top and bottom bars), `widgets.rs` (icon buttons, pills, focus
+handles), `input.rs` (pointer layer, keys, panel actions), `measure.rs` (bounds
+read back from the previous frame), `time.rs`. `playback/health.rs` ports
+`usePlaybackHealth`; the host emits `HostEvent::Link` at most once a second from the
+proxy stats, and `Command::Groups` keeps its source list in step with Film
+(`AppState::streams`). Capture flags: `--open-panel audio|sources`,
+`--hover-seek`, `--fullscreen`, `--player-state waiting|heavy`; `--player-state`
+without `--screenshot` opens the fixture player live. `--size` accepts 480x400 and
+up in capture mode (no minimum window size there) for the 540 px capture.

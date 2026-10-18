@@ -52,6 +52,8 @@ pub struct AppState {
     pub images: gpui::Entity<crate::image_cache::ImageCache>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
+    /// Stream groups for a film; Film keeps this current so an open Player follows late addons.
+    pub streams: Option<(String, Arc<Vec<panorama_core::addons::StreamGroup>>)>,
     /// Source selected by Film for the next Player mount.
     pub playback: Option<crate::playback::selection::PlaybackSelection>,
     pub closing: bool,
@@ -80,6 +82,7 @@ impl AppState {
         let mut state = Self {
             images,
             film_preview: None,
+            streams: None,
             playback: None,
             playback_host: None,
             player: None,

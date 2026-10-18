@@ -213,7 +213,7 @@ impl Render for AppShell {
                     cx.stop_propagation();
                 }
                 if let Route::Player { id } = shell.history.current()
-                    && let Some(action) = shell
+                    && let Some(player) = shell
                         .presence
                         .iter()
                         .find(|presence| !presence.exiting)
@@ -225,27 +225,23 @@ impl Render for AppShell {
                                 .downcast::<routes::player::Player>()
                                 .ok()
                         })
-                        .and_then(|player| player.read(cx).key_action(event))
                 {
-                    match action {
-                        crate::routes::player::keyboard::KeyAction::Close => {
-                            let id = id.clone();
-                            if let Some(host) = &shell.state.read(cx).playback_host {
-                                host.send(crate::playback::host::Command::Stop);
-                            }
-                            if window.is_fullscreen() {
-                                window.toggle_fullscreen();
-                            }
-                            shell.back_to_film(id, window, cx);
+                    let id = id.clone();
+                    let action = player.update(cx, |player, cx| player.key_down(event, window, cx));
+                    let handled = action.is_some();
+                    if let Some(crate::routes::player::keyboard::KeyAction::Close) = action {
+                        if let Some(host) = &shell.state.read(cx).playback_host {
+                            host.send(crate::playback::host::Command::Stop);
                         }
-                        crate::routes::player::keyboard::KeyAction::Command(command) => {
-                            if let Some(host) = &shell.state.read(cx).playback_host {
-                                host.send(command);
-                            }
+                        if window.is_fullscreen() {
+                            window.toggle_fullscreen();
                         }
+                        shell.back_to_film(id, window, cx);
                     }
-                    window.prevent_default();
-                    cx.stop_propagation();
+                    if handled {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    }
                 }
                 shell.keyboard_navigation = true;
                 cx.notify();
