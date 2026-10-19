@@ -114,3 +114,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Windows shell caches created when a tool runs with %SystemDrive% unexpanded
+/%SystemDrive%/
