@@ -105,8 +105,8 @@ pub struct Player {
     ui_settled: bool,
     launched: Instant,
     rect: Option<SurfaceRect>,
-    #[cfg(windows)]
-    surface: Option<panorama_mpv::win32::VideoSurface>,
+    #[cfg(any(windows, target_os = "macos"))]
+    surface: Option<panorama_mpv::VideoSurface>,
     events: Option<Task<()>>,
     bounds: Option<Subscription>,
     blur: Option<Subscription>,
@@ -205,7 +205,7 @@ impl Player {
             ui_settled: false,
             launched: now,
             rect: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             surface: None,
             events: None,
             bounds: None,
@@ -336,8 +336,8 @@ impl Player {
                 }
             }));
         }
-        #[cfg(windows)]
-        match panorama_mpv::win32::VideoSurface::from_window(window) {
+        #[cfg(any(windows, target_os = "macos"))]
+        match panorama_mpv::VideoSurface::from_window(window) {
             Ok(surface) => {
                 let raw = surface.raw_window();
                 self.surface = Some(surface);
@@ -352,7 +352,7 @@ impl Player {
             }
             Err(_) => self.model.apply(HostEvent::Failed(PlaybackError::Unknown)),
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         self.model
             .apply(HostEvent::Failed(PlaybackError::LibraryMissing));
         self.bounds = Some(cx.observe_window_bounds(window, |player, window, cx| {
@@ -380,10 +380,12 @@ impl Player {
             window.scale_factor(),
             self.model.fullscreen,
         );
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         if let Some(surface) = &self.surface {
-            if self.rect != Some(rect) {
-                let _ = surface.set_bounds(panorama_mpv::win32::PhysicalRect {
+            // On macOS this also refreshes the display's refresh rate and HDR headroom,
+            // which change when the window moves to another screen at the same size.
+            if self.rect != Some(rect) || cfg!(target_os = "macos") {
+                let _ = surface.set_bounds(panorama_mpv::PhysicalRect {
                     x: rect.x,
                     y: rect.y,
                     width: rect.width,
@@ -424,7 +426,7 @@ impl Player {
         self.ui.select = None;
         self.ui.color_open = false;
         self.send(Command::Stop, cx);
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         if let Some(surface) = self.surface.take() {
             surface.hide();
         }

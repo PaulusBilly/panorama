@@ -53,7 +53,8 @@ mpv host (PR 3.1):
   playback tests' generated media.
 - `objc2` (=0.6.5), `objc2-app-kit`, `objc2-foundation`, `objc2-quartz-core` (=0.3.2,
   defaults off, macOS only): the video `NSView` and `CAMetalLayer`. GPUI already
-  resolves these versions.
+  resolves these versions; `panorama-app` uses `objc2-app-kit` for the window number
+  that `--screenshot` captures.
 
 Media proxy (PR 3.2):
 
@@ -1009,6 +1010,38 @@ lives in `catalog_switcher.rs` and `routes/home_catalog.rs`. Addon URLs are neve
 logged; manifest text is shown as plain text and length-capped. Fixture flags:
 `--addons-preview`, `--addons-confirm-remove`, `--addons-error`,
 `--open-catalog-menu`, `--signed-out`.
+
+## Playback on macOS
+
+macOS uses the Electron app's patched libmpv: `gpu-next` renders through MoltenVK
+into a `CAMetalLayer` that mpv reaches through `wid` and the `panorama-macvk` GPU
+context, and VideoToolbox decodes with zero-copy interop. The layer's view sits
+below GPUI's view in the window's content view, so the player route's transparent
+frame shows video beneath the controls. `options.rs` matches `addon.mm` and a test
+fails if the two drift.
+
+Build the runtime once (Apple Silicon; needs `cmake`, `ninja`,
+`nasm` and `pkg-config` from Homebrew), then stage it for development:
+
+```sh
+python3 desktop/scripts/build-macos-libmpv.py
+native/scripts/stage-macos-libmpv.sh
+cd native
+PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo test -p panorama-mpv
+PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo run -p panorama-app -- \
+  --screenshot player:tmdb:100 /tmp/player-video.png --play-file <absolute-media-path>
+```
+
+The stage script thins the dylibs to arm64 and rewrites their install names to
+`@loader_path`. `--screenshot` captures the window with `screencapture -l`, which
+includes the video layer. Without `PANORAMA_LIBMPV_DIR`, the app looks in its
+bundle's `Contents/Frameworks`, then beside the executable.
+
+## Packaging (macOS)
+
+`native/scripts/package-macos.sh` builds `Panorama.app` with libmpv and MoltenVK
+in `Contents/Frameworks` and their licences in `Contents/Resources/licenses/libmpv`,
+then signs it ad hoc. Build the runtime first, as above.
 
 ## Packaging (Windows)
 

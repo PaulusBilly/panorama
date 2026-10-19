@@ -1,4 +1,4 @@
-//! Windows desktop capture isolated from the UI thread.
+//! Windows and macOS desktop capture isolated from the UI thread.
 use gpui::{Context, Window};
 use std::{path::PathBuf, sync::mpsc::Sender};
 
@@ -46,14 +46,42 @@ fn window_handle(window: &Window) -> Result<usize, String> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-fn window_handle(_: &Window) -> Result<usize, String> {
-    Err("--screenshot desktop capture is implemented only on Windows".into())
+/// The `NSWindow` number, which `screencapture -l` accepts as a window ID.
+#[cfg(target_os = "macos")]
+fn window_handle(window: &Window) -> Result<usize, String> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let handle = HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return Err("Desktop capture requires an AppKit view".into());
+    };
+    // SAFETY: AppKit handles carry GPUI's live NSView; this runs on the main thread.
+    let view = unsafe { handle.ns_view.cast::<objc2_app_kit::NSView>().as_ref() };
+    let window = view.window().ok_or("The view has no window")?;
+    usize::try_from(window.windowNumber()).map_err(|error| error.to_string())
 }
 
-#[cfg(not(target_os = "windows"))]
+/// Captures the window's content including the mpv layer composited beneath GPUI.
+#[cfg(target_os = "macos")]
+fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
+    let status = std::process::Command::new("screencapture")
+        .args(["-x", "-o", "-l", &handle.to_string()])
+        .arg(path)
+        .status()
+        .map_err(|error| error.to_string())?;
+    status
+        .success()
+        .then_some(())
+        .ok_or_else(|| format!("screencapture failed: {status}"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn window_handle(_: &Window) -> Result<usize, String> {
+    Err("--screenshot desktop capture is implemented only on Windows and macOS".into())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn capture(_: usize, _: &std::path::Path) -> Result<(), String> {
-    Err("--screenshot desktop capture is implemented only on Windows".into())
+    Err("--screenshot desktop capture is implemented only on Windows and macOS".into())
 }
 
 #[cfg(target_os = "windows")]
