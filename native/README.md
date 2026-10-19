@@ -467,9 +467,13 @@ Public entrypoints are `TorrentSource::from_stream`, `TorrentEngine::new`,
 `TorrentStream::close().await`, and `TorrentEngine::shutdown().await`.
 `new` is synchronous and performs no I/O; options are validated at `open`.
 Invoke the asynchronous lifecycle methods on a Tokio runtime.
-`TorrentOptions { cache_dir, ..Default::default() }` sets a dedicated **initially
-absent** directory whose parent exists. Existing directories are refused and
-never deleted. The engine owns this directory until shutdown or idle teardown.
+`TorrentOptions { cache_dir, ..Default::default() }` sets a cache **root** whose
+parent exists. The root is created or reopened without following links (a
+symlink, junction or reparse point is refused). Each launch creates a fresh
+random-token child under it, which is the engine-owned cache; at start the engine
+best-effort sweeps other token-named children left by crashed launches (a live
+instance's files stay open, so they survive on Windows) and never touches other
+entries. Shutdown or idle teardown removes the child, and the root if empty.
 Defaults are 10 GiB of allocated cache data, five minutes idle, 45 seconds for
 metadata/initialization, 60 seconds for first payload, and 1 MiB/s upload.
 The metadata and first-payload deadlines share the public open's origin,

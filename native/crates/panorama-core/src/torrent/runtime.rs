@@ -137,7 +137,7 @@ impl Host {
                     .build()
                     .map_err(|_| TorrentError::Engine)?;
                 let result = runtime.block_on(async {
-                    let directory = Arc::new(OwnedDir::create(&options.cache_dir)?);
+                    let directory = Arc::new(OwnedDir::create_session(&options.cache_dir)?);
                     let mut options = options;
                     options.cache_dir = directory.path.clone();
                     let setup = async {

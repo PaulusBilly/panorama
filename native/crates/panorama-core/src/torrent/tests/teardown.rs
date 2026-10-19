@@ -1,3 +1,4 @@
+use super::super::runtime::{Host, Network};
 use super::super::*;
 use super::fixture::Swarm;
 use std::sync::{
@@ -162,4 +163,87 @@ async fn library_runtime_and_blocking_threads_suppress_private_tracker_tracing()
     assert!(!captured.load(Ordering::Acquire));
     stream.close().await.unwrap();
     swarm.seeder.stop().await;
+}
+
+// Host::start only binds a loopback listener; no librqbit session (and so no
+// DHT) exists until a torrent is opened, so these are safe to run by default.
+fn host_options(root: &std::path::Path) -> TorrentOptions {
+    TorrentOptions {
+        cache_dir: root.to_path_buf(),
+        ..Default::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn start_sweeps_a_crashed_launch_and_keeps_foreign_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("cache");
+    let stale = root.join("0123456789abcdef");
+    std::fs::create_dir_all(stale.join("nested")).unwrap();
+    std::fs::write(stale.join("junk"), b"junk").unwrap();
+    std::fs::write(stale.join("nested").join("junk"), b"junk").unwrap();
+    let foreign = root.join("not-a-token");
+    std::fs::create_dir(&foreign).unwrap();
+    std::fs::write(foreign.join("sentinel"), b"keep").unwrap();
+    let starts = Mutex::new(Vec::new());
+    let host = Host::start(host_options(&root), Network::default(), &starts)
+        .await
+        .unwrap();
+    assert!(!stale.exists());
+    assert_eq!(std::fs::read(foreign.join("sentinel")).unwrap(), b"keep");
+    let child = host.shared.directory.path.clone();
+    assert_eq!(child.parent().unwrap(), root);
+    assert!(child.is_dir());
+    host.shutdown().await.unwrap();
+    assert!(!child.exists());
+    assert!(foreign.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_hosts_share_a_root_with_distinct_children() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("cache");
+    let starts = Mutex::new(Vec::new());
+    let first = Host::start(host_options(&root), Network::default(), &starts)
+        .await
+        .unwrap();
+    let second = Host::start(host_options(&root), Network::default(), &starts)
+        .await
+        .unwrap();
+    let a = first.shared.directory.path.clone();
+    let b = second.shared.directory.path.clone();
+    assert_ne!(a, b);
+    first.shutdown().await.unwrap();
+    assert!(!a.exists());
+    second.shutdown().await.unwrap();
+    assert!(!b.exists());
+    assert!(!root.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn start_rejects_a_linked_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("external");
+    std::fs::create_dir(&target).unwrap();
+    let root = dir.path().join("cache");
+    #[cfg(windows)]
+    assert!(
+        std::process::Command::new("cmd.exe")
+            .args(["/c", "mklink", "/J"])
+            .arg(&root)
+            .arg(&target)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&target, &root).unwrap();
+    let starts = Mutex::new(Vec::new());
+    assert!(
+        Host::start(host_options(&root), Network::default(), &starts)
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
 }
