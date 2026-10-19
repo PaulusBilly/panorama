@@ -21,7 +21,7 @@ use std::{
 };
 
 /// Cache and network settings; constructing an engine performs no I/O.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TorrentOptions {
     /// Dedicated, initially absent directory owned and removed by this engine.
     pub cache_dir: PathBuf,
@@ -38,6 +38,24 @@ pub struct TorrentOptions {
     pub upload_limit_bytes_per_sec: Option<u64>,
     /// Optional incoming TCP port (0 chooses a port); UPnP is always disabled.
     pub listen_port: Option<u16>,
+}
+
+impl fmt::Debug for TorrentOptions {
+    /// Redacts the cache path.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TorrentOptions")
+            .field("cache_dir", &format_args!("<redacted>"))
+            .field("max_cache_bytes", &self.max_cache_bytes)
+            .field("idle_stop_after", &self.idle_stop_after)
+            .field("metadata_timeout", &self.metadata_timeout)
+            .field("no_peers_timeout", &self.no_peers_timeout)
+            .field(
+                "upload_limit_bytes_per_sec",
+                &self.upload_limit_bytes_per_sec,
+            )
+            .field("listen_port", &self.listen_port)
+            .finish()
+    }
 }
 
 impl Default for TorrentOptions {

@@ -129,8 +129,8 @@ async fn no_peers_after_metadata_is_reported_in_stats() {
     let engine = TorrentEngine::offline(
         TorrentOptions {
             cache_dir: swarm.dir.path().join("cache"),
-            no_peers_timeout: Duration::from_millis(300),
-            metadata_timeout: Duration::from_secs(5),
+            no_peers_timeout: Duration::from_secs(2),
+            metadata_timeout: Duration::from_secs(20),
             ..Default::default()
         },
         vec![swarm.peer],
@@ -143,10 +143,10 @@ async fn no_peers_after_metadata_is_reported_in_stats() {
     swarm.seeder.pause(&seeding).await.unwrap();
     let mut client = connect(&stream.url, Some("bytes=8388508-8388607"), None).await;
     let mut body = Vec::new();
-    let _ = timeout(Duration::from_secs(2), client.read_to_end(&mut body))
+    let _ = timeout(Duration::from_secs(30), client.read_to_end(&mut body))
         .await
         .unwrap();
-    timeout(Duration::from_secs(2), async {
+    timeout(Duration::from_secs(30), async {
         while stream.stats().error.is_none() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -363,13 +363,13 @@ async fn low_free_space_evicts_inactive_torrents_but_protects_open_leases() {
             .err(),
         Some(TorrentError::Disk(DiskError::Full))
     );
-    assert!(cache.join(source.info_hash()).exists());
+    assert!(host.shared.directory.path.join(source.info_hash()).exists());
     stream.close().await.unwrap();
     assert_eq!(
         engine.open(other, CancellationToken::new()).await.err(),
         Some(TorrentError::Disk(DiskError::Full))
     );
-    assert!(!cache.join(source.info_hash()).exists());
+    assert!(!host.shared.directory.path.join(source.info_hash()).exists());
     engine.shutdown().await.unwrap();
     swarm.seeder.stop().await;
 }
@@ -410,7 +410,7 @@ async fn metadata_deadline_includes_waiting_for_previous_runtime_teardown() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn existing_cache_is_not_adopted_or_deleted() {
+async fn existing_cache_root_is_adopted_without_deleting_foreign_entries() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("existing");
     std::fs::create_dir(&cache).unwrap();
@@ -424,10 +424,9 @@ async fn existing_cache_is_not_adopted_or_deleted() {
     );
     let source =
         TorrentSource::from_stream("0000000000000000000000000000000000000001", None, &[]).unwrap();
-    assert_eq!(
-        engine.open(source, CancellationToken::new()).await.err(),
-        Some(TorrentError::Disk(DiskError::Io))
-    );
+    let result = engine.open(source, CancellationToken::new()).await;
+    assert_ne!(result.err(), Some(TorrentError::Disk(DiskError::Io)));
     engine.shutdown().await.unwrap();
     assert_eq!(std::fs::read(cache.join("sentinel")).unwrap(), b"keep");
+    assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 1);
 }

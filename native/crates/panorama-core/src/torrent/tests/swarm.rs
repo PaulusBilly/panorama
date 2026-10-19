@@ -134,10 +134,11 @@ async fn inactive_lru_eviction_protects_open_streams_and_removes_cache() {
         engine.open(c.clone(), CancellationToken::new()).await.err(),
         Some(TorrentError::Disk(DiskError::Full))
     );
-    assert!(cache.join(a.info_hash()).exists());
+    let live = engine.host_for_test().await.shared.directory.path.clone();
+    assert!(live.join(a.info_hash()).exists());
     first.close().await.unwrap();
     let third = engine.open(c, CancellationToken::new()).await.unwrap();
-    assert!(!cache.join(a.info_hash()).exists());
+    assert!(!live.join(a.info_hash()).exists());
     assert_eq!(
         get(&second.url, Some("bytes=0-99"), None).await.2,
         data_b[..100]
