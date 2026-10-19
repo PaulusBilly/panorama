@@ -57,6 +57,7 @@ impl Render for Player {
             },
         );
         self.shown = shown;
+        self.sync_pointer(shown, window, cx);
         self.chrome_fade.retarget(
             if shown.top { 1.0 } else { 0.0 },
             DURATION_FAST,

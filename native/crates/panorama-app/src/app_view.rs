@@ -203,6 +203,12 @@ impl Render for AppShell {
             })
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(|shell, event: &KeyDownEvent, window, cx| {
+                if crate::routes::player::pointer::is_sentinel(event) {
+                    // The idle-pointer hide key: consumed here, seen by nothing else.
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    return;
+                }
                 if shell.login.is_none()
                     && event.keystroke.key == "escape"
                     && (shell.search.open
