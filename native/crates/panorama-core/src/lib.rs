@@ -1,4 +1,5 @@
 pub mod store;
+pub mod stremio;
 
 pub const APP_NAME: &str = "Panorama";
 

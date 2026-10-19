@@ -262,15 +262,15 @@ impl Store {
             [],
         )?;
         transaction.commit()?;
-        let busy: i64 =
-            connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
-        if busy != 0 {
-            return Err(StoreError::CheckpointBusy);
-        }
+        checkpoint(&connection)?;
         if let Some(path) = &self.path {
             recovery::retain_newest(path, 0)?;
         }
         Ok(())
+    }
+
+    pub(crate) fn checkpoint(&self) -> Result<(), StoreError> {
+        checkpoint(&self.lock())
     }
 
     fn lock(&self) -> MutexGuard<'_, Connection> {
@@ -336,6 +336,15 @@ fn preflight(path: &Path) -> Result<(), StoreError> {
 fn configure(connection: &Connection) -> Result<(), StoreError> {
     connection.busy_timeout(Duration::from_millis(5000))?;
     connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;")?;
+    Ok(())
+}
+
+fn checkpoint(connection: &Connection) -> Result<(), StoreError> {
+    let busy: i64 =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+    if busy != 0 {
+        return Err(StoreError::CheckpointBusy);
+    }
     Ok(())
 }
 
