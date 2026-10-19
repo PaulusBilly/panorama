@@ -20,7 +20,7 @@ pub mod win32;
 pub use error::MpvError;
 #[cfg(target_os = "macos")]
 pub use macos::VideoSurface;
-pub use player::{Mpv, MpvLibrary, Player};
+pub use player::{EXTRA_OPTIONS, Mpv, MpvLibrary, Player};
 pub use subtitle::SubtitleStyle;
 pub use types::*;
 #[cfg(windows)]

@@ -59,7 +59,9 @@ impl MpvLibrary {
     /// `Ready` confirms initialization. Commands may be queued before readiness.
     pub fn create(&self, options: PlayerOptions) -> Result<Player, MpvError> {
         for (name, value) in &options.extra {
-            validate(name)?;
+            if !EXTRA_OPTIONS.contains(&name.as_str()) {
+                return Err(MpvError::InvalidArgument);
+            }
             validate(value)?;
         }
         let (commands, incoming) = mpsc::channel();
@@ -155,16 +157,17 @@ impl Player {
     }
     /// Queues a scalar property. Runtime failures arrive as sanitized `Error` events.
     pub fn set_property<T: MpvValue>(&self, name: &str, value: T) -> Result<(), MpvError> {
-        validate(name)?;
+        validate_name(name)?;
         self.send(Request::Property(name.to_owned(), value.into_mpv_value()?))
     }
     /// Queues an argv command, copied before return. Empty argv and NUL are rejected.
+    /// Pass fixed argv only: commands such as `load-config-file` can reconfigure mpv.
     pub fn command(&self, args: &[&str]) -> Result<(), MpvError> {
         if args.is_empty() {
             return Err(MpvError::InvalidArgument);
         }
         for arg in args {
-            validate(arg)?;
+            validate_name(arg)?;
         }
         self.send(Request::Command(
             args.iter().map(|s| (*s).to_owned()).collect(),
@@ -321,6 +324,31 @@ fn run(
         let _ = updates.send(PlayerEvent::Error(MpvError::Thread));
     }
     Some(client)
+}
+
+/// Options `PlayerOptions::extra` accepts. None loads configuration: an `include`d
+/// config or `config-dir` can define profiles that rewrite `wid` long after startup.
+pub const EXTRA_OPTIONS: &[&str] = &[
+    "ao",
+    "audio-files",
+    "cache-pause-wait",
+    "http-proxy",
+    "input-ipc-server",
+    "keep-open",
+    "sub-font",
+    "sub-fonts-dir",
+    "vo",
+];
+
+/// `wid` holds the leased surface's address, which mpv dereferences; a caller-chosen
+/// value would make it read arbitrary memory, so only `PlayerOptions::wid` sets it.
+fn validate_name(name: &str) -> Result<(), MpvError> {
+    let name = name.trim_start_matches("file-local-options/");
+    let name = name.trim_start_matches("options/");
+    if name == "wid" {
+        return Err(MpvError::InvalidArgument);
+    }
+    validate(name)
 }
 
 fn validate(value: &str) -> Result<(), MpvError> {

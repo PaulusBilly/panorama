@@ -103,3 +103,19 @@ fn drop_uses_the_same_nonblocking_shutdown_path() {
         PlayerEvent::Shutdown
     );
 }
+
+#[test]
+fn wid_cannot_be_overridden_after_the_surface_lease() {
+    let (player, incoming, _completed) = fake();
+    for name in ["wid", "options/wid", "file-local-options/wid"] {
+        assert_eq!(
+            player.set_property(name, 1_i64),
+            Err(MpvError::InvalidArgument)
+        );
+        assert_eq!(
+            player.command(&["set", name, "1"]),
+            Err(MpvError::InvalidArgument)
+        );
+    }
+    assert!(incoming.try_recv().is_err());
+}

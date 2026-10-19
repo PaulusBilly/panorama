@@ -45,7 +45,8 @@ pub struct PhysicalRect {
 pub struct PlayerOptions {
     /// Owned child-window lease; `None` is suitable for null-output tests.
     pub wid: Option<RawWindow>,
-    /// Explicit option overrides, in order. Values never appear in diagnostics.
+    /// Explicit option overrides, in order, from a fixed allowlist; others are rejected
+    /// as `InvalidArgument`. Values never appear in diagnostics.
     pub extra: Vec<(String, String)>,
 }
 

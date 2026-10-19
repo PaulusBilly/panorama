@@ -333,3 +333,23 @@ fn close_while_network_load_is_pending_is_bounded() {
     drop(release);
     server_thread.join().unwrap();
 }
+
+#[test]
+fn extra_options_cannot_reach_wid_or_load_configuration() {
+    let Some(directory) = std::env::var_os("PANORAMA_LIBMPV_DIR") else {
+        eprintln!("SKIPPED libmpv integration test: PANORAMA_LIBMPV_DIR is unset");
+        return;
+    };
+    let library = Mpv::load_library(Some(&PathBuf::from(directory))).unwrap();
+    for name in ["wid", "include", "config", "config-dir", "profile"] {
+        let options = PlayerOptions {
+            wid: None,
+            extra: vec![(name.into(), "1".into())],
+        };
+        assert_eq!(
+            library.create(options).err(),
+            Some(MpvError::InvalidArgument),
+            "{name}"
+        );
+    }
+}

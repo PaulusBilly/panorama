@@ -34,10 +34,7 @@ impl Playback for NativePlayback {
             .library
             .create(PlayerOptions {
                 wid: window,
-                extra: subtitle_fonts(self.fonts.as_deref())
-                    .into_iter()
-                    .chain([("cache-pause-wait".into(), "5".into())])
-                    .collect(),
+                extra: init_options(self.fonts.as_deref()),
             })
             .map_err(PlaybackError::from)?;
         self.events = Some(player.events().map_err(PlaybackError::from)?);
@@ -216,9 +213,10 @@ impl Playback for NativePlayback {
     }
 }
 
-/// Init options that make libass load the bundled faces before any subtitle renders.
-fn subtitle_fonts(dir: Option<&std::path::Path>) -> Vec<(String, String)> {
-    dir.and_then(std::path::Path::to_str)
+/// Init options, including the bundled faces libass loads before any subtitle renders.
+fn init_options(fonts: Option<&std::path::Path>) -> Vec<(String, String)> {
+    fonts
+        .and_then(std::path::Path::to_str)
         .map(|dir| {
             vec![
                 ("sub-fonts-dir".into(), dir.into()),
@@ -226,6 +224,9 @@ fn subtitle_fonts(dir: Option<&std::path::Path>) -> Vec<(String, String)> {
             ]
         })
         .unwrap_or_default()
+        .into_iter()
+        .chain([("cache-pause-wait".into(), "5".into())])
+        .collect()
 }
 
 async fn wait_for_close(
@@ -268,6 +269,21 @@ mod tests {
                 )
                 .await
                 .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn init_options_are_all_accepted_by_the_mpv_host() {
+        let names: Vec<_> = init_options(Some(std::path::Path::new("/fonts")))
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, ["sub-fonts-dir", "sub-font", "cache-pause-wait"]);
+        for name in &names {
+            assert!(
+                panorama_mpv::EXTRA_OPTIONS.contains(&name.as_str()),
+                "{name}"
             );
         }
     }
