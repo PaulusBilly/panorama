@@ -13,4 +13,5 @@ pub mod source;
 pub mod subtitle_prefs;
 pub mod subtitle_render;
 pub mod surface;
+pub mod torrent_ui;
 pub mod window;

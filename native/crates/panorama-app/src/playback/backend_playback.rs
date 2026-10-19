@@ -170,6 +170,13 @@ impl Playback for NativePlayback {
         }
     }
 
+    fn torrent(&self) -> Option<TorrentStats> {
+        match &self.transport {
+            Transport::Torrent(stream) => Some(stream.stats()),
+            _ => None,
+        }
+    }
+
     fn stop(&mut self) {
         self.close_started = Some(tokio::time::Instant::now());
         if let Some(player) = &self.player {

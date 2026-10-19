@@ -76,7 +76,7 @@ impl TorrentSource {
 impl fmt::Debug for TorrentSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TorrentSource")
-            .field("info_hash", &self.hash)
+            .field("info_hash", &"<redacted>")
             .field("file_idx", &self.file_idx)
             .field("tracker_count", &self.trackers)
             .finish()
@@ -107,4 +107,21 @@ fn normalize(hash: &str) -> Option<String> {
         }
     }
     Some(decoded.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+
+    #[test]
+    fn debug_output_never_contains_the_hash_or_trackers() {
+        let hash = "0123456789abcdef0123456789abcdef01234567";
+        let sources = vec![
+            format!("dht:{hash}"),
+            "tracker:udp://tracker.invalid:6969/secret-path".to_owned(),
+        ];
+        let source = TorrentSource::from_stream(hash, Some(1), &sources).unwrap();
+        let text = format!("{source:?} {source:#?}");
+        assert!(!text.contains(hash) && !text.contains("tracker.invalid"));
+    }
 }

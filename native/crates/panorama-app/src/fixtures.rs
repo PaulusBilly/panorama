@@ -196,6 +196,12 @@ pub fn player_groups() -> Vec<StreamGroup> {
     ]
     .into_iter()
     .flatten()
+    .chain(fixture_source(
+        serde_json::json!({"infoHash": "0123456789abcdef0123456789abcdef01234567"}),
+        "Fixture Torrent 1080p",
+        "Aftersun 1080p BluRay x265
+👤 128 💾 4.2 GB",
+    ))
     .collect();
     [
         group("fixture#0", "Fixture Streams", StreamState::Ready(sources)),

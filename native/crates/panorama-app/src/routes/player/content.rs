@@ -5,7 +5,7 @@ use crate::{
     playback::{
         model::{PlaybackModel, Status},
         selection::SourceRef,
-        source,
+        source, torrent_ui,
     },
 };
 use panorama_core::addons::{StreamGroup, StreamSource, StreamState};
@@ -234,7 +234,9 @@ fn source_row(group: usize, index: usize, stream: &StreamSource, current: Source
     let selected = key == current;
     let playable = source::resolve(stream).is_ok();
     let quality = Quality::from_source(stream);
-    let mut tags: Vec<String> = quality.video.map(str::to_owned).into_iter().collect();
+    let torrent = torrent_ui::is_torrent(stream);
+    let mut tags: Vec<String> = torrent.then(|| "Torrent".to_owned()).into_iter().collect();
+    tags.extend(quality.video.map(str::to_owned));
     if quality.surround {
         tags.push("5.1".into());
     }
@@ -246,11 +248,28 @@ fn source_row(group: usize, index: usize, stream: &StreamSource, current: Source
     Row {
         key: RowKey::Source(key),
         description: if playable {
-            stream
-                .title
-                .clone()
-                .or_else(|| stream.description.clone())
-                .filter(|description| *description != label)
+            let text = stream.title.clone().or_else(|| stream.description.clone());
+            // The count moves from the text to its own suffix, so it is not shown twice.
+            let (text, mut count) = match text {
+                Some(text) if torrent => {
+                    let (text, count) = torrent_ui::split_seeders(&text);
+                    (Some(text), count)
+                }
+                text => (text, None),
+            };
+            if torrent && count.is_none() {
+                count = stream
+                    .description
+                    .as_deref()
+                    .and_then(torrent_ui::parse_seeders);
+            }
+            let description =
+                text.filter(|description| !description.is_empty() && *description != label);
+            let seeders = count.map(torrent_ui::seeders_label);
+            match (description, seeders) {
+                (Some(description), Some(seeders)) => Some(format!("{description} · {seeders}")),
+                (description, seeders) => description.or(seeders),
+            }
         } else {
             Some("Not playable in Panorama".into())
         },

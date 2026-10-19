@@ -96,8 +96,55 @@ fn a_description_repeating_the_label_is_dropped() {
 fn tags_come_from_the_existing_quality_parser() {
     let content = sources(&fixture(), SourceRef::default());
     assert_eq!(content.sections[0].rows[0].tags, ["4K", "5.1"]);
-    assert_eq!(content.sections[0].rows[1].tags, ["HD"]);
+    assert_eq!(content.sections[0].rows[1].tags, ["Torrent", "HD"]);
     assert!(content.sections[0].rows[2].tags.is_empty());
+}
+
+#[test]
+fn torrent_rows_are_tagged_first_and_carry_the_seeders_count() {
+    let hash = "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c";
+    let groups = vec![group(
+        "Addon",
+        StreamState::Ready(vec![
+            stream(
+                serde_json::json!({"infoHash": hash}),
+                "Torrentio 4K",
+                "Movie 2160p
+👤 42 💾 9 GB",
+            ),
+            stream(
+                serde_json::json!({"infoHash": hash}),
+                "Torrentio",
+                "Movie
+Seeders: 1",
+            ),
+            stream(
+                serde_json::json!({"infoHash": hash}),
+                "Torrentio",
+                "Movie 1080p",
+            ),
+            stream(
+                serde_json::json!({"url": "https://media.invalid/a.mp4"}),
+                "Direct",
+                "Movie 👤 99",
+            ),
+        ]),
+    )];
+    let rows = &sources(&groups, SourceRef::default()).sections[0].rows;
+    assert_eq!(rows[0].tags, ["Torrent", "4K"]);
+    assert_eq!(
+        rows[0].description.as_deref(),
+        Some(
+            "Movie 2160p
+💾 9 GB · 42 seeders"
+        )
+    );
+    assert_eq!(rows[1].description.as_deref(), Some("Movie · 1 seeder"));
+    assert_eq!(rows[2].tags, ["Torrent", "HD"]);
+    assert_eq!(rows[2].description.as_deref(), Some("Movie 1080p"));
+    // Only torrents get the tag or the count.
+    assert!(rows[3].tags.is_empty());
+    assert_eq!(rows[3].description.as_deref(), Some("Movie 👤 99"));
 }
 
 #[test]

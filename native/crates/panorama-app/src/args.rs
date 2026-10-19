@@ -9,6 +9,8 @@ pub struct Args {
     pub play_file: Option<PathBuf>,
     pub play_url: Option<url::Url>,
     pub play_torrent: bool,
+    /// Debug: play this info hash instead of the Big Buck Bunny one (never logged).
+    pub torrent_hash: Option<String>,
     pub film_resume: bool,
     /// Initial destination.
     pub route: Route,
@@ -65,6 +67,7 @@ impl Args {
             play_file: None,
             play_url: None,
             play_torrent: false,
+            torrent_hash: None,
             film_resume: false,
             route: Route::Home,
             screenshot: None,
@@ -166,6 +169,16 @@ impl Args {
                     result.play_url = Some(url);
                 }
                 "--play-torrent" => result.play_torrent = true,
+                "--torrent-hash" => {
+                    let hash = args
+                        .next()
+                        .and_then(|value| value.into_string().ok())
+                        .filter(|value| {
+                            value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        })
+                        .ok_or("--torrent-hash needs 40 hex digits")?;
+                    result.torrent_hash = Some(hash.to_ascii_lowercase());
+                }
                 "--film-resume" => result.film_resume = true,
                 "--bench-scroll" => {
                     result.bench_scroll = true;
@@ -242,6 +255,9 @@ impl Args {
         if screenshot_options && result.screenshot.is_none() {
             return Err("--theme and --size require --screenshot".into());
         }
+        if result.torrent_hash.is_some() && !result.play_torrent {
+            return Err("--torrent-hash requires --play-torrent".into());
+        }
         let real_playback =
             result.play_file.is_some() || result.play_url.is_some() || result.play_torrent;
         if usize::from(result.play_file.is_some())
@@ -284,6 +300,22 @@ mod tests {
     use super::*;
     fn parse(args: &[&str]) -> Result<Args, String> {
         Args::parse(args.iter().map(OsString::from))
+    }
+    #[test]
+    fn a_torrent_hash_is_validated_and_never_echoed() {
+        let hash = "ABCDEF0123456789abcdef0123456789abcdef01";
+        let args = parse(&["--play-torrent", "--torrent-hash", hash]).unwrap();
+        assert_eq!(
+            args.torrent_hash.as_deref(),
+            Some(hash.to_lowercase().as_str())
+        );
+        assert!(!format!("{args:?}").contains("abcdef0123"));
+        for bad in ["abc", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"] {
+            let error = parse(&["--play-torrent", "--torrent-hash", bad]).unwrap_err();
+            assert!(!error.contains(bad));
+        }
+        let error = parse(&["--torrent-hash", hash]).unwrap_err();
+        assert!(!error.contains(hash));
     }
     #[test]
     fn valid_arguments() {

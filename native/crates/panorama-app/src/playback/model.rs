@@ -1,4 +1,5 @@
 pub use super::selection::SourceRef;
+pub use super::torrent_ui::TorrentHealth;
 use panorama_mpv::{EndReason, MpvError, PlayerEvent, TrackKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,6 +15,8 @@ pub enum PlaybackError {
     SourceExpired,
     NoPeers,
     NoVideoFile,
+    /// The torrent cache could not be used (disk full or unwritable).
+    TorrentCache,
     Network,
     Decode,
     Unknown,
@@ -27,6 +30,9 @@ impl PlaybackError {
             Self::SourceExpired => "This source has expired. Try another source.",
             Self::NoPeers => "No one is sharing this torrent right now. Try another source.",
             Self::NoVideoFile => "This source does not contain a video. Try another source.",
+            Self::TorrentCache => {
+                "Panorama couldn't use its torrent cache. Free some disk space or restart Panorama."
+            }
             Self::Network => "The connection dropped. Check your connection and try again.",
             Self::Decode => "This video could not be played. Try another source.",
             Self::Unknown => "Playback stopped unexpectedly. Try again.",
@@ -63,6 +69,8 @@ pub enum Status {
     Ready,
     Buffering,
     Ended,
+    /// A torrent nobody is sharing; the player offers another source or more waiting.
+    NoPeers,
     Error(PlaybackError),
 }
 
@@ -109,6 +117,8 @@ pub struct PlaybackModel {
     pub source: SourceRef,
     pub hwdec: Option<String>,
     pub fullscreen: bool,
+    /// Set from the start for a torrent source, then updated from the engine's stats.
+    pub torrent: Option<TorrentHealth>,
     known_file: bool,
     eof_reached: bool,
     /// This load has advanced its position at least once.
@@ -129,6 +139,7 @@ pub enum HostEvent {
     Muted(bool),
     Seeked(f64),
     Link(super::health::LinkHealth),
+    Torrent(TorrentHealth),
 }
 
 impl std::fmt::Debug for HostEvent {
@@ -147,6 +158,7 @@ impl std::fmt::Debug for HostEvent {
             Self::Muted(muted) => f.debug_tuple("Muted").field(muted).finish(),
             Self::Seeked(seconds) => f.debug_tuple("Seeked").field(seconds).finish(),
             Self::Link(_) => f.write_str("Link"),
+            Self::Torrent(health) => f.debug_tuple("Torrent").field(health).finish(),
         }
     }
 }
@@ -172,6 +184,7 @@ impl PlaybackModel {
             source,
             hwdec: None,
             fullscreen: false,
+            torrent: None,
             known_file: false,
             eof_reached: false,
             moved: false,
@@ -197,11 +210,13 @@ impl PlaybackModel {
                 self.subtitles.clear();
                 self.cue = None;
                 self.hwdec = None;
+                self.torrent = None;
             }
             HostEvent::Loading => {
                 self.known_file = true;
                 self.status = Status::Preparing(Stage::LoadingVideo);
             }
+            HostEvent::Failed(PlaybackError::NoPeers) => self.status = Status::NoPeers,
             HostEvent::Failed(error) => self.status = Status::Error(error),
             HostEvent::SourceChanged(source) => self.source = source,
             HostEvent::Closed => {
@@ -221,6 +236,7 @@ impl PlaybackModel {
             }
             HostEvent::Mpv(event) => self.mpv(event),
             HostEvent::Link(_) => {}
+            HostEvent::Torrent(health) => self.torrent_health(health),
         }
         self.has_reached_playable |= matches!(
             self.status,
@@ -229,7 +245,11 @@ impl PlaybackModel {
     }
 
     fn mpv(&mut self, event: PlayerEvent) {
-        let live = self.known_file && !matches!(self.status, Status::Idle | Status::Error(_));
+        let live = self.known_file
+            && !matches!(
+                self.status,
+                Status::Idle | Status::Error(_) | Status::NoPeers
+            );
         match event {
             PlayerEvent::TimePos(value) => {
                 let value = finite(value);
@@ -313,6 +333,13 @@ impl PlaybackModel {
                 reason: EndReason::Eof,
                 ..
             } if live => self.status = Status::Ended,
+            // The torrent has already said why nothing plays; mpv's own failure adds nothing.
+            PlayerEvent::EndFile {
+                reason: EndReason::Error(_),
+                ..
+            }
+            | PlayerEvent::Error(_)
+                if self.status == Status::NoPeers => {}
             PlayerEvent::EndFile {
                 reason: EndReason::Error(error),
                 ..
@@ -330,7 +357,7 @@ impl PlaybackModel {
         matches!(
             self.status,
             Status::Preparing(_) | Status::Ready | Status::Buffering | Status::Ended
-        )
+        ) || (self.status == Status::NoPeers && self.has_reached_playable)
     }
 }
 
@@ -338,54 +365,17 @@ fn finite(value: Option<f64>) -> Option<f64> {
     value.filter(|value| value.is_finite() && *value >= 0.0)
 }
 
-fn track_value(track: &panorama_mpv::Track, index: usize) -> Track {
-    let label = track
-        .title
-        .as_ref()
-        .filter(|title| {
-            !title.trim().is_empty()
-                && !title.trim().starts_with("http:")
-                && !title.trim().starts_with("https:")
-        })
-        .cloned()
-        .or_else(|| {
-            track
-                .lang
-                .as_deref()
-                .filter(|code| !code.trim().is_empty())
-                .map(|code| language(code).unwrap_or(code).to_owned())
-        })
-        .unwrap_or_else(|| format!("Track {}", index + 1));
-    Track {
-        id: track.id,
-        label,
-        description: track.codec.clone(),
-        lang: track.lang.clone(),
-        codec: track.codec.clone(),
-        selected: track.selected,
-    }
-}
+#[path = "model_torrent.rs"]
+mod torrent;
 
-fn language(code: &str) -> Option<&'static str> {
-    match code {
-        "en" | "eng" => Some("English"),
-        "fr" | "fra" | "fre" => Some("French"),
-        "de" | "deu" | "ger" => Some("German"),
-        "es" | "spa" => Some("Spanish"),
-        "it" | "ita" => Some("Italian"),
-        "ja" | "jpn" => Some("Japanese"),
-        "ko" | "kor" => Some("Korean"),
-        "zh" | "zho" | "chi" => Some("Chinese"),
-        "pt" | "por" => Some("Portuguese"),
-        "ru" | "rus" => Some("Russian"),
-        "th" | "tha" => Some("Thai"),
-        "ar" | "ara" => Some("Arabic"),
-        "hi" | "hin" => Some("Hindi"),
-        "nl" | "nld" | "dut" => Some("Dutch"),
-        _ => None,
-    }
-}
+#[path = "model_tracks.rs"]
+mod tracks;
+use tracks::track_value;
 
 #[cfg(test)]
 #[path = "model_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "model_torrent_tests.rs"]
+mod torrent_tests;

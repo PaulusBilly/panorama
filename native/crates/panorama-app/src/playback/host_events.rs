@@ -1,6 +1,72 @@
 use super::*;
 
 impl Runner {
+    pub(super) async fn player_command(&mut self, command: Command) {
+        if matches!(command, Command::Seek(value) | Command::SeekRelative(value) if !value.is_finite())
+        {
+            return;
+        }
+        let command = match command {
+            Command::TogglePause => Command::SetPaused(!self.model.paused),
+            Command::SeekRelative(delta) => Command::Seek((self.position + delta).max(0.0)),
+            Command::Seek(seconds) => Command::Seek(seconds.max(0.0)),
+            Command::SetVolume(volume) => Command::SetVolume(volume.min(100)),
+            command => command,
+        };
+        if let Some(active) = &mut self.active {
+            if let Err(error) = active.command(&command) {
+                self.emit(HostEvent::Failed(error));
+                return;
+            }
+            if matches!(command, Command::Seek(_)) {
+                self.resume = None;
+                self.awaiting_resume = None;
+            }
+        } else if let Command::Seek(seconds) = command {
+            self.resume = Some(seconds);
+            self.awaiting_resume = Some(seconds);
+            if let Some(selection) = &mut self.selection {
+                selection.start = StartMode::Resume(seconds);
+            }
+        }
+        match command {
+            Command::SetPaused(paused) => {
+                self.emit(HostEvent::Mpv(PlayerEvent::Pause(paused)));
+                self.sample(false).await;
+            }
+            Command::SetVolume(volume) => self.emit(HostEvent::Volume(volume)),
+            Command::SetMuted(muted) => self.emit(HostEvent::Muted(muted)),
+            Command::Seek(seconds) => {
+                self.position = seconds;
+                self.emit(HostEvent::Seeked(seconds));
+                self.sample(true).await;
+            }
+            _ => {}
+        }
+        self.presence();
+    }
+
+    pub(super) async fn sample(&mut self, seek: bool) {
+        let Some(selection) = &self.selection else {
+            return;
+        };
+        if !self.begun || self.awaiting_resume.is_some() {
+            return;
+        }
+        let sample = PlaybackSample {
+            time_secs: self.model.time.unwrap_or(0.0),
+            duration_secs: self.model.duration.unwrap_or(0.0),
+            paused: self.model.paused,
+        };
+        self.progress
+            .send(if seek {
+                Progress::Seek(selection.film.id.clone(), sample)
+            } else {
+                Progress::Sample(selection.film.id.clone(), sample)
+            })
+            .await;
+    }
+
     pub(super) async fn tick(&mut self) {
         let events = self
             .active
@@ -90,6 +156,45 @@ impl Runner {
             }
         }
         self.presence();
+    }
+
+    /// Once a second: a transport failure, or else the torrent's health. The engine reports
+    /// `Stalled` and `NoPeers` only together with an error, so an error replaces the reading.
+    pub(super) fn poll_stats(&mut self) {
+        if self.model.status == Status::NoPeers {
+            return;
+        }
+        let Some(active) = self.active.as_ref() else {
+            return;
+        };
+        let (error, stats) = (active.error(), active.torrent());
+        if let Some(error) = error {
+            if error == PlaybackError::NoPeers || !matches!(self.model.status, Status::Error(_)) {
+                self.emit(HostEvent::Failed(error));
+            }
+            if error == PlaybackError::NoPeers {
+                // mpv may still be playing from its buffer; keep sound off under the overlay.
+                if let Some(active) = &mut self.active {
+                    let _ = active.command(&Command::SetPaused(true));
+                }
+                self.emit(HostEvent::Mpv(PlayerEvent::Pause(true)));
+            }
+            return;
+        }
+        if let Some(stats) = stats
+            && !matches!(self.model.status, Status::Error(_))
+        {
+            let since = self
+                .torrent_since
+                .map_or(0, |since| since.elapsed().as_millis());
+            self.emit(HostEvent::Torrent(TorrentHealth {
+                state: stats.state,
+                peers_live: stats.peers_live,
+                peers_connecting: stats.peers_connecting,
+                download_bps: stats.download_bps,
+                since_ms: since.try_into().unwrap_or(u64::MAX),
+            }));
+        }
     }
 
     pub(super) fn presence(&mut self) {

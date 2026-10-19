@@ -14,7 +14,13 @@ pub fn selection(id: &str, args: &Args) -> Option<PlaybackSelection> {
     }
     let mut groups = crate::fixtures::player_groups();
     if let StreamState::Ready(streams) = &mut groups.first_mut()?.state {
-        let value = if args.play_torrent {
+        let fixture_torrent = args.player_state.is_some_and(|state| state.is_torrent());
+        let value = if fixture_torrent {
+            // Not a real torrent: the fixture backend never contacts anyone.
+            serde_json::json!({"infoHash": "0123456789abcdef0123456789abcdef01234567"})
+        } else if let Some(hash) = args.torrent_hash.as_ref().filter(|_| args.play_torrent) {
+            serde_json::json!({ "infoHash": hash })
+        } else if args.play_torrent {
             serde_json::json!({
                 "infoHash": "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
                 "sources": ["dht:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",

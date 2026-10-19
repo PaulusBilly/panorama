@@ -1,7 +1,7 @@
 use super::{
     backend::{Backend, NativeBackend, Playback, close},
     fake::{FakeBackend, FixtureState},
-    model::{HostEvent, PlaybackModel, Status},
+    model::{HostEvent, PlaybackError, PlaybackModel, Status, TorrentHealth},
     progress::{CoreProgress, Progress, ProgressSink},
     selection::{PlaybackSelection, SourceRef, StartMode},
     subtitle_render::SubtitleSetup,
@@ -22,6 +22,9 @@ pub enum Command {
     /// Replace the addon groups while Film still delivers sources.
     Groups(Vec<panorama_core::addons::StreamGroup>),
     Retry,
+    /// "Keep waiting" on a torrent with no peers: close the stream and open it again, which
+    /// is the engine's retry (it only clears a latched `NoPeers` once no lease is open).
+    RetryTorrent,
     SetPaused(bool),
     TogglePause,
     Seek(f64),
@@ -122,6 +125,8 @@ struct Runner {
     begun: bool,
     last_presence: Option<Instant>,
     last_link: Option<Instant>,
+    /// When the current torrent source started.
+    torrent_since: Option<Instant>,
     link_interval: Duration,
     origin: Instant,
     /// The latest subtitle and output settings, replayed onto every new player.
@@ -153,6 +158,7 @@ impl Runner {
             begun: false,
             last_presence: None,
             last_link: None,
+            torrent_since: None,
             link_interval,
             origin: Instant::now(),
             subtitles: None,
@@ -188,6 +194,7 @@ impl Runner {
         self.awaiting_resume = None;
         self.progress.clear();
         self.last_presence = None;
+        self.torrent_since = None;
     }
 
     async fn start(
@@ -212,6 +219,15 @@ impl Runner {
         self.awaiting_resume = self.resume;
         self.emit(HostEvent::SourceChanged(selection.source));
         self.emit(HostEvent::Resolving);
+        if selection
+            .selected()
+            .is_some_and(super::torrent_ui::is_torrent)
+        {
+            self.torrent_since = Some(Instant::now());
+            self.emit(HostEvent::Torrent(
+                super::torrent_ui::TorrentHealth::connecting(),
+            ));
+        }
         self.selection = Some(selection.clone());
         let generation = self.generation;
         let cancel = CancellationToken::new();
@@ -320,6 +336,14 @@ impl Runner {
                     self.start(selection, self.window.clone(), true).await;
                 }
             }
+            Command::RetryTorrent => {
+                if self.model.status == Status::NoPeers
+                    && let Some(mut selection) = self.selection.clone()
+                {
+                    selection.start = StartMode::Resume(self.position);
+                    self.start(selection, self.window.clone(), true).await;
+                }
+            }
             Command::Stop => {
                 self.stop().await;
                 self.selection = None;
@@ -328,72 +352,6 @@ impl Runner {
             }
             command => self.player_command(command).await,
         }
-    }
-
-    async fn player_command(&mut self, command: Command) {
-        if matches!(command, Command::Seek(value) | Command::SeekRelative(value) if !value.is_finite())
-        {
-            return;
-        }
-        let command = match command {
-            Command::TogglePause => Command::SetPaused(!self.model.paused),
-            Command::SeekRelative(delta) => Command::Seek((self.position + delta).max(0.0)),
-            Command::Seek(seconds) => Command::Seek(seconds.max(0.0)),
-            Command::SetVolume(volume) => Command::SetVolume(volume.min(100)),
-            command => command,
-        };
-        if let Some(active) = &mut self.active {
-            if let Err(error) = active.command(&command) {
-                self.emit(HostEvent::Failed(error));
-                return;
-            }
-            if matches!(command, Command::Seek(_)) {
-                self.resume = None;
-                self.awaiting_resume = None;
-            }
-        } else if let Command::Seek(seconds) = command {
-            self.resume = Some(seconds);
-            self.awaiting_resume = Some(seconds);
-            if let Some(selection) = &mut self.selection {
-                selection.start = StartMode::Resume(seconds);
-            }
-        }
-        match command {
-            Command::SetPaused(paused) => {
-                self.emit(HostEvent::Mpv(PlayerEvent::Pause(paused)));
-                self.sample(false).await;
-            }
-            Command::SetVolume(volume) => self.emit(HostEvent::Volume(volume)),
-            Command::SetMuted(muted) => self.emit(HostEvent::Muted(muted)),
-            Command::Seek(seconds) => {
-                self.position = seconds;
-                self.emit(HostEvent::Seeked(seconds));
-                self.sample(true).await;
-            }
-            _ => {}
-        }
-        self.presence();
-    }
-
-    async fn sample(&mut self, seek: bool) {
-        let Some(selection) = &self.selection else {
-            return;
-        };
-        if !self.begun || self.awaiting_resume.is_some() {
-            return;
-        }
-        let sample = PlaybackSample {
-            time_secs: self.model.time.unwrap_or(0.0),
-            duration_secs: self.model.duration.unwrap_or(0.0),
-            paused: self.model.paused,
-        };
-        self.progress
-            .send(if seek {
-                Progress::Seek(selection.film.id.clone(), sample)
-            } else {
-                Progress::Sample(selection.film.id.clone(), sample)
-            })
-            .await;
     }
 
     async fn run(mut self, mut incoming: tokio::sync::mpsc::UnboundedReceiver<Command>) {
@@ -407,12 +365,7 @@ impl Runner {
                 },
                 Some((generation, result)) = self.pending.next(), if !self.pending.is_empty() => self.opened(generation, result).await,
                 _ = poll.tick() => self.tick().await,
-                _ = stats.tick() => {
-                    if !matches!(self.model.status, Status::Error(_))
-                        && let Some(error) = self.active.as_ref().and_then(|active| active.error()) {
-                        self.emit(HostEvent::Failed(error));
-                    }
-                }
+                _ = stats.tick() => self.poll_stats(),
             }
         }
         self.stop().await;
