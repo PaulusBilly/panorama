@@ -1,4 +1,5 @@
 //! Platform caption chrome with native Windows hit testing.
+use crate::assets::Weighted;
 use crate::theme::Theme;
 #[cfg(not(target_os = "macos"))]
 use crate::theme::focus_ring;
@@ -51,7 +52,7 @@ impl Titlebar {
                     .items_center()
                     .pl(px(12.0))
                     .text_size(px(12.0))
-                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .weight(gpui::FontWeight::MEDIUM)
                     .line_height(px(12.0))
                     .window_control_area(WindowControlArea::Drag)
                     .when(!cfg!(target_os = "windows"), |bar| {
@@ -191,7 +192,7 @@ impl Titlebar {
                 ..rgb(0xffffff)
             })
             .text_size(px(13.0))
-            .font_weight(gpui::FontWeight::MEDIUM)
+            .weight(gpui::FontWeight::MEDIUM)
             .line_height(px(13.0))
             .child("Panorama")
     }

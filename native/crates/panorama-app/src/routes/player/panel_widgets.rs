@@ -1,6 +1,7 @@
 //! Controls of the subtitle and settings panels: stepper, swatches, segmented control,
 //! checkbox and select trigger.
 use super::{Player, measure::probe, prefs_ui::SelectId, widgets::focus_theme};
+use crate::assets::Weighted;
 use crate::{
     playback::subtitle_prefs::{FontWeight, Rgb},
     theme::{Theme, Typography, focus_ring},
@@ -181,7 +182,7 @@ impl Player {
                 .items_center()
                 .justify_center()
                 .text_size(px(12.0))
-                .font_weight(gpui::FontWeight(weight.css()))
+                .weight(gpui::FontWeight(weight.css()))
                 .when(selected, |item| item.bg(ink.opacity(0.15)))
                 .when(!selected, |item| {
                     item.text_color(ink.opacity(0.7))

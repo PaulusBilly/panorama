@@ -1,4 +1,5 @@
 use super::*;
+use crate::assets::Weighted;
 use crate::{
     film_display::{Quality, rating, rating_count},
     hero,
@@ -34,7 +35,7 @@ impl Film {
             title = title.child(
                 div()
                     .text_size(px(32.0))
-                    .font_weight(FontWeight::MEDIUM)
+                    .weight(FontWeight::MEDIUM)
                     .line_height(relative(0.9))
                     .child(meta.name.to_uppercase()),
             );
@@ -78,7 +79,7 @@ impl Film {
                     .px(px(6.0))
                     .py(px(2.0))
                     .text_size(px(11.0))
-                    .font_weight(FontWeight::BOLD)
+                    .weight(FontWeight::BOLD)
                     .line_height(relative(1.5))
                     .child(badge),
             );
@@ -132,7 +133,7 @@ impl Film {
             .child(
                 div()
                     .text_size(px(14.0))
-                    .font_weight(FontWeight::BOLD)
+                    .weight(FontWeight::BOLD)
                     .line_height(relative(1.0))
                     .child("SYNOPSIS"),
             )
@@ -234,7 +235,7 @@ impl Render for Film {
                             .items_baseline()
                             .gap(px(4.0))
                             .line_height(relative(1.0))
-                            .font_weight(FontWeight::MEDIUM)
+                            .weight(FontWeight::MEDIUM)
                             .child(
                                 svg()
                                     .path("star-filled.svg")

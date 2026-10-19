@@ -1,4 +1,5 @@
 //! Atomic type styles matching Electron's utilities.
+use crate::assets::Weighted;
 use gpui::{FontWeight, Styled, px, relative};
 
 /// Font size, weight and line height applied as one style.
@@ -60,7 +61,7 @@ impl TypeStyle {
     pub fn apply<T: Styled>(self, element: T) -> T {
         element
             .text_size(px(self.size))
-            .font_weight(FontWeight(self.weight))
+            .weight(FontWeight(self.weight))
             .line_height(relative(self.line_height))
     }
 }

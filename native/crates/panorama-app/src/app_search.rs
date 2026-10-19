@@ -1,4 +1,5 @@
 use super::*;
+use crate::assets::Weighted;
 use crate::theme::{content_width, focus_ring};
 use gpui::{Div, Focusable, relative, svg};
 use gpui_component::input::Input;
@@ -128,7 +129,7 @@ impl AppShell {
                                     .p_0()
                                     .pr(px(if small { 64.0 } else { 80.0 }))
                                     .text_size(px(size))
-                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                    .weight(gpui::FontWeight::MEDIUM)
                                     .line_height(relative(1.2))
                                     .text_color(theme.inverse),
                             )

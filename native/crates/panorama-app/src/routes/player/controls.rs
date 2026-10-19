@@ -8,6 +8,7 @@ use super::{
     time,
     widgets::{Button, Control, Fill, focus_theme, pill, ring, tabular},
 };
+use crate::assets::Weighted;
 use crate::theme::{Theme, Typography, focus_ring};
 use gpui::{
     Context, Div, FontWeight, Window, div, linear_color_stop, linear_gradient, prelude::*, px,
@@ -266,7 +267,7 @@ impl Player {
             div()
                 .flex_shrink_0()
                 .caption()
-                .font_weight(FontWeight::MEDIUM)
+                .weight(FontWeight::MEDIUM)
                 .font_features(tabular())
                 .text_color(theme.player_ink.opacity(0.65))
                 .child(text)
@@ -389,7 +390,7 @@ impl Player {
                         div()
                             .min_w_0()
                             .title()
-                            .font_weight(FontWeight::BOLD)
+                            .weight(FontWeight::BOLD)
                             .truncate()
                             .child(self.model.title.clone()),
                     )

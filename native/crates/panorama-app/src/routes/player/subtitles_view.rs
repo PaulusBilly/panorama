@@ -6,6 +6,7 @@ use super::{
     panel_widgets::{color, note},
     subtitles::Tab,
 };
+use crate::assets::Weighted;
 use crate::{
     playback::{subtitle_prefs::Field, subtitle_render::Appearance},
     theme::Theme,
@@ -46,7 +47,7 @@ pub(super) fn styled_cue(text: &str, look: &Appearance) -> Div {
         .bg(with_alpha([0, 0, 0], look.background_alpha))
         .text_color(with_alpha(look.text.0, look.text.1))
         .text_size(px(look.font_px))
-        .font_weight(FontWeight(look.weight))
+        .weight(FontWeight(look.weight))
         .line_height(relative(look.line_height))
         .text_center()
         .child(text.to_owned())

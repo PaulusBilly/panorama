@@ -4,6 +4,7 @@ use super::{
     model::{InstallFlow, PreviewCard, error_copy},
     widgets::{View, logo, section, spinner, text_button, tnum},
 };
+use crate::assets::Weighted;
 use crate::{
     a11y,
     image_cache::CachedImage,
@@ -82,7 +83,7 @@ impl Addons {
                     .p_0()
                     .pr(px(120.0))
                     .text_size(px(24.0))
-                    .font_weight(FontWeight::MEDIUM)
+                    .weight(FontWeight::MEDIUM)
                     .line_height(relative(1.15))
                     .text_color(theme.ink),
             )
@@ -274,7 +275,7 @@ impl Addons {
         };
         let press = self.press.value(Instant::now(), view.reduced);
         let mut font = window.text_style().font();
-        font.weight = FontWeight::MEDIUM;
+        crate::assets::weighted(&mut font, FontWeight::MEDIUM);
         let text = f32::from(
             window
                 .text_system()
@@ -338,7 +339,7 @@ impl Addons {
                         .bg(theme.ink)
                         .text_color(theme.inverse)
                         .text_size(px(14.0 * press))
-                        .font_weight(FontWeight::MEDIUM)
+                        .weight(FontWeight::MEDIUM)
                         .line_height(relative(1.0))
                         .flex()
                         .items_center()

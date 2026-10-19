@@ -11,13 +11,8 @@ pub fn report(error: &str) {
 pub(crate) fn check_default_font(window: &gpui::Window) -> Result<(), String> {
     let text_system = window.text_system();
     let mut requested = window.text_style().font();
-    let family = if cfg!(target_os = "windows") {
-        "DM Sans 14pt"
-    } else {
-        "DM Sans"
-    };
-    for (weight, advance) in [(400.0, 43.732), (500.0, 44.460), (700.0, 46.072)] {
-        requested.weight = gpui::FontWeight(weight);
+    for (weight, advance) in [(400.0, 44.512), (500.0, 45.344), (700.0, 46.956)] {
+        crate::assets::weighted(&mut requested, gpui::FontWeight(weight));
         let id = text_system.resolve_font(&requested);
         let resolved = text_system
             .get_font_for_id(id)
@@ -28,6 +23,7 @@ pub(crate) fn check_default_font(window: &gpui::Window) -> Result<(), String> {
                 .map_err(|error| error.to_string())?
                 .width,
         );
+        let family = crate::assets::family(requested.weight);
         if resolved.family != family
             || resolved.weight != requested.weight
             || (actual - advance).abs() > 0.001
