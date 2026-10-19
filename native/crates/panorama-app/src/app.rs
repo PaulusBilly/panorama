@@ -169,7 +169,7 @@ impl AppShell {
             crate::playback::window::close(close_state.clone(), window, cx);
             false
         });
-        shell.present(cx);
+        shell.present(window, cx);
         if args.signed_out && args.fixtures {
             shell.state.update(cx, |state, cx| {
                 state.account = Account::SignedOut;

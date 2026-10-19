@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -17,12 +20,15 @@ pub(super) struct TlsMock {
     pub(super) requests: Arc<Mutex<Vec<String>>>,
     pub(super) redirect: Arc<Mutex<Option<Url>>>,
     pub(super) body: Arc<Mutex<Vec<u8>>>,
+    pub(super) chunked: Arc<AtomicBool>,
     task: JoinHandle<()>,
 }
 
 impl TlsMock {
     pub(super) async fn start() -> Self {
-        let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+        let certified =
+            rcgen::generate_simple_self_signed(vec!["127.0.0.1".into(), "addon.test".into()])
+                .unwrap();
         let certificate = reqwest::Certificate::from_der(certified.cert.der()).unwrap();
         let config = ServerConfig::builder_with_provider(Arc::new(ring::default_provider()))
             .with_safe_default_protocol_versions()
@@ -44,6 +50,8 @@ impl TlsMock {
         let worker_redirect = Arc::clone(&redirect);
         let body = Arc::new(Mutex::new(b"{\"ok\":true}".to_vec()));
         let worker_body = Arc::clone(&body);
+        let chunked = Arc::new(AtomicBool::new(false));
+        let worker_chunked = Arc::clone(&chunked);
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -54,6 +62,7 @@ impl TlsMock {
                         let requests = Arc::clone(&worker_requests);
                         let redirect = Arc::clone(&worker_redirect);
                         let body = Arc::clone(&worker_body);
+                        let chunked = Arc::clone(&worker_chunked);
                         connections.spawn(async move {
                             let Ok(mut socket) = acceptor.accept(socket).await else {
                                 return;
@@ -76,7 +85,11 @@ impl TlsMock {
                                 ),
                                 None => {
                                     let body = body.lock().unwrap();
-                                    format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), String::from_utf8_lossy(&body))
+                                    if chunked.load(Ordering::Relaxed) {
+                                        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n", body.len(), String::from_utf8_lossy(&body))
+                                    } else {
+                                        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), String::from_utf8_lossy(&body))
+                                    }
                                 },
                             };
                             let _ = socket.write_all(response.as_bytes()).await;
@@ -95,6 +108,7 @@ impl TlsMock {
             requests,
             redirect,
             body,
+            chunked,
             task,
         }
     }

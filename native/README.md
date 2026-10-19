@@ -900,3 +900,96 @@ go through one ordered writer task, and capture overrides (`--subtitle-prefs`,
 - **Fixtures.** `--player-state finding-peers | loading-stats | no-peers` (torrent source, fake backend), and the fixture Sources group has a torrent entry. No infoHash, magnet or tracker is logged or put in any error text (`no_hash_magnet_or_tracker_reaches_events_logs_or_errors`).
 
 `TorrentSource`'s `Debug` no longer prints the info hash (PR 4.2 fix round 1).
+## Addon management for PR 5.1
+
+`addons/manage/` contains URL validation, manifest validation, display summaries,
+opaque confirmation tokens and sanitized `InstallError` kinds. `stremio/manage.rs`
+implements management on `CoreSession`; `preferences.rs` handles selections;
+`events.rs` correlates core collection push events. `model.rs` supplies the two
+operations missing from the pinned core: explicit installation replacement across
+transport URLs and reordering by AddonKey. Both use the core's `PushAddonsToAPI` and `ProfileChanged`
+effects, including `addonCollectionSet` and FIFO profile persistence.
+
+PR 5.2 should call:
+
+- `AddonUrl::parse(pasted_text)`, then `session.preview(url).await`. Display the
+  summary, `already_installed`, `replaces` and configuration hints. After explicit
+  confirmation, move `preview.token` into `session.install(token).await`.
+- `installed_addons()` and `addon_key(&descriptor).await` for account order and
+  salted identities; `remove(key).await` and `reorder(all_keys).await` for changes.
+- `configure_url(&key).await` for the system browser. It is async because salt
+  initialization runs off the caller's thread. Returned URLs may contain secrets;
+  do not log them. A new manifest URL must go through preview and confirmation.
+- `set_meta_source(Some(key)).await` for an addon supporting movie metadata;
+  `None` means Automatic. `meta_source().await` clears stale selections.
+- `set_home_catalog(Some(catalog)).await` and `home_catalog().await` for Home;
+  `None` follows the first available movie catalog. Pass the returned selection
+  to the resource client's catalog call. Subscribe to `CoreChange` to refresh.
+
+All mutations and preview require sign-in. Signed-out defaults are read-only.
+Preference getters repair references after external collection changes as well
+as local removal/replacement. Removal deletes that installation's catalog rows,
+advances the cache generation to discard pending cache writes, resets stale
+metadata to Automatic and Home to the first available catalog. Store work runs
+on blocking workers. Confirmation tokens are random 256-bit, single-use,
+session-bound capabilities expiring at ten minutes. The session retains the
+validated descriptor, resolved replacement AddonKey and their SHA-256 binding.
+Install rejects confirmations whose resolved target has changed, checks current
+protection flags and uses that target for mutation and cache cleanup; it never
+fetches the addon again. Sign-in/sign-out discard confirmations.
+
+URL parsing trims outer whitespace, accepts case-insensitive HTTPS/Stremio schemes
+and rewrites Stremio to HTTPS. It preserves configuration path/query text, rejects
+userinfo, fragments, internal whitespace/control characters, backslashes, relative
+URLs, non-HTTPS schemes, paths without `/manifest.json`, dot traversal (including
+percent-encoded dots), and input over 2,048 characters. IPv4/IPv6 loopback,
+link-local and unspecified literals, including IPv4-mapped IPv6, are rejected.
+Percent-encoded `@` in opaque configuration paths remains unchanged; an encoded
+`@` in the authority is invalid. Manifest fetch uses the Env client, no Referer,
+HTTPS-only redirects and a 256 KiB declared/streamed cap. Public addon redirects
+cannot target forbidden IP literals. Manifest validation uses the core's semver
+and Manifest types, bounds IDs/names/catalog counts, truncates descriptions and
+drops non-HTTPS images. Debug output for previews, URLs, tokens and errors is
+redacted; never format explicit core manifest or transport access for logging.
+
+The pinned core matches install/upgrade/uninstall by transport URL, not manifest
+ID. Preview prioritizes the installed transport URL (update in place). Otherwise,
+exactly one matching manifest ID proposes replacement at that installation's
+account position; several matching IDs install an additional installation with
+no replacement or existing cache deletion. Manifest ID alone is never used as
+an installation identity. Updated installations invalidate only the resolved
+target's catalog cache; an unchanged reinstall keeps it. Model replacement
+rejects a transport URL belonging to any other installation. Reorder resolves
+AddonKeys to complete descriptors and preserves their manifests and flags. Core's
+`protected` flag prohibits removal/upgrade; `official` alone does not prohibit
+removal. Both flags prohibit cross-URL identity impersonation here. The pinned
+core has no reorder action or protected-position rule, so full permutations may
+move protected addons. Core applies and persists changes before the API push
+completes and does not roll them back on push failure. Management waits for the
+matching collection event and storage drain, returning `ApiPush` on API rejection
+or transport failure. The local list remains changed; resnapshot it after an
+error. Repeating an unchanged install still pushes the collection, allowing retry.
+Cancelled mutation futures retain their completion task; a later operation waits
+for it before dispatching another change.
+
+Tests use local mock API/TLS addon servers only. Coverage includes URL boundaries,
+encoded tricks, declared/streamed caps, bad/missing fields, image filtering,
+redirect policy, exact preview installation, forged/replayed/expired/cross-session
+tokens, manifest-binding tampering, replacement position, protected/official rules,
+API failures, cache invalidation, stale preference repair and restart order.
+Token expiry uses paused Tokio time. Review-focus tests are
+`removed_meta_source_falls_back_to_automatic` and
+`removed_home_catalog_falls_back_to_first`.
+
+## Addons screen and catalog switcher (PR 5.2)
+
+`Route::Addons` (`addons`) is reached from the account menu. Modules under
+`panorama-app/src/addons_screen/`: `model.rs` (pure `InstallFlow`, `InstalledRow`,
+`move_row`, `error_copy`, `catalog_groups`, meta-source fallback), `backend.rs`
+(core calls on the services runtime, bridged back over mpsc), `actions.rs`
+(preview, install, remove, reorder, configure, source selection), `install_view.rs`,
+`installed_view.rs`, `source_view.rs`, `widgets.rs`, `fixture.rs`. Home's switcher
+lives in `catalog_switcher.rs` and `routes/home_catalog.rs`. Addon URLs are never
+logged; manifest text is shown as plain text and length-capped. Fixture flags:
+`--addons-preview`, `--addons-confirm-remove`, `--addons-error`,
+`--open-catalog-menu`, `--signed-out`.

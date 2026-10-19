@@ -237,6 +237,17 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) fn clear_addon_catalogs(&self, addon: &str) -> Result<(), StoreError> {
+        let prefix = format!("catalog:{addon}|");
+        let connection = self.lock();
+        connection.execute(
+            "DELETE FROM kv WHERE substr(key, 1, length(?1)) = ?1",
+            [&prefix],
+        )?;
+        self.cache_generation.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    }
+
     pub(crate) fn get_or_insert(&self, key: &Key, value: &[u8]) -> Result<Vec<u8>, StoreError> {
         check_size(value)?;
         let mut connection = self.lock();

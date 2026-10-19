@@ -56,11 +56,11 @@ impl AppShell {
         };
         self.header_slide = Tween::fixed(0.0);
         window.focus(&self.focus, cx);
-        self.present(cx);
+        self.present(window, cx);
         cx.notify();
     }
 
-    pub(super) fn present(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn present(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let now = Instant::now();
         let id = self.history.current_id();
         let existing = self
@@ -85,6 +85,7 @@ impl AppShell {
                     cx.weak_entity(),
                     self.state.clone(),
                     self.args.clone(),
+                    window,
                     cx,
                 ),
                 route,

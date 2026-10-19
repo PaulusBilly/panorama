@@ -99,6 +99,8 @@ impl Header {
                                         } else {
                                             "Search"
                                         }
+                                    } else if matches!(route, Route::Addons) {
+                                        "Back"
                                     } else {
                                         "Back to films"
                                     })

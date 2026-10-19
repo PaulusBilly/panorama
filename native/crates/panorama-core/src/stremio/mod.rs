@@ -9,17 +9,21 @@
 
 pub mod env;
 mod error;
+mod events;
 mod fetch;
+mod manage;
 mod migration;
 mod model;
+mod preferences;
 mod progress;
 mod session;
 mod types;
 
 pub use error::{CoreError, CoreErrorKind};
+pub use manage::{FetchedManifest, PreviewFetch};
 pub use progress::{FilmMeta, PlaybackSample, PlaybackTarget, ResumePoint};
 pub use session::CoreSession;
-pub use types::{CoreChange, Descriptor, Profile};
+pub use types::{AddonSummary, CoreChange, Descriptor, Profile};
 
 #[cfg(test)]
 mod tests;

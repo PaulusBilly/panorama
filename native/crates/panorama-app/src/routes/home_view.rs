@@ -5,7 +5,7 @@ use crate::{
     home_layout::Grid,
     theme::{content_width, focus_ring},
 };
-use gpui::{Div, Render, div, relative, svg};
+use gpui::{Div, Render, div, relative};
 
 impl Home {
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -20,9 +20,13 @@ impl Home {
         let height = (rows as f32 * grid.stride() - if rows > 0 { 36.0 } else { 0.0 }).max(0.0);
         let top = -f32::from(self.scroll.offset().y);
         let origin = self.content_start(view, cx) + if self.search.is_some() { 72.0 } else { 0.0 };
-        let start = ((top - origin - 32.0) / grid.stride()).floor().max(0.0) as usize;
+        let lead = self.lead(cx);
+        let opacity =
+            self.switcher
+                .grid_opacity(self.films.is_empty(), Instant::now(), view.reduced);
+        let start = ((top - origin - lead) / grid.stride()).floor().max(0.0) as usize;
         let start = start.saturating_sub(1).min(rows);
-        let end = ((top + view.height - origin - 32.0) / grid.stride())
+        let end = ((top + view.height - origin - lead) / grid.stride())
             .ceil()
             .max(0.0) as usize
             + 2;
@@ -32,7 +36,8 @@ impl Home {
             .w(px(grid.total_width()))
             .h(px(height))
             .mx_auto()
-            .mt(px(32.0));
+            .mt(px(if self.switcher_visible(cx) { 0.0 } else { 32.0 }))
+            .opacity(opacity);
         let films = self.films.clone();
         let phase = if view.reduced {
             0.0
@@ -57,8 +62,8 @@ impl Home {
                         film,
                         (grid.width, grid.height()),
                         view.active
-                            && origin + 32.0 + row as f32 * grid.stride() + grid.height() > top
-                            && origin + 32.0 + (row as f32) * grid.stride() < top + view.height,
+                            && origin + lead + row as f32 * grid.stride() + grid.height() > top
+                            && origin + lead + (row as f32) * grid.stride() < top + view.height,
                         window,
                         cx,
                     )
@@ -110,6 +115,7 @@ impl Render for Home {
         }
         let view = self.settings(window, cx);
         let theme = view.theme;
+        self.advance_swap(view.reduced, cx);
         if self.search.is_none() {
             self.ensure_overlay(view, window, cx);
         }
@@ -204,6 +210,9 @@ impl Render for Home {
         if self.search.is_some() {
             section = section.child(self.tabs(view, window));
         }
+        if self.switcher_visible(cx) {
+            section = section.child(self.catalog_row(view, window, cx));
+        }
         if let Some(message) = runtime_error {
             section = section.child(self.alert(message, "Reload Panorama", view, window, cx));
         }
@@ -274,24 +283,12 @@ impl Render for Home {
                     )),
                 );
         }
-        let container = content_width(view.width);
-        let footer = div().w_full().bg(theme.surface).child(
-            div()
-                .w(px(container))
-                .mx_auto()
-                .pt(px(200.0 + (view.width * 0.12).clamp(72.0, 128.0)))
-                .child(
-                    svg()
-                        .path("panorama.svg")
-                        .w(px(container))
-                        .h(px(container * 207.0 / 1223.0))
-                        .text_color(gpui::rgb(0xffffff)),
-                ),
-        );
+        let footer = crate::footer::footer(theme, view.width);
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());
         }
         let changing = self.watch_hover.moving(Instant::now(), view.reduced)
+            || self.switcher.moving(Instant::now(), view.reduced)
             || (!view.reduced && self.images.read(cx).moving())
             || self.surface.moving(Instant::now(), view.reduced)
             || self

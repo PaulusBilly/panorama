@@ -56,6 +56,14 @@ pub struct Args {
     pub open_control: Option<String>,
     /// Subtitle preferences for captures, as the stored JSON; never persisted.
     pub subtitle_prefs: Option<crate::playback::subtitle_prefs::SubtitlePreferences>,
+    /// Show the fixture addon preview on the Addons screen.
+    pub addons_preview: bool,
+    /// Show Torrentio's inline remove confirmation.
+    pub addons_confirm_remove: bool,
+    /// Show the invalid-link error on the Addons screen.
+    pub addons_error: bool,
+    /// Open Home's catalog menu before capture.
+    pub open_catalog_menu: bool,
 }
 
 impl Args {
@@ -91,6 +99,10 @@ impl Args {
             subtitle_prefs: None,
             open_control: None,
             playback_settings: None,
+            addons_preview: false,
+            addons_confirm_remove: false,
+            addons_error: false,
+            open_catalog_menu: false,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -236,6 +248,10 @@ impl Args {
                         },
                     );
                 }
+                "--addons-preview" => result.addons_preview = true,
+                "--addons-confirm-remove" => result.addons_confirm_remove = true,
+                "--addons-error" => result.addons_error = true,
+                "--open-catalog-menu" => result.open_catalog_menu = true,
                 "--scroll" => {
                     let value = args.next().ok_or("--scroll needs a pixel delta or end")?;
                     let value = value.to_str().ok_or("Invalid scroll delta")?;

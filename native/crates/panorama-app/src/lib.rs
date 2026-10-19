@@ -1,16 +1,20 @@
 //! Panorama's application shell, theme and navigation.
 pub mod a11y;
 pub mod account_menu;
+pub mod addons_screen;
+pub mod alert_row;
 pub mod app;
 pub mod app_state;
 pub mod args;
 pub mod assets;
 pub mod cascade_loader;
+pub mod catalog_switcher;
 pub mod debug;
 pub mod film_card;
 pub mod film_display;
 pub mod film_overlay;
 pub mod fixtures;
+pub mod footer;
 pub mod header;
 pub mod header_state;
 pub mod hero;
