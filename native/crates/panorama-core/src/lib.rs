@@ -1,3 +1,4 @@
+pub mod addons;
 pub mod store;
 pub mod stremio;
 

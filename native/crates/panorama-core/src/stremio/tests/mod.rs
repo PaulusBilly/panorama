@@ -1,3 +1,4 @@
+mod addons;
 mod cancellation;
 mod fetch;
 mod lifecycle;

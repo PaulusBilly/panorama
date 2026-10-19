@@ -23,7 +23,10 @@ use std::{
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
+    sync::{
+        Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -51,6 +54,7 @@ impl<F: Fn() -> i64 + Send + Sync> Clock for F {
 /// One SQLite connection, serialized by a mutex; safe to share across threads.
 pub struct Store {
     connection: Mutex<Connection>,
+    cache_generation: AtomicU64,
     clock: Box<dyn Clock>,
     /// Database path for persistent stores; `None` in memory.
     path: Option<PathBuf>,
@@ -141,6 +145,7 @@ impl Store {
         Ok((
             Self {
                 connection: Mutex::new(connection),
+                cache_generation: AtomicU64::new(0),
                 clock: Box::new(clock),
                 path: Some(path.to_path_buf()),
                 _lock: Some(lock),
@@ -161,6 +166,7 @@ impl Store {
         migrations::migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            cache_generation: AtomicU64::new(0),
             clock: Box::new(clock),
             path: None,
             _lock: None,
@@ -196,11 +202,56 @@ impl Store {
         write(&connection, key, value, self.clock.now_ms())
     }
 
+    pub(crate) fn cache_generation(&self) -> u64 {
+        self.cache_generation.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_read_failure(&self, key: &Key) {
+        self.lock()
+            .execute(
+                "INSERT INTO kv(key, value, updated_at) VALUES (?1, X'00', 'invalid')",
+                [key.as_str()],
+            )
+            .unwrap();
+    }
+
+    pub(crate) fn set_if_generation(
+        &self,
+        key: &Key,
+        value: &[u8],
+        generation: u64,
+    ) -> Result<(), StoreError> {
+        check_size(value)?;
+        let connection = self.lock();
+        if self.cache_generation() != generation {
+            return Ok(());
+        }
+        write(&connection, key, value, self.clock.now_ms())
+    }
+
     /// Deletes a key, succeeding even when the key does not exist.
     pub fn remove(&self, key: &Key) -> Result<(), StoreError> {
         self.lock()
             .execute("DELETE FROM kv WHERE key = ?1", [key.as_str()])?;
         Ok(())
+    }
+
+    pub(crate) fn get_or_insert(&self, key: &Key, value: &[u8]) -> Result<Vec<u8>, StoreError> {
+        check_size(value)?;
+        let mut connection = self.lock();
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT OR IGNORE INTO kv(key, value, updated_at) VALUES (?1, ?2, ?3)",
+            params![key.as_str(), value, self.clock.now_ms()],
+        )?;
+        let result = transaction.query_row(
+            "SELECT value FROM kv WHERE key = ?1",
+            [key.as_str()],
+            |row| row.get(0),
+        )?;
+        transaction.commit()?;
+        Ok(result)
     }
 
     /// Applies all writes/deletions atomically, using one timestamp; `None` deletes.
@@ -262,6 +313,7 @@ impl Store {
             [],
         )?;
         transaction.commit()?;
+        self.cache_generation.fetch_add(1, Ordering::AcqRel);
         checkpoint(&connection)?;
         if let Some(path) = &self.path {
             recovery::retain_newest(path, 0)?;
