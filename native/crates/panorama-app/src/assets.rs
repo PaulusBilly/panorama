@@ -1,6 +1,6 @@
 //! Embedded assets keep startup independent of disk access.
 use gpui::{App, AssetSource, Font, FontFallbacks, FontWeight, SharedString, Styled};
-use std::borrow::Cow;
+use std::{borrow::Cow, path::Path};
 
 /// Bundled SVG and icon source.
 pub struct Assets;
@@ -68,15 +68,48 @@ impl AssetSource for Assets {
     }
 }
 
+/// The bundled static Aspekta faces, by file name.
+const FONTS: [(&str, &[u8]); 3] = [
+    (
+        "Aspekta-400.ttf",
+        include_bytes!("../assets/fonts/Aspekta-400.ttf"),
+    ),
+    (
+        "Aspekta-500.ttf",
+        include_bytes!("../assets/fonts/Aspekta-500.ttf"),
+    ),
+    (
+        "Aspekta-700.ttf",
+        include_bytes!("../assets/fonts/Aspekta-700.ttf"),
+    ),
+];
+
 /// Register the static 400/500/700 Aspekta faces before opening a window.
 pub fn register_fonts(cx: &App) -> Result<(), String> {
     cx.text_system()
-        .add_fonts(vec![
-            Cow::Borrowed(include_bytes!("../assets/fonts/Aspekta-400.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/Aspekta-500.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/Aspekta-700.ttf")),
-        ])
+        .add_fonts(
+            FONTS
+                .iter()
+                .map(|(_, bytes)| Cow::Borrowed(*bytes))
+                .collect(),
+        )
         .map_err(|error| format!("Cannot register Aspekta: {error}"))
+}
+
+/// Copy the Aspekta faces into `dir` for libass, which only loads fonts from disk. Files that
+/// already match are left alone; others are replaced through a temporary file. Blocking.
+pub fn write_fonts(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    for (name, bytes) in FONTS {
+        let path = dir.join(name);
+        if std::fs::read(&path).is_ok_and(|existing| existing == bytes) {
+            continue;
+        }
+        let partial = dir.join(format!("{name}.partial"));
+        std::fs::write(&partial, bytes)?;
+        std::fs::rename(&partial, &path)?;
+    }
+    Ok(())
 }
 
 /// The family that holds `weight`. DirectWrite files each static Aspekta face under its own
@@ -119,5 +152,22 @@ pub fn font() -> Font {
             ".SystemUIFont".into(),
         ])),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn write_fonts_installs_and_repairs_the_faces() {
+        let dir = std::env::temp_dir().join(format!("panorama-fonts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        super::write_fonts(&dir).unwrap();
+        std::fs::write(dir.join("Aspekta-500.ttf"), b"truncated").unwrap();
+        super::write_fonts(&dir).unwrap();
+        for (name, bytes) in super::FONTS {
+            assert_eq!(std::fs::read(dir.join(name)).unwrap(), bytes, "{name}");
+        }
+        assert!(!dir.join("Aspekta-500.ttf.partial").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

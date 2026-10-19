@@ -168,8 +168,16 @@ impl Backend for NativeBackend {
                     }
                 }
             };
+            let fonts = self.directory.join("fonts");
+            let fonts = tokio::task::spawn_blocking(move || {
+                crate::assets::write_fonts(&fonts).map(|()| fonts)
+            })
+            .await
+            .ok()
+            .and_then(Result::ok);
             let playback: Box<dyn Playback> = Box::new(NativePlayback {
                 library,
+                fonts,
                 url,
                 transport,
                 player: None,
