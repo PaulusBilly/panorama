@@ -26,6 +26,10 @@ pub enum FixtureState {
     Waiting,
     /// Ready after a stall on a link slower than the source.
     Heavy,
+    /// Ready with an English text subtitle track selected.
+    Subtitled,
+    /// Ready with an image (PGS) subtitle track selected.
+    Bitmap,
 }
 
 impl FixtureState {
@@ -39,6 +43,8 @@ impl FixtureState {
             "error" => Some(Self::Error),
             "ended" => Some(Self::Ended),
             "ready" => Some(Self::Ready),
+            "subtitled" => Some(Self::Subtitled),
+            "bitmap" => Some(Self::Bitmap),
             _ => None,
         }
     }
@@ -121,7 +127,12 @@ impl Backend for FakeBackend {
                     _ => vec![
                         PlayerEvent::Duration(Some(6100.0)),
                         PlayerEvent::TimePos(Some(1200.0)),
-                        PlayerEvent::TrackList(fixture_tracks()),
+                        PlayerEvent::TrackList(fixture_tracks(match state {
+                            FixtureState::Subtitled => Some(5),
+                            FixtureState::Bitmap => Some(8),
+                            _ => None,
+                        })),
+                        PlayerEvent::AudioDeviceList(fixture_devices()),
                         PlayerEvent::DemuxerCacheState(CacheState {
                             buffered_seconds: Some(180.0),
                             cache_end_seconds: Some(1380.0),
@@ -208,7 +219,27 @@ fn track(id: i64, kind: TrackKind, title: &str, lang: &str, codec: &str, selecte
     }
 }
 
-fn fixture_tracks() -> Vec<Track> {
+fn fixture_devices() -> Vec<panorama_mpv::AudioDevice> {
+    ["Speakers (Realtek Audio)", "HDMI (Living Room TV)"]
+        .into_iter()
+        .map(|description| panorama_mpv::AudioDevice {
+            name: format!("wasapi/{}", description.len()),
+            description: description.into(),
+        })
+        .collect()
+}
+
+fn fixture_tracks(subtitle: Option<i64>) -> Vec<Track> {
+    let subtitle_track = |id, title: &str, lang: &str, codec: &str| {
+        track(
+            id,
+            TrackKind::Subtitle,
+            title,
+            lang,
+            codec,
+            subtitle == Some(id),
+        )
+    };
     vec![
         track(1, TrackKind::Audio, "English", "eng", "eac3 5.1", true),
         track(
@@ -221,7 +252,10 @@ fn fixture_tracks() -> Vec<Track> {
         ),
         track(3, TrackKind::Audio, "French", "fra", "ac3 5.1", false),
         track(4, TrackKind::Audio, "Japanese", "jpn", "aac stereo", false),
-        track(5, TrackKind::Subtitle, "English", "eng", "subrip", false),
+        subtitle_track(5, "English", "eng", "subrip"),
+        subtitle_track(6, "English SDH", "eng", "subrip"),
+        subtitle_track(7, "Indonesian", "ind", "subrip"),
+        subtitle_track(8, "English", "eng", "hdmv_pgs_subtitle"),
     ]
 }
 
@@ -246,6 +280,19 @@ impl Playback for FakePlayback {
             Command::SetMuted(muted) => format!("mute:{muted}"),
             Command::SelectAudio(id) => format!("audio:{id}"),
             Command::SelectSubtitle(id) => format!("subtitle:{id:?}"),
+            Command::Subtitles(setup) => format!(
+                "subtitles:{}:{}",
+                if setup.mpv_visible { "mpv" } else { "gpui" },
+                setup.style.delay
+            ),
+            Command::Output(properties) => format!(
+                "output:{}",
+                properties
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
             _ => "command".into(),
         };
         lock(&self.log).push(label);

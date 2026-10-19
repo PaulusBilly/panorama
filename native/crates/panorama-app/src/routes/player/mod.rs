@@ -1,6 +1,8 @@
 mod chrome;
 mod content;
 mod controls;
+mod cue_view;
+mod edit;
 mod input;
 pub mod keyboard;
 mod measure;
@@ -8,8 +10,16 @@ mod overlays;
 pub mod panel;
 mod panel_motion;
 mod panel_view;
+mod panel_widgets;
+mod prefs_actions;
+mod prefs_save;
+mod prefs_ui;
 mod range;
 mod range_view;
+mod settings_view;
+mod stepper_view;
+mod subtitles;
+mod subtitles_view;
 mod time;
 mod view;
 mod widgets;
@@ -35,6 +45,7 @@ use measure::Measures;
 use panel::Panels;
 use panel_motion::PanelMotion;
 use panorama_core::addons::StreamGroup;
+use panorama_mpv::PlayerEvent;
 use range::Scrub;
 use std::{rc::Rc, sync::Arc, time::Instant};
 use widgets::{Control, ControlMotion, Focuses};
@@ -80,7 +91,9 @@ pub struct Player {
     reduced: bool,
     panels: Panels,
     panel_motion: PanelMotion,
-    scrolls: [ScrollHandle; 3],
+    /// One per panel, then one per Subtitles column (the narrow layout uses the first).
+    scrolls: [ScrollHandle; 7],
+    ui: prefs_ui::PrefsUi,
     groups: Arc<Vec<StreamGroup>>,
     sources: Option<SourcesCache>,
     health: Health,
@@ -95,6 +108,7 @@ pub struct Player {
     events: Option<Task<()>>,
     bounds: Option<Subscription>,
     blur: Option<Subscription>,
+    edit_blur: Option<Subscription>,
     _shell: Subscription,
     _state: Subscription,
     _release: Subscription,
@@ -174,6 +188,7 @@ impl Player {
             panels: Panels::default(),
             panel_motion: PanelMotion::default(),
             scrolls: std::array::from_fn(|_| ScrollHandle::new()),
+            ui: prefs_ui::PrefsUi::new(),
             groups: Arc::new(
                 selection
                     .map(|selection| selection.groups)
@@ -192,6 +207,7 @@ impl Player {
             events: None,
             bounds: None,
             blur: None,
+            edit_blur: None,
             _shell: observer,
             _state: streams,
             _release: release,
@@ -246,9 +262,18 @@ impl Player {
             }
             _ => {}
         }
+        let tracks = matches!(&event, HostEvent::Mpv(PlayerEvent::TrackList(_)));
+        let devices = matches!(&event, HostEvent::Mpv(PlayerEvent::AudioDeviceList(_)));
         self.model.apply(event);
         if source_changed {
             self.health = Health::default();
+            self.ui.subs.reset();
+        }
+        if tracks || source_changed {
+            self.sync_subtitles(cx);
+        }
+        if devices {
+            self.reconcile_devices(cx);
         }
         if let Some(link) = link {
             self.health.observe(
@@ -273,6 +298,7 @@ impl Player {
             return;
         };
         self.model.title.clone_from(&selection.film.name);
+        self.load_prefs(cx);
         let fixture = if self.args.play_file.is_none()
             && self.args.play_url.is_none()
             && !self.args.play_torrent
@@ -335,6 +361,11 @@ impl Player {
                 player.commit_scrub(cx);
             }),
         );
+        self.edit_blur = Some(cx.on_blur(
+            &self.focus.edit.clone(),
+            window,
+            |player, window, cx| player.commit_edit(window, cx),
+        ));
     }
 
     fn sync_surface(&mut self, window: &Window, cx: &mut gpui::App) {
@@ -385,6 +416,10 @@ impl Player {
         if !self.mounted {
             return;
         }
+        self.flush_prefs(cx);
+        self.ui.edit = None;
+        self.ui.select = None;
+        self.ui.color_open = false;
         self.send(Command::Stop, cx);
         #[cfg(windows)]
         if let Some(surface) = self.surface.take() {
@@ -394,6 +429,7 @@ impl Player {
         self.chrome_wake = None;
         self.bounds = None;
         self.blur = None;
+        self.edit_blur = None;
         self.rect = None;
         self.mounted = false;
         self.surface_shown = false;

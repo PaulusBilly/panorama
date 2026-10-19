@@ -38,6 +38,10 @@ impl AssetSource for Assets {
                 Some(include_bytes!("../assets/icons/list-details-filled.svg"))
             }
             "badge-cc.svg" => Some(include_bytes!("../assets/icons/badge-cc.svg")),
+            "badge-cc-filled.svg" => Some(include_bytes!("../assets/icons/badge-cc-filled.svg")),
+            "minus.svg" => Some(include_bytes!("../assets/icons/minus.svg")),
+            "chevron-down.svg" => Some(include_bytes!("../assets/icons/chevron-down.svg")),
+            "settings.svg" => Some(include_bytes!("../assets/icons/settings.svg")),
             "back.svg" => Some(include_bytes!("../assets/back.svg")),
             "minimize.svg" => Some(include_bytes!("../assets/minimize.svg")),
             "maximize.svg" => Some(include_bytes!("../assets/maximize.svg")),

@@ -16,7 +16,17 @@ pub struct Measures {
     /// The volume and seek hit areas.
     pub ranges: [Cell<Bounds<Pixels>>; 2],
     /// The natural size of each panel page, by panel order.
-    pub pages: [Cell<Option<Size<Pixels>>>; 3],
+    pub pages: [Cell<Option<Size<Pixels>>>; 4],
+    /// The three select triggers of the settings panel, by `SelectId`.
+    pub selects: [Cell<Option<Bounds<Pixels>>>; 3],
+    /// The open select menu or colour popover.
+    pub popup: Cell<Option<Bounds<Pixels>>>,
+    /// The "Choose color" row.
+    pub color_row: Cell<Option<Bounds<Pixels>>>,
+    /// The value field being edited.
+    pub edit: Cell<Option<Bounds<Pixels>>>,
+    /// The subtitle cue box.
+    pub cue: Cell<Option<Size<Pixels>>>,
 }
 
 /// An invisible element that records its parent's bounds each frame.

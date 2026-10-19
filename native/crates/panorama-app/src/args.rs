@@ -48,6 +48,12 @@ pub struct Args {
     pub hover_seek: bool,
     /// Enter fullscreen before capture.
     pub fullscreen: bool,
+    /// Playback settings for captures, as the stored JSON; never persisted.
+    pub playback_settings: Option<crate::playback::output::PlaybackSettings>,
+    /// Open a panel control before capture: `edit`, `color` or `select`.
+    pub open_control: Option<String>,
+    /// Subtitle preferences for captures, as the stored JSON; never persisted.
+    pub subtitle_prefs: Option<crate::playback::subtitle_prefs::SubtitlePreferences>,
 }
 
 impl Args {
@@ -79,6 +85,9 @@ impl Args {
             open_panel: None,
             hover_seek: false,
             fullscreen: false,
+            subtitle_prefs: None,
+            open_control: None,
+            playback_settings: None,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -172,13 +181,45 @@ impl Args {
                 "--film-loading" => result.film_loading = true,
                 "--hover-seek" => result.hover_seek = true,
                 "--fullscreen" => result.fullscreen = true,
+                "--open-control" => {
+                    let value = args.next().ok_or("--open-control needs a control")?;
+                    match value.to_str() {
+                        Some(value @ ("edit" | "color" | "select" | "scroll")) => {
+                            result.open_control = Some(value.to_owned());
+                        }
+                        _ => return Err("--open-control needs edit, color or select".into()),
+                    }
+                }
+                "--playback-settings" => {
+                    let value = args.next().ok_or("--playback-settings needs JSON")?;
+                    let value = value.to_str().ok_or("Invalid playback settings")?;
+                    result.playback_settings = Some(
+                        crate::playback::output::PlaybackSettings::from_bytes(value.as_bytes()),
+                    );
+                }
+                "--subtitle-prefs" => {
+                    let value = args.next().ok_or("--subtitle-prefs needs JSON")?;
+                    let value = value.to_str().ok_or("Invalid subtitle preferences")?;
+                    let json =
+                        serde_json::from_str(value).map_err(|_| "Invalid subtitle preferences")?;
+                    result.subtitle_prefs = Some(
+                        crate::playback::subtitle_prefs::SubtitlePreferences::normalise(&json),
+                    );
+                }
                 "--open-panel" => {
                     use crate::routes::player::panel::PanelId;
                     result.open_panel = Some(
                         match args.next().as_deref().and_then(|panel| panel.to_str()) {
                             Some("audio") => PanelId::Audio,
                             Some("sources") => PanelId::Sources,
-                            _ => return Err("--open-panel needs audio or sources".into()),
+                            Some("subtitles") => PanelId::Subtitles,
+                            Some("settings") => PanelId::Settings,
+                            _ => {
+                                return Err(
+                                    "--open-panel needs audio, sources, subtitles or settings"
+                                        .into(),
+                                );
+                            }
                         },
                     );
                 }

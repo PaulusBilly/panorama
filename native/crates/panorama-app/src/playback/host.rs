@@ -4,6 +4,7 @@ use super::{
     model::{HostEvent, PlaybackModel, Status},
     progress::{CoreProgress, Progress, ProgressSink},
     selection::{PlaybackSelection, SourceRef, StartMode},
+    subtitle_render::SubtitleSetup,
 };
 use crate::services::Services;
 use futures::{StreamExt, channel::mpsc, future::BoxFuture, stream::FuturesUnordered};
@@ -29,6 +30,10 @@ pub enum Command {
     SetMuted(bool),
     SelectAudio(i64),
     SelectSubtitle(Option<i64>),
+    /// Subtitle preferences and which renderer draws the selected track.
+    Subtitles(Box<SubtitleSetup>),
+    /// Audio and video output properties (`audio-device`, `audio-channels`, ...).
+    Output(Vec<(&'static str, String)>),
     Stop,
     Attach(mpsc::UnboundedSender<HostEvent>),
     Shutdown(tokio::sync::oneshot::Sender<()>),
@@ -119,6 +124,9 @@ struct Runner {
     last_link: Option<Instant>,
     link_interval: Duration,
     origin: Instant,
+    /// The latest subtitle and output settings, replayed onto every new player.
+    subtitles: Option<SubtitleSetup>,
+    output: Option<Vec<(&'static str, String)>>,
 }
 
 impl Runner {
@@ -147,6 +155,8 @@ impl Runner {
             last_link: None,
             link_interval,
             origin: Instant::now(),
+            subtitles: None,
+            output: None,
         }
     }
 
@@ -233,16 +243,43 @@ impl Runner {
                     self.model.paused,
                 );
                 self.active = Some(active);
-                if let Err(error) = result {
-                    self.emit(HostEvent::Failed(error));
+                match result {
+                    Err(error) => self.emit(HostEvent::Failed(error)),
+                    Ok(()) => self.replay_settings(),
                 }
             }
             Err(error) => self.emit(HostEvent::Failed(error)),
         }
     }
 
+    /// Apply the remembered subtitle and output settings to the player just loaded. A refused
+    /// property never stops playback.
+    fn replay_settings(&mut self) {
+        let Some(active) = &mut self.active else {
+            return;
+        };
+        if let Some(output) = &self.output {
+            let _ = active.command(&Command::Output(output.clone()));
+        }
+        if let Some(setup) = &self.subtitles {
+            let _ = active.command(&Command::Subtitles(Box::new(setup.clone())));
+        }
+    }
+
     async fn control(&mut self, command: Command) {
         match command {
+            Command::Subtitles(setup) => {
+                self.subtitles = Some((*setup).clone());
+                if let Some(active) = &mut self.active {
+                    let _ = active.command(&Command::Subtitles(setup));
+                }
+            }
+            Command::Output(properties) => {
+                if let Some(active) = &mut self.active {
+                    let _ = active.command(&Command::Output(properties.clone()));
+                }
+                self.output = Some(properties);
+            }
             Command::Attach(sender) => self.events = sender,
             Command::Shutdown(done) => {
                 self.stop().await;

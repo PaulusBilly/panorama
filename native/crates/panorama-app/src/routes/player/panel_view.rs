@@ -8,7 +8,9 @@ use super::{
     widgets::{ring, tabular},
 };
 use crate::theme::{Theme, Typography};
-use gpui::{Context, Div, ScrollHandle, Stateful, Window, div, prelude::*, px, relative};
+use gpui::{
+    AnyElement, Context, Div, ScrollHandle, Stateful, Window, div, prelude::*, px, relative,
+};
 use std::time::Instant;
 
 /// Height of a section label: caption line plus its 12 px top and 4 px bottom padding.
@@ -31,6 +33,7 @@ impl Player {
     pub(super) fn panel_surface(
         &mut self,
         theme: Theme,
+        keyboard: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
@@ -72,6 +75,7 @@ impl Player {
                     switch.from,
                     Some(outgoing(switch.direction, pose.t)),
                     theme,
+                    keyboard,
                     window,
                     cx,
                 ) {
@@ -81,6 +85,7 @@ impl Player {
                     displayed,
                     Some(incoming(switch.direction, pose.t)),
                     theme,
+                    keyboard,
                     window,
                     cx,
                 ) {
@@ -88,7 +93,7 @@ impl Player {
                 }
             }
             _ => {
-                if let Some(page) = self.panel_page(displayed, None, theme, window, cx) {
+                if let Some(page) = self.panel_page(displayed, None, theme, keyboard, window, cx) {
                     surface = surface.child(page);
                 }
             }
@@ -102,10 +107,10 @@ impl Player {
         id: PanelId,
         slide: Option<(f32, f32)>,
         theme: Theme,
+        keyboard: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
-        let content = self.panel_content(id)?;
         let root = self.measures.root.get();
         let window_width = f32::from(window.viewport_size().width);
         let window_height = if root.size.height > px(0.0) {
@@ -113,10 +118,75 @@ impl Player {
         } else {
             f32::from(window.viewport_size().height)
         };
-        let width = content.width.min(window_width - 16.0);
-        let highlight = self.panels.row.filter(|_| {
-            self.panels.active() == Some(id) && self.focus.panel.contains_focused(window, cx)
-        });
+        let (title, width, body, sticky): (&str, f32, AnyElement, Option<Div>) = match id {
+            PanelId::Settings => (
+                "Playback settings",
+                288.0f32.min(window_width - 16.0),
+                self.settings_body(theme, keyboard, window, cx),
+                None,
+            ),
+            _ => {
+                let content = self.panel_content(id)?;
+                let width = content.width.min(window_width - 16.0);
+                let highlight = self.panels.row.filter(|_| {
+                    self.panels.active() == Some(id)
+                        && self.focus.panel.contains_focused(window, cx)
+                });
+                if id == PanelId::Subtitles {
+                    let shown = width.min(window_width - 40.0);
+                    let body = self
+                        .subtitles_body(&content, shown, highlight, theme, keyboard, window, cx);
+                    (content.title, width, body, None)
+                } else {
+                    let (list, sticky) = self.list_body(&content, id, highlight, theme, cx);
+                    (content.title, width, list.into_any_element(), sticky)
+                }
+            }
+        };
+        let (x, opacity) = slide.map_or((0.0, 1.0), |(x, opacity)| (x * width, opacity));
+        let page = div()
+            .id(("player-panel-page", id as usize))
+            .role(gpui::Role::Dialog)
+            .aria_label(title)
+            .relative()
+            .w(px(width))
+            .max_w(px(window_width - 40.0))
+            .max_h(px(448.0f32.min(window_height - 160.0)))
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .opacity(opacity)
+            .when(slide.is_some(), |page| page.absolute().top_0().left(px(x)))
+            .child(probe(&self.measures, move |measures, bounds| {
+                measures.pages[id as usize].set(Some(bounds.size));
+            }))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(px(44.0))
+                    .px(px(20.0))
+                    .flex()
+                    .items_center()
+                    .bg(theme.player_canvas)
+                    .label()
+                    .child(title),
+            )
+            .child(body);
+        Some(match sticky {
+            Some(overlay) => page.child(overlay),
+            None => page,
+        })
+    }
+
+    /// The scrolling list of the Audio and Sources panels, and its sticky section label.
+    fn list_body(
+        &mut self,
+        content: &Content,
+        id: PanelId,
+        highlight: Option<usize>,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> (Stateful<Div>, Option<Div>) {
         let items = content.items();
         let scroll = self.scrolls[id as usize].clone();
         let mut label_tops = vec![];
@@ -169,43 +239,11 @@ impl Player {
             };
             list = list.child(div().flex_shrink_0().child(element));
         }
-        let sticky = sticky_overlay(&scroll, &label_tops, &content, theme);
-        let (x, opacity) = slide.map_or((0.0, 1.0), |(x, opacity)| (x * width, opacity));
-        let page = div()
-            .id(("player-panel-page", id as usize))
-            .role(gpui::Role::Dialog)
-            .aria_label(content.title)
-            .relative()
-            .w(px(width))
-            .max_w(px(window_width - 40.0))
-            .max_h(px(448.0f32.min(window_height - 160.0)))
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .opacity(opacity)
-            .when(slide.is_some(), |page| page.absolute().top_0().left(px(x)))
-            .child(probe(&self.measures, move |measures, bounds| {
-                measures.pages[id as usize].set(Some(bounds.size));
-            }))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .h(px(44.0))
-                    .px(px(20.0))
-                    .flex()
-                    .items_center()
-                    .bg(theme.player_canvas)
-                    .label()
-                    .child(content.title),
-            )
-            .child(list);
-        Some(match sticky {
-            Some(overlay) => page.child(overlay),
-            None => page,
-        })
+        let sticky = sticky_overlay(&scroll, &label_tops, content, theme);
+        (list, sticky)
     }
 
-    fn option_row(
+    pub(super) fn option_row(
         &self,
         row: &Row,
         flat: usize,
@@ -295,7 +333,7 @@ impl Player {
     }
 }
 
-fn caption(text: &str, theme: Theme, danger: bool) -> Div {
+pub(super) fn caption(text: &str, theme: Theme, danger: bool) -> Div {
     div()
         .caption()
         .text_color(if danger {

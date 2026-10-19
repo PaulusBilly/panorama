@@ -3,12 +3,14 @@
 /// The panels, in trigger order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PanelId {
-    /// Subtitles (PR 3.3c).
+    /// Subtitle language, track and appearance.
     Subtitles,
     /// Audio tracks.
     Audio,
     /// Sources from every stream addon.
     Sources,
+    /// Playback settings and Discord sharing.
+    Settings,
 }
 
 impl PanelId {

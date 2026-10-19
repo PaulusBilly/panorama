@@ -1,4 +1,4 @@
-use super::{chrome, measure::probe, range::RangeId, *};
+use super::{chrome, measure::probe, panel::PanelId, range::RangeId, *};
 use crate::{
     playback::model::Status,
     theme::{
@@ -76,7 +76,12 @@ impl Render for Player {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
             window.request_animation_frame();
         }
-        let panel = self.panel_surface(theme, window, cx);
+        if self.args.open_control.as_deref() == Some("scroll") && self.debug_ui_applied {
+            self.scrolls[3].scroll_to_bottom();
+        }
+        let panel = self.panel_surface(theme, keyboard, window, cx);
+        let popups = self.popups(theme, cx);
+        let cue = self.cue_overlay();
         div()
             .relative()
             .size_full()
@@ -124,6 +129,7 @@ impl Render for Player {
             .when(!preparing, |root| {
                 let notice = self.heavy_notice(theme, keyboard, window, cx);
                 let root = root
+                    .when_some(cue, |root, cue| root.child(cue))
                     .child(self.overlays(theme, reduced, keyboard, window, cx))
                     .when_some(notice, |root, notice| root.child(notice));
                 let root = if shown.top || fade > 0.001 {
@@ -138,6 +144,7 @@ impl Render for Player {
                 }
             })
             .when_some(panel, |root, panel| root.child(panel))
+            .when_some(popups, |root, popups| root.child(popups))
     }
 }
 
@@ -189,6 +196,10 @@ impl Player {
                 && (self.args.open_panel.is_none()
                     || (self.panels.active().is_some()
                         && !self.panel_motion.moving(now, self.reduced)))
+                && (self.args.open_panel != Some(PanelId::Settings) || self.ui.discord.is_some())
+                && (matches!(self.args.open_control.as_deref(), None | Some("scroll"))
+                    || self.ui.edit.is_some()
+                    || (self.ui.select.is_some() && self.measures.popup.get().is_some()))
                 && (!self.args.fullscreen || self.model.fullscreen))
     }
 
@@ -208,6 +219,17 @@ impl Player {
         self.debug_ui_applied = true;
         if let Some(panel) = self.args.open_panel {
             self.show_panel(panel, window, cx);
+        }
+        match self.args.open_control.as_deref() {
+            Some("edit") => self.begin_edit(
+                crate::playback::subtitle_prefs::Field::TextOpacity,
+                window,
+                cx,
+            ),
+            Some("color") => self.open_color(window, cx),
+            Some("select") => self.toggle_select(super::prefs_ui::SelectId::Device, cx),
+            Some("scroll") => self.scrolls[3].scroll_to_bottom(),
+            _ => {}
         }
         if self.args.fullscreen {
             self.toggle_fullscreen(window, cx);

@@ -1,4 +1,5 @@
 //! Pointer, keyboard and panel actions of the player.
+use super::edit::Target;
 use super::{
     Player, SourcesCache,
     content::{self, Content, RowKey},
@@ -76,7 +77,30 @@ impl Player {
     ) {
         self.keyboard_active = false;
         self.chrome.activity(Instant::now());
+        let hit = |bounds: Option<gpui::Bounds<Pixels>>| {
+            bounds.is_some_and(|bounds| bounds.contains(&position))
+        };
+        let on_popup = hit(self.measures.popup.get());
+        if let Some(edit) = &self.ui.edit {
+            // A press outside the field is a blur: it commits.
+            let inside = match edit.target {
+                Target::Field(_) => hit(self.measures.edit.get()),
+                Target::Hex => on_popup || hit(self.measures.color_row.get()),
+            };
+            if !inside {
+                self.commit_edit(window, cx);
+            }
+        }
+        if let Some(open) = self.ui.select
+            && !on_popup
+        {
+            self.ui.select = None;
+            if hit(self.measures.selects[open.id.index()].get()) {
+                self.ui.select_pressed_closed = Some(open.id);
+            }
+        }
         let outside = self.panels.active().is_some()
+            && !on_popup
             && self
                 .measures
                 .surface
@@ -91,7 +115,10 @@ impl Player {
         // The trigger's click is dispatched during this same event; forget the press after it.
         let weak = cx.entity().downgrade();
         cx.defer(move |cx| {
-            let _ = weak.update(cx, |player, _| player.panels.release_press());
+            let _ = weak.update(cx, |player, _| {
+                player.panels.release_press();
+                player.ui.select_pressed_closed = None;
+            });
         });
         self.volume_drag = false;
         if self.scrub.dragging() {
@@ -208,8 +235,22 @@ impl Player {
         let key = event.keystroke.key.as_str();
         self.keyboard_active = true;
         self.panels.release_press();
+        self.ui.select_pressed_closed = None;
         self.chrome.activity(Instant::now());
         cx.notify();
+        if self.ui.edit.is_some() {
+            // The editor owns every key (Escape cancels it) until it closes.
+            return self
+                .edit_key(key, event.keystroke.key_char.as_deref(), window, cx)
+                .then_some(KeyAction::Handled);
+        }
+        if self.ui.select.is_some() {
+            if key == "escape" {
+                self.ui.select = None;
+                return Some(KeyAction::Handled);
+            }
+            return self.select_key(key, cx).then_some(KeyAction::Handled);
+        }
         if key == "escape" {
             if self.scrub.dragging() || self.scrub.pending() || self.volume_drag {
                 self.scrub.cancel();
@@ -307,7 +348,10 @@ impl Player {
                 });
                 Some(content)
             }
-            PanelId::Subtitles => None,
+            PanelId::Subtitles => Some(Rc::new(content::subtitles(
+                &self.ui.subs.view(&self.model.subtitles),
+            ))),
+            PanelId::Settings => None,
         }
     }
 
@@ -320,6 +364,8 @@ impl Player {
                 }
                 self.send(Command::SelectAudio(id), cx);
             }
+            RowKey::Language(choice) => self.choose_language(choice, cx),
+            RowKey::Subtitle(id) => self.choose_subtitle(id, cx),
             RowKey::Source(source) => {
                 if source != self.model.source && self.pending_source != Some(source) {
                     self.pending_source = Some(source);
@@ -359,6 +405,14 @@ impl Player {
         cx: &mut Context<Self>,
     ) {
         let now = Instant::now();
+        if matches!(change, Change::Closed | Change::Switched { .. }) {
+            self.ui.select = None;
+            self.ui.edit = None;
+            self.ui.color_open = false;
+        }
+        if self.panels.active() == Some(PanelId::Settings) && change != Change::Closed {
+            self.refresh_discord(cx);
+        }
         match change {
             Change::Opened => {
                 let root = self.measures.root.get();

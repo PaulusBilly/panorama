@@ -56,6 +56,39 @@ pub struct Services {
     pub addons: Option<AddonClient>,
     /// Decoding and disk image cache.
     pub images: Option<ImageLoader>,
+    /// The single store; absent in fixture mode so previews never touch saved preferences.
+    pub store: Option<Arc<Store>>,
+    /// Ordered preference writes; present exactly when `store` is.
+    pub prefs_writer: Option<crate::playback::prefs::PrefsWriter>,
+    /// The fixture presence's opt-in file, removed with the services.
+    pub fixture_file: Option<FixtureFile>,
+}
+
+/// A per-run temporary file removed on drop.
+pub struct FixtureFile(std::path::PathBuf);
+
+impl FixtureFile {
+    /// A unique path in the temp directory (process id and a clock suffix).
+    pub fn unique() -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        Self(std::env::temp_dir().join(format!(
+            "panorama-fixture-discord-{}-{nanos:x}.json",
+            std::process::id()
+        )))
+    }
+
+    /// The path.
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for FixtureFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 impl ServicesHost {
@@ -71,15 +104,26 @@ impl ServicesHost {
     /// Open storage and initialize core services on Tokio and blocking workers.
     pub async fn start(&self) -> Result<Arc<Services>, StartupError> {
         if self.fixtures {
+            let fixture_file = FixtureFile::unique();
             return Ok(Arc::new(Services {
                 runtime: self.runtime.clone(),
                 data_dir: store::default_path()
                     .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
                     .unwrap_or_default(),
-                discord: None,
+                // A presence with no IPC paths: the toggle works, nothing connects, and the
+                // opt-in lands in a temporary file instead of the user's settings.
+                discord: Some(panorama_core::discord::DiscordPresence::new(
+                    &self.runtime,
+                    fixture_file.path(),
+                    vec![],
+                    panorama_core::discord::SystemConnector,
+                )),
                 session: None,
                 addons: None,
                 images: None,
+                store: None,
+                prefs_writer: None,
+                fixture_file: Some(fixture_file),
             }));
         }
         let path = store::default_path().ok_or_else(|| {
@@ -115,7 +159,7 @@ impl ServicesHost {
         let session = CoreSession::start()
             .await
             .map_err(|_| StartupError::Failed("Could not restore your Stremio account.".into()))?;
-        let addons = AddonClient::new(store, CoreAddonTransport)
+        let addons = AddonClient::new(store.clone(), CoreAddonTransport)
             .await
             .map_err(|_| StartupError::Failed("Could not initialize addons.".into()))?;
         let cache_dir = path
@@ -153,6 +197,11 @@ impl ServicesHost {
             session: Some(Arc::new(Mutex::new(session))),
             addons: Some(addons),
             images: Some(images),
+            prefs_writer: Some(
+                crate::playback::prefs::PrefsWriter::spawn(&self.runtime, store.clone()).0,
+            ),
+            store: Some(store),
+            fixture_file: None,
         }))
     }
 }
