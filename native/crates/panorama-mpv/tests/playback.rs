@@ -64,9 +64,8 @@ fn close(player: Player) {
 
 /// Five seconds of 30 fps Y4M video and an 8 kHz WAV tone; every libmpv build demuxes
 /// both, unlike `av://lavfi`, which needs libavdevice.
-fn media() -> (PathBuf, PathBuf) {
-    let directory = std::env::temp_dir().join(format!("panorama-mpv-media-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).unwrap();
+fn media() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let directory = tempfile::tempdir().unwrap();
     let (width, height, frames) = (64, 48, 150);
     let mut video = format!("YUV4MPEG2 W{width} H{height} F30:1 Ip A1:1 C420jpeg\n").into_bytes();
     for frame in 0..frames {
@@ -92,10 +91,13 @@ fn media() -> (PathBuf, PathBuf) {
     audio.extend(b"data");
     audio.extend((samples.len() as u32).to_le_bytes());
     audio.extend(samples);
-    let (video_path, audio_path) = (directory.join("clip.y4m"), directory.join("tone.wav"));
+    let (video_path, audio_path) = (
+        directory.path().join("clip.y4m"),
+        directory.path().join("tone.wav"),
+    );
     std::fs::write(&video_path, video).unwrap();
     std::fs::write(&audio_path, audio).unwrap();
-    (video_path, audio_path)
+    (directory, video_path, audio_path)
 }
 
 #[cfg(windows)]
@@ -125,7 +127,7 @@ fn ipc() -> (
 
 #[test]
 fn generated_media_clock_pause_seek_tracks_eof_and_close() {
-    let (video, audio) = media();
+    let (_media, video, audio) = media();
     let (pipe, connect) = ipc();
     let Some((player, events)) = player(&[
         ("audio-files", audio.to_str().unwrap()),

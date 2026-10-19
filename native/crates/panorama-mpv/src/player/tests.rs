@@ -116,6 +116,16 @@ fn wid_cannot_be_overridden_after_the_surface_lease() {
             player.command(&["set", name, "1"]),
             Err(MpvError::InvalidArgument)
         );
+        let options = format!("pause=yes,{name}=1");
+        assert_eq!(
+            player.command(&["loadfile", "clip.mkv", "replace", "-1", &options]),
+            Err(MpvError::InvalidArgument)
+        );
     }
+    assert!(incoming.try_recv().is_err());
+    player
+        .command(&["loadfile", "clip.mkv", "replace", "-1", "start=5,pause=yes"])
+        .unwrap();
+    assert!(matches!(incoming.try_recv(), Ok(Request::Command(_))));
     assert!(incoming.try_recv().is_err());
 }

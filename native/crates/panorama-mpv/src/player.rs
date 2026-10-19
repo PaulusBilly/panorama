@@ -169,6 +169,12 @@ impl Player {
         for arg in args {
             validate_name(arg)?;
         }
+        // loadfile's trailing argument is a per-file `key=value,...` option list.
+        if args[0] == "loadfile" {
+            for option in args.iter().skip(3).flat_map(|list| list.split(',')) {
+                validate_name(option.split('=').next().unwrap_or_default())?;
+            }
+        }
         self.send(Request::Command(
             args.iter().map(|s| (*s).to_owned()).collect(),
         ))

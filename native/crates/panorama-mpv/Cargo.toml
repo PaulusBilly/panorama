@@ -20,6 +20,7 @@ objc2-quartz-core = { version = "=0.3.2", default-features = false, features = [
 
 [target.'cfg(any(windows, target_os = "macos"))'.dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
