@@ -11,6 +11,7 @@ pub mod panel;
 mod panel_motion;
 mod panel_view;
 mod panel_widgets;
+pub mod pointer;
 mod prefs_actions;
 mod prefs_save;
 mod prefs_ui;
@@ -88,6 +89,7 @@ pub struct Player {
     chrome_fade: Tween,
     chrome_wake: Option<Task<()>>,
     keyboard_active: bool,
+    pointer: pointer::Hider,
     reduced: bool,
     panels: Panels,
     panel_motion: PanelMotion,
@@ -184,6 +186,7 @@ impl Player {
             chrome_fade: Tween::fixed(1.0),
             chrome_wake: None,
             keyboard_active: false,
+            pointer: pointer::Hider::default(),
             reduced: true,
             panels: Panels::default(),
             panel_motion: PanelMotion::default(),

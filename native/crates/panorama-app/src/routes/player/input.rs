@@ -6,6 +6,7 @@ use super::{
     keyboard::{self, FocusZone, KeyAction, Route, Shortcut},
     panel::{Change, PanelId, initial_row, next_row},
     panel_motion::{FALLBACK_BOTTOM, PILL_GAP},
+    pointer,
     range::{KEY_STEP, RangeId},
     widgets::Control,
 };
@@ -51,10 +52,21 @@ impl Player {
         .size_full()
     }
 
-    fn pointer_moved(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn pointer_moved(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let position = event.position;
-        self.keyboard_active = false;
-        self.chrome.activity(Instant::now());
+        match self.pointer.on_move(position) {
+            pointer::MoveAction::Wake => {
+                self.keyboard_active = false;
+                self.chrome.activity(Instant::now());
+            }
+            pointer::MoveAction::Rehide => self.rehide_pointer(window, cx),
+            pointer::MoveAction::Ignore => {}
+        }
         if (self.scrub.dragging() || self.volume_drag)
             && event.pressed_button != Some(MouseButton::Left)
         {
@@ -229,6 +241,10 @@ impl Player {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<KeyAction> {
+        if pointer::is_sentinel(event) {
+            // The idle-pointer hide: not activity, and nothing else may see it.
+            return Some(KeyAction::Handled);
+        }
         if keyboard::reserved(event) {
             return None;
         }

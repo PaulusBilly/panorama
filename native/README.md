@@ -844,6 +844,22 @@ proxy stats, and `Command::Groups` keeps its source list in step with Film
 without `--screenshot` opens the fixture player live. `--size` accepts 480x400 and
 up in capture mode (no minimum window size there) for the 540 px capture.
 
+## Idle pointer (PR 3.3d)
+
+The pointer hides when the chrome does: after `chrome::HIDE_DELAY` of rest over the player,
+never while the chrome is pinned (not Ready, paused, a panel open, a drag, keyboard focus on a
+control). `routes/player/pointer.rs` reaches GPUI's safe `hide_cursor_until_mouse_moves` by
+dispatching a sentinel `KeyDownEvent` (`f24`, `key_char: Some("")`) through
+`Window::dispatch_event` when `Shown.pointer` falls while `Window::is_window_hovered()`; the
+shell's capture handler consumes it first, so it is neither activity nor routed. It fires once
+per edge and re-arms when the pointer shows again. A control focused by a pointer press is
+blurred first so the keyboard modality brings no focus ring. `Hider::on_move` classifies a move: a new position wakes the chrome; the same position
+(Windows can send a `WM_MOUSEMOVE` without movement) never wakes it, and when the hide has already
+fired it hides the pointer again, because GPUI restores the pointer on any `WM_MOUSEMOVE`.
+The hide
+relies on `CursorHideMode::OnTyping` or `OnTypingAndAction` (the default); `hide_until_moved`
+asserts this in debug builds.
+
 ## Subtitles, subtitle preferences and playback settings (PR 3.3c)
 
 `playback/subtitle_prefs.rs` holds the preferences (defaults, limits and
