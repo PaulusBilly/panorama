@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod debug;
 pub mod fake;
+pub mod health;
 pub mod host;
 pub mod model;
 pub mod progress;

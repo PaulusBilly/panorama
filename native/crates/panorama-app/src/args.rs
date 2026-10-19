@@ -42,6 +42,12 @@ pub struct Args {
     pub no_sources: bool,
     /// Hold fixture metadata in its initial loading state.
     pub film_loading: bool,
+    /// Open a player panel before capture.
+    pub open_panel: Option<crate::routes::player::panel::PanelId>,
+    /// Show the seek range in its hovered look.
+    pub hover_seek: bool,
+    /// Enter fullscreen before capture.
+    pub fullscreen: bool,
 }
 
 impl Args {
@@ -70,6 +76,9 @@ impl Args {
             signed_out: false,
             no_sources: false,
             film_loading: false,
+            open_panel: None,
+            hover_seek: false,
+            fullscreen: false,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -98,8 +107,8 @@ impl Args {
                         .ok_or("--size needs WxH")?;
                     let w: u32 = w.parse().map_err(|_| "Invalid window width")?;
                     let h: u32 = h.parse().map_err(|_| "Invalid window height")?;
-                    if !(960..=16384).contains(&w) || !(600..=16384).contains(&h) {
-                        return Err("Window size must be between 960x600 and 16384x16384".into());
+                    if !(480..=16384).contains(&w) || !(400..=16384).contains(&h) {
+                        return Err("Window size must be between 480x400 and 16384x16384".into());
                     }
                     result.size = (w as f32, h as f32);
                 }
@@ -161,6 +170,18 @@ impl Args {
                 "--signed-out" => result.signed_out = true,
                 "--no-sources" => result.no_sources = true,
                 "--film-loading" => result.film_loading = true,
+                "--hover-seek" => result.hover_seek = true,
+                "--fullscreen" => result.fullscreen = true,
+                "--open-panel" => {
+                    use crate::routes::player::panel::PanelId;
+                    result.open_panel = Some(
+                        match args.next().as_deref().and_then(|panel| panel.to_str()) {
+                            Some("audio") => PanelId::Audio,
+                            Some("sources") => PanelId::Sources,
+                            _ => return Err("--open-panel needs audio or sources".into()),
+                        },
+                    );
+                }
                 "--scroll" => {
                     let value = args.next().ok_or("--scroll needs a pixel delta or end")?;
                     let value = value.to_str().ok_or("Invalid scroll delta")?;
@@ -194,6 +215,11 @@ impl Args {
             return Err("--play-file requires a debug build or --screenshot".into());
         }
         if real_playback && !matches!(result.route, Route::Player { .. }) {
+            result.route = Route::Player {
+                id: "tmdb:100".into(),
+            };
+        }
+        if result.player_state.is_some() && result.screenshot.is_none() {
             result.route = Route::Player {
                 id: "tmdb:100".into(),
             };

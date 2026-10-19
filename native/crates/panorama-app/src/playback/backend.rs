@@ -1,4 +1,5 @@
 use super::{
+    health::LinkHealth,
     host::Command,
     model::PlaybackError,
     selection::PlaybackSelection,
@@ -33,6 +34,9 @@ pub trait Backend: Send + Sync + 'static {
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<Box<dyn Playback>, PlaybackError>>;
     fn shutdown(&self) -> BoxFuture<'_, ()>;
+    fn link_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(1)
+    }
 }
 
 pub trait Playback: Send {
@@ -45,7 +49,7 @@ pub trait Playback: Send {
     ) -> Result<(), PlaybackError>;
     fn command(&mut self, command: &Command) -> Result<(), PlaybackError>;
     fn events(&mut self) -> Vec<PlayerEvent>;
-    fn cache(&self, cache: &CacheState, now_ms: u64, duration: Option<f64>);
+    fn cache(&self, cache: &CacheState, now_ms: u64, duration: Option<f64>) -> Option<LinkHealth>;
     fn error(&self) -> Option<PlaybackError>;
     fn stop(&mut self);
     fn close_session(&mut self) -> BoxFuture<'_, ()>;

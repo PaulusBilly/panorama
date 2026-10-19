@@ -79,7 +79,11 @@ fn main() -> ExitCode {
             let result = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    window_min_size: Some(size(px(960.0), px(600.0))),
+                    window_min_size: Some(if capture_requested {
+                        size(px(320.0), px(320.0))
+                    } else {
+                        size(px(960.0), px(600.0))
+                    }),
                     titlebar: Some(TitlebarOptions {
                         title: Some("Panorama".into()),
                         appears_transparent: true,

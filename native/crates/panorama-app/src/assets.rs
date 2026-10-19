@@ -24,6 +24,20 @@ impl AssetSource for Assets {
             "player-play-filled.svg" => {
                 Some(include_bytes!("../assets/icons/player-play-filled.svg"))
             }
+            "player-pause-filled.svg" => {
+                Some(include_bytes!("../assets/icons/player-pause-filled.svg"))
+            }
+            "volume-2.svg" => Some(include_bytes!("../assets/icons/volume-2.svg")),
+            "volume-off.svg" => Some(include_bytes!("../assets/icons/volume-off.svg")),
+            "maximize-player.svg" => Some(include_bytes!("../assets/icons/maximize.svg")),
+            "minimize-player.svg" => Some(include_bytes!("../assets/icons/minimize.svg")),
+            "playlist.svg" => Some(include_bytes!("../assets/icons/playlist.svg")),
+            "playlist-filled.svg" => Some(include_bytes!("../assets/icons/playlist-filled.svg")),
+            "list-details.svg" => Some(include_bytes!("../assets/icons/list-details.svg")),
+            "list-details-filled.svg" => {
+                Some(include_bytes!("../assets/icons/list-details-filled.svg"))
+            }
+            "badge-cc.svg" => Some(include_bytes!("../assets/icons/badge-cc.svg")),
             "back.svg" => Some(include_bytes!("../assets/back.svg")),
             "minimize.svg" => Some(include_bytes!("../assets/minimize.svg")),
             "maximize.svg" => Some(include_bytes!("../assets/maximize.svg")),

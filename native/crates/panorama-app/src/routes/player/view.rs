@@ -1,12 +1,12 @@
-use super::*;
+use super::{chrome, measure::probe, range::RangeId, *};
 use crate::{
     playback::model::Status,
-    theme::{Theme, focus_ring},
+    theme::{
+        Theme,
+        motion::{DURATION_FAST, EASE_DEFAULT, EASE_EDITORIAL},
+    },
 };
-use gpui::{
-    Div, MouseButton, Render, div, linear_color_stop, linear_gradient, prelude::*, px, svg,
-};
-use std::time::Duration;
+use gpui::{Render, div, prelude::*};
 
 impl Render for Player {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -27,38 +27,77 @@ impl Render for Player {
             self.unmount(cx);
             return div();
         }
+        self.reduced = reduced;
+        self.ui_settled = self.debug_ui_settled(Instant::now());
         self.mount(window, cx);
         self.sync_surface(window, cx);
+        self.apply_debug_ui(window, cx);
+        self.measures.pill.set(None);
+        self.measures.seek_pill.set(None);
         let now = Instant::now();
         let preparing = self.model.initial_preparing();
         let fixture_canvas = self.args.fixtures
             && self.args.play_file.is_none()
             && self.args.play_url.is_none()
             && !self.args.play_torrent;
-        let animated =
-            preparing || matches!(self.model.status, Status::Preparing(_) | Status::Buffering);
+        let status = self.model.status;
+        let shown = self.chrome.shown(
+            now,
+            chrome::Inputs {
+                ready: status == Status::Ready,
+                controls_ready: matches!(status, Status::Ready | Status::Buffering),
+                initial_preparing: preparing,
+                keyboard_focus: chrome::keyboard_focus(
+                    self.keyboard_active,
+                    self.focus.chrome_focused(window),
+                ),
+                panel_open: self.panels.active().is_some(),
+                paused: self.model.paused,
+                dragging: self.scrub.dragging() || self.volume_drag,
+            },
+        );
+        self.shown = shown;
+        self.chrome_fade.retarget(
+            if shown.top { 1.0 } else { 0.0 },
+            DURATION_FAST,
+            Some(EASE_DEFAULT),
+            now,
+        );
+        let fade = self.chrome_fade.value(now, reduced);
+        self.sync_emphasis(window, now);
+        self.schedule_chrome_wake(now, cx);
+        let animated = preparing || matches!(status, Status::Preparing(_) | Status::Buffering);
         if (!reduced && animated)
-            || self.press.moving(now, reduced)
-            || self.hover.moving(now, reduced)
+            || self.motion.iter().any(|motion| motion.moving(now, reduced))
+            || self.emphasis.iter().any(|tween| tween.moving(now, reduced))
+            || self.chrome_fade.moving(now, reduced)
+            || self.panel_motion.moving(now, reduced)
         {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
             window.request_animation_frame();
         }
+        let panel = self.panel_surface(theme, window, cx);
         div()
             .relative()
             .size_full()
             .text_color(theme.player_ink)
             .when(
-                fixture_canvas || matches!(self.model.status, Status::Idle | Status::Error(_)),
+                fixture_canvas || matches!(status, Status::Idle | Status::Error(_)),
                 |root| root.bg(theme.player_canvas),
             )
+            .child(self.input_layer(cx))
+            .child(probe(&self.measures, |measures, bounds| {
+                measures.root.set(bounds)
+            }))
             .child(
                 div()
                     .id("player-video")
                     .absolute()
                     .inset_0()
                     .on_click(cx.listener(|player, _, _, cx| {
-                        if matches!(player.model.status, Status::Ready | Status::Buffering) {
+                        if matches!(player.model.status, Status::Ready | Status::Buffering)
+                            && !player.panels.swallows_click()
+                        {
                             player.send(Command::TogglePause, cx);
                         }
                     })),
@@ -83,127 +122,95 @@ impl Render for Player {
                 )
             })
             .when(!preparing, |root| {
-                root.child(self.overlays(theme, reduced, keyboard, window, cx))
-                    .child(self.top_bar(theme, reduced, keyboard, window, cx))
+                let notice = self.heavy_notice(theme, keyboard, window, cx);
+                let root = root
+                    .child(self.overlays(theme, reduced, keyboard, window, cx))
+                    .when_some(notice, |root, notice| root.child(notice));
+                let root = if shown.top || fade > 0.001 {
+                    root.child(self.top_bar(theme, keyboard, fade, window, cx))
+                } else {
+                    root
+                };
+                if shown.bottom {
+                    root.child(self.bottom_bar(theme, keyboard, window, cx))
+                } else {
+                    root
+                }
             })
+            .when_some(panel, |root, panel| root.child(panel))
     }
 }
 
 impl Player {
-    fn top_bar(
-        &self,
-        theme: Theme,
-        reduced: bool,
-        keyboard: bool,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let scale = self.press.value(Instant::now(), reduced);
-        let hover = self.hover.value(Instant::now(), reduced);
-        let focus_theme = Theme {
-            focus_inner: theme.player_canvas,
-            focus_outer: theme.player_ink,
-            ..theme
-        };
-        let close = focus_ring(
-            div()
-                .id("player-close")
-                .role(gpui::Role::Button)
-                .aria_label("Close")
-                .size(px(40.0 * scale))
-                .rounded_full()
-                .border_1()
-                .border_color(theme.player_ink.opacity(0.12))
-                .bg(theme.player_canvas.opacity(0.72))
-                .cursor_pointer()
-                .flex()
-                .items_center()
-                .justify_center()
-                .on_hover(cx.listener(|player, over, _, cx| {
-                    player.hover.retarget(
-                        if *over { 1.0 } else { 0.0 },
-                        Duration::from_millis(120),
-                        Some(crate::theme::motion::EASE_OUT),
-                        Instant::now(),
-                    );
-                    cx.notify();
-                }))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|player, _, _, cx| {
-                        player.press.retarget(
-                            0.97,
-                            Duration::from_millis(120),
-                            Some(crate::theme::motion::EASE_OUT),
-                            Instant::now(),
-                        );
-                        cx.notify();
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|player, _, _, cx| {
-                        player.press.retarget(
-                            1.0,
-                            Duration::from_millis(120),
-                            Some(crate::theme::motion::EASE_OUT),
-                            Instant::now(),
-                        );
-                        cx.notify();
-                    }),
-                )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(|player, _, _, cx| {
-                        player.press.retarget(
-                            1.0,
-                            Duration::from_millis(120),
-                            Some(crate::theme::motion::EASE_OUT),
-                            Instant::now(),
-                        );
-                        cx.notify();
-                    }),
-                )
-                .on_click(cx.listener(|player, _, window, cx| player.close(window, cx)))
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .rounded_full()
-                        .bg(theme.player_ink.opacity(0.1 * hover)),
-                )
-                .child(
-                    svg()
-                        .path("player-x.svg")
-                        .size(px(20.0 * scale))
-                        .text_color(theme.player_ink),
+    fn sync_emphasis(&mut self, window: &Window, now: Instant) {
+        for id in [RangeId::Volume, RangeId::Seek] {
+            let (handle, disabled, dragging, forced) = match id {
+                RangeId::Volume => (&self.focus.volume, false, self.volume_drag, false),
+                RangeId::Seek => (
+                    &self.focus.seek,
+                    self.model.duration.is_none(),
+                    self.scrub.dragging(),
+                    self.args.hover_seek,
                 ),
-            &self.close_focus,
-            focus_theme,
-            true,
-            keyboard,
-            window,
-        );
-        div()
-            .absolute()
-            .left_0()
-            .right_0()
-            .top_0()
-            .px(px(20.0))
-            .pt(px(16.0))
-            .pb(px(48.0))
-            .bg(linear_gradient(
-                180.0,
-                linear_color_stop(theme.player_canvas.opacity(0.7), 0.0),
-                linear_color_stop(theme.player_canvas.opacity(0.0), 1.0),
-            ))
-            .child(
-                div()
-                    .size(px(40.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(close),
+            };
+            let on = !disabled
+                && (self.hovered[id as usize] || handle.is_focused(window) || dragging || forced);
+            self.emphasis[id as usize].retarget(
+                if on { 1.0 } else { 0.0 },
+                DURATION_FAST,
+                Some(EASE_EDITORIAL),
+                now,
+            );
+        }
+    }
+
+    /// Wake once when the auto-hide timer runs out; moves only push the deadline.
+    fn schedule_chrome_wake(&mut self, now: Instant, cx: &mut Context<Self>) {
+        let Some(left) = self.chrome.deadline(now) else {
+            return;
+        };
+        if self.chrome_wake.is_some() {
+            return;
+        }
+        self.chrome_wake = Some(cx.spawn(async move |entity, cx| {
+            cx.background_executor().timer(left).await;
+            let _ = entity.update(cx, |player, cx| {
+                player.chrome_wake = None;
+                cx.notify();
+            });
+        }));
+    }
+
+    /// Whether capture flags and the animations they start have finished.
+    fn debug_ui_settled(&self, now: Instant) -> bool {
+        let requested = self.args.open_panel.is_some() || self.args.fullscreen;
+        !requested
+            || (self.debug_ui_applied
+                && (self.args.open_panel.is_none()
+                    || (self.panels.active().is_some()
+                        && !self.panel_motion.moving(now, self.reduced)))
+                && (!self.args.fullscreen || self.model.fullscreen))
+    }
+
+    /// Apply the capture flags once the chrome has been measured.
+    fn apply_debug_ui(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.debug_ui_applied
+            || !matches!(
+                self.model.status,
+                Status::Ready | Status::Buffering | Status::Ended | Status::Error(_)
             )
+            || self.measures.root.get().size.width <= gpui::px(0.0)
+            || (matches!(self.model.status, Status::Ready | Status::Buffering)
+                && self.measures.pill.get().is_none())
+        {
+            return;
+        }
+        self.debug_ui_applied = true;
+        if let Some(panel) = self.args.open_panel {
+            self.show_panel(panel, window, cx);
+        }
+        if self.args.fullscreen {
+            self.toggle_fullscreen(window, cx);
+        }
     }
 }

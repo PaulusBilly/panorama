@@ -1,22 +1,57 @@
+mod chrome;
+mod content;
+mod controls;
+mod input;
 pub mod keyboard;
+mod measure;
 mod overlays;
+pub mod panel;
+mod panel_motion;
+mod panel_view;
+mod range;
+mod range_view;
+mod time;
 mod view;
+mod widgets;
 
 use crate::{
     app::AppShell,
     app_state::AppState,
     args::Args,
     playback::{
+        health::Health,
         host::{Command, PlaybackHost},
         model::{HostEvent, PlaybackError, PlaybackModel},
-        selection::PlaybackSelection,
+        selection::{PlaybackSelection, SourceRef},
         surface::{SurfaceRect, physical_rect},
     },
     transition::Tween,
 };
+use chrome::Chrome;
+use content::Content;
 use futures::StreamExt;
-use gpui::{Context, Entity, FocusHandle, Subscription, Task, WeakEntity, Window};
-use std::time::Instant;
+use gpui::{Context, Entity, ScrollHandle, Subscription, Task, WeakEntity, Window};
+use measure::Measures;
+use panel::Panels;
+use panel_motion::PanelMotion;
+use panorama_core::addons::StreamGroup;
+use range::Scrub;
+use std::{rc::Rc, sync::Arc, time::Instant};
+use widgets::{Control, ControlMotion, Focuses};
+
+struct SourcesCache {
+    groups: Arc<Vec<StreamGroup>>,
+    current: SourceRef,
+    content: Rc<Content>,
+}
+
+impl SourcesCache {
+    /// Still valid for these inputs. The cache holds its `Arc`, so a pointer match cannot be a
+    /// freed allocation reused by another list.
+    fn fresh(&self, groups: &Arc<Vec<StreamGroup>>, current: SourceRef) -> bool {
+        Arc::ptr_eq(&self.groups, groups) && self.current == current
+    }
+}
 
 pub struct Player {
     shell: WeakEntity<AppShell>,
@@ -27,19 +62,51 @@ pub struct Player {
     model: PlaybackModel,
     mounted: bool,
     surface_shown: bool,
-    close_focus: FocusHandle,
-    primary_focus: FocusHandle,
-    secondary_focus: FocusHandle,
-    press: Tween,
-    hover: Tween,
+    focus: Focuses,
+    motion: [ControlMotion; Control::COUNT],
+    emphasis: [Tween; 2],
+    hovered: [bool; 2],
+    scrub: Scrub,
+    volume_drag: bool,
+    /// The last committed seek, until the host echoes it.
+    seek_target: Option<f64>,
+    /// A source switch asked for and not yet applied.
+    pending_source: Option<SourceRef>,
+    chrome: Chrome,
+    shown: chrome::Shown,
+    chrome_fade: Tween,
+    chrome_wake: Option<Task<()>>,
+    keyboard_active: bool,
+    reduced: bool,
+    panels: Panels,
+    panel_motion: PanelMotion,
+    scrolls: [ScrollHandle; 3],
+    groups: Arc<Vec<StreamGroup>>,
+    sources: Option<SourcesCache>,
+    health: Health,
+    dismissed: Option<SourceRef>,
+    measures: Rc<Measures>,
+    debug_ui_applied: bool,
+    ui_settled: bool,
     launched: Instant,
     rect: Option<SurfaceRect>,
     #[cfg(windows)]
     surface: Option<panorama_mpv::win32::VideoSurface>,
     events: Option<Task<()>>,
     bounds: Option<Subscription>,
+    blur: Option<Subscription>,
     _shell: Subscription,
+    _state: Subscription,
     _release: Subscription,
+}
+
+fn current_selection(state: &AppState, id: &str, args: &Args) -> Option<PlaybackSelection> {
+    state
+        .playback
+        .as_ref()
+        .filter(|selection| selection.film.id == id)
+        .cloned()
+        .or_else(|| crate::playback::debug::selection(id, args))
 }
 
 impl Player {
@@ -63,12 +130,8 @@ impl Player {
             })
             .unwrap_or_else(|| cx.on_release(|_, _| {}));
         let release = cx.on_release(|player, cx| player.unmount(cx));
-        let selection = state
-            .read(cx)
-            .playback
-            .as_ref()
-            .filter(|selection| selection.film.id == id)
-            .cloned();
+        let streams = cx.observe(&state, |player, _, cx| player.sync_groups(cx));
+        let selection = current_selection(state.read(cx), &id, &args);
         let mut model = PlaybackModel::new(
             selection
                 .as_ref()
@@ -80,6 +143,7 @@ impl Player {
                 .unwrap_or_default(),
         );
         model.apply(HostEvent::Resolving);
+        let now = Instant::now();
         Self {
             shell,
             state,
@@ -89,18 +153,47 @@ impl Player {
             model,
             mounted: false,
             surface_shown: false,
-            close_focus: cx.focus_handle(),
-            primary_focus: cx.focus_handle(),
-            secondary_focus: cx.focus_handle(),
-            press: Tween::fixed(1.0),
-            hover: Tween::fixed(0.0),
-            launched: Instant::now(),
+            focus: Focuses::new(cx),
+            motion: [ControlMotion::new(); Control::COUNT],
+            emphasis: [Tween::fixed(0.0); 2],
+            hovered: [false; 2],
+            scrub: Scrub::default(),
+            volume_drag: false,
+            seek_target: None,
+            pending_source: None,
+            chrome: Chrome::new(now),
+            shown: chrome::Shown {
+                top: true,
+                bottom: true,
+                pointer: true,
+            },
+            chrome_fade: Tween::fixed(1.0),
+            chrome_wake: None,
+            keyboard_active: false,
+            reduced: true,
+            panels: Panels::default(),
+            panel_motion: PanelMotion::default(),
+            scrolls: std::array::from_fn(|_| ScrollHandle::new()),
+            groups: Arc::new(
+                selection
+                    .map(|selection| selection.groups)
+                    .unwrap_or_default(),
+            ),
+            sources: None,
+            health: Health::default(),
+            dismissed: None,
+            measures: Rc::default(),
+            debug_ui_applied: false,
+            ui_settled: false,
+            launched: now,
             rect: None,
             #[cfg(windows)]
             surface: None,
             events: None,
             bounds: None,
+            blur: None,
             _shell: observer,
+            _state: streams,
             _release: release,
         }
     }
@@ -112,13 +205,61 @@ impl Player {
     }
 
     fn selection(&self, cx: &Context<Self>) -> Option<PlaybackSelection> {
-        self.state
-            .read(cx)
-            .playback
-            .as_ref()
-            .filter(|selection| selection.film.id == self.id)
-            .cloned()
-            .or_else(|| crate::playback::debug::selection(&self.id, &self.args))
+        current_selection(self.state.read(cx), &self.id, &self.args)
+    }
+
+    /// Follow Film's stream delivery while the player is open.
+    fn sync_groups(&mut self, cx: &mut Context<Self>) {
+        let Some((id, groups)) = self.state.read(cx).streams.clone() else {
+            return;
+        };
+        if id != self.id || Arc::ptr_eq(&groups, &self.groups) || *groups == *self.groups {
+            return;
+        }
+        self.send(Command::Groups(groups.as_ref().clone()), cx);
+        self.groups = groups;
+        cx.notify();
+    }
+
+    fn handle_event(&mut self, event: HostEvent, cx: &mut Context<Self>) {
+        let source_changed = matches!(
+            event,
+            HostEvent::Resolving | HostEvent::SourceChanged(_) | HostEvent::Closed
+        );
+        let link = match &event {
+            HostEvent::Link(link) => Some(*link),
+            _ => None,
+        };
+        if self.volume_drag && matches!(event, HostEvent::Volume(_)) {
+            // An echo of an earlier step would snap the thumb back mid-drag.
+            return;
+        }
+        match &event {
+            HostEvent::Seeked(_) | HostEvent::Resolving | HostEvent::Closed => {
+                self.seek_target = None
+            }
+            _ => {}
+        }
+        match &event {
+            HostEvent::SourceChanged(_) | HostEvent::Failed(_) | HostEvent::Closed => {
+                self.pending_source = None;
+            }
+            _ => {}
+        }
+        self.model.apply(event);
+        if source_changed {
+            self.health = Health::default();
+        }
+        if let Some(link) = link {
+            self.health.observe(
+                link,
+                self.model.status == crate::playback::model::Status::Buffering,
+                self.model.cache_seconds,
+                self.model.rebuffers,
+            );
+        }
+        self.sync_shell(cx);
+        cx.notify();
     }
 
     fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -158,11 +299,7 @@ impl Player {
             self.events = Some(cx.spawn(async move |entity, cx| {
                 while let Some(event) = receiver.next().await {
                     if entity
-                        .update(cx, |player, cx| {
-                            player.model.apply(event);
-                            player.sync_shell(cx);
-                            cx.notify();
-                        })
+                        .update(cx, |player, cx| player.handle_event(event, cx))
                         .is_err()
                     {
                         break;
@@ -193,6 +330,11 @@ impl Player {
             player.sync_surface(window, cx);
             cx.notify();
         }));
+        self.blur = Some(
+            cx.on_blur(&self.focus.seek.clone(), window, |player, _, cx| {
+                player.commit_scrub(cx);
+            }),
+        );
     }
 
     fn sync_surface(&mut self, window: &Window, cx: &mut gpui::App) {
@@ -227,13 +369,13 @@ impl Player {
         self.rect = Some(rect);
     }
 
-    pub fn key_action(&self, event: &gpui::KeyDownEvent) -> Option<keyboard::KeyAction> {
-        keyboard::action(event, Some(&self.model))
-    }
-
     fn sync_shell(&self, cx: &mut gpui::App) {
         self.state.update(cx, |state, cx| {
-            if crate::playback::shell::ShellPlayerState::update(&mut state.player, &self.model) {
+            if crate::playback::shell::ShellPlayerState::update(
+                &mut state.player,
+                &self.model,
+                self.ui_settled,
+            ) {
                 cx.notify();
             }
         });
@@ -249,7 +391,9 @@ impl Player {
             surface.hide();
         }
         self.events = None;
+        self.chrome_wake = None;
         self.bounds = None;
+        self.blur = None;
         self.rect = None;
         self.mounted = false;
         self.surface_shown = false;
@@ -268,7 +412,33 @@ impl Player {
 
     pub fn toggle_fullscreen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.toggle_fullscreen();
+        self.chrome.activity(Instant::now());
         self.sync_surface(window, cx);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sources_cache_is_invalidated_by_a_new_list_or_a_new_current_source() {
+        let groups = Arc::new(Vec::new());
+        let source = SourceRef::default();
+        let cache = SourcesCache {
+            groups: groups.clone(),
+            current: source,
+            content: Rc::new(content::sources(&[], source)),
+        };
+        assert!(cache.fresh(&groups, source));
+        assert!(cache.fresh(&groups.clone(), source));
+        // An equal but distinct list is a different allocation.
+        assert!(!cache.fresh(&Arc::new(Vec::new()), source));
+        let other = SourceRef {
+            group: 1,
+            stream: 0,
+        };
+        assert!(!cache.fresh(&groups, other));
     }
 }

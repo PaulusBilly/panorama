@@ -36,10 +36,11 @@ impl Runner {
                     self.emit(HostEvent::Failed(error));
                 }
             }
+            let mut link = None;
             if let PlayerEvent::DemuxerCacheState(cache) = &event
                 && let Some(active) = &self.active
             {
-                active.cache(
+                link = active.cache(
                     cache,
                     self.origin.elapsed().as_millis() as u64,
                     self.model.duration,
@@ -50,6 +51,14 @@ impl Runner {
             let was_ended = self.model.status == Status::Ended;
             let shutdown = matches!(event, PlayerEvent::Shutdown);
             self.emit(HostEvent::Mpv(event));
+            if let Some(link) = link
+                && self
+                    .last_link
+                    .is_none_or(|last| last.elapsed() >= self.link_interval)
+            {
+                self.last_link = Some(Instant::now());
+                self.emit(HostEvent::Link(link));
+            }
             let ended = !was_ended && self.model.status == Status::Ended;
             if !self.begun
                 && self.model.status == Status::Ready

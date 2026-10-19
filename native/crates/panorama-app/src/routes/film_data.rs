@@ -104,6 +104,11 @@ impl Film {
                                     .any(|group| matches!(group.state, StreamState::Failed(_)));
                                 film.selected = crate::playback::selection::first_source(&groups);
                                 film.groups = groups;
+                                let shared = (film.id.clone(), Arc::new(film.groups.clone()));
+                                film.state.update(cx, |state, cx| {
+                                    state.streams = Some(shared);
+                                    cx.notify();
+                                });
                             }
                             StreamsEvent::Failed(_) => film.sources_error = true,
                             StreamsEvent::NoSources => {}
