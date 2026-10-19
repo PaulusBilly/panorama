@@ -87,7 +87,9 @@ impl Render for Player {
             .size_full()
             .text_color(theme.player_ink)
             .when(
-                fixture_canvas || matches!(status, Status::Idle | Status::Error(_)),
+                fixture_canvas
+                    || matches!(status, Status::Idle | Status::Error(_))
+                    || (status == Status::NoPeers && !self.model.has_reached_playable),
                 |root| root.bg(theme.player_canvas),
             )
             .child(self.input_layer(cx))
@@ -119,11 +121,18 @@ impl Render for Player {
                         .justify_center()
                         .role(gpui::Role::Status)
                         .aria_label("Preparing playback")
-                        .child(crate::cascade_loader::render(
-                            now.duration_since(self.launched).as_secs_f32(),
-                            reduced,
-                            theme,
-                        )),
+                        .child(
+                            div()
+                                .relative()
+                                .child(crate::cascade_loader::render(
+                                    now.duration_since(self.launched).as_secs_f32(),
+                                    reduced,
+                                    theme,
+                                ))
+                                .when(self.model.torrent.is_some(), |loader| {
+                                    loader.child(self.torrent_preparing_text(theme))
+                                }),
+                        ),
                 )
             })
             .when(!preparing, |root| {
@@ -208,7 +217,11 @@ impl Player {
         if self.debug_ui_applied
             || !matches!(
                 self.model.status,
-                Status::Ready | Status::Buffering | Status::Ended | Status::Error(_)
+                Status::Ready
+                    | Status::Buffering
+                    | Status::Ended
+                    | Status::NoPeers
+                    | Status::Error(_)
             )
             || self.measures.root.get().size.width <= gpui::px(0.0)
             || (matches!(self.model.status, Status::Ready | Status::Buffering)

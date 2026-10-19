@@ -281,6 +281,9 @@ async fn channel_host_bridge_runs_without_gpui() {
 #[path = "host_regression_tests.rs"]
 mod regression;
 
+#[path = "host_torrent_tests.rs"]
+mod torrent;
+
 #[tokio::test]
 async fn subtitle_and_output_setup_replay_onto_every_new_player() {
     use super::super::{

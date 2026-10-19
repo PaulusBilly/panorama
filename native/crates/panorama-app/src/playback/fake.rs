@@ -6,7 +6,7 @@ use super::{
     selection::PlaybackSelection,
 };
 use futures::future::BoxFuture;
-use panorama_core::torrent::CancellationToken;
+use panorama_core::torrent::{CancellationToken, TorrentState, TorrentStats};
 use panorama_mpv::{CacheState, PlayerEvent, RawWindow, Track, TrackKind};
 use std::{
     collections::VecDeque,
@@ -30,9 +30,23 @@ pub enum FixtureState {
     Subtitled,
     /// Ready with an image (PGS) subtitle track selected.
     Bitmap,
+    /// A torrent still looking for peers, with nothing known yet.
+    FindingPeers,
+    /// A torrent with peers whose first bytes are loading.
+    LoadingStats,
+    /// A torrent nobody is sharing.
+    NoPeers,
 }
 
 impl FixtureState {
+    /// States that play a torrent source.
+    pub fn is_torrent(self) -> bool {
+        matches!(
+            self,
+            Self::FindingPeers | Self::LoadingStats | Self::NoPeers
+        )
+    }
+
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "waiting" => Some(Self::Waiting),
@@ -45,6 +59,9 @@ impl FixtureState {
             "ready" => Some(Self::Ready),
             "subtitled" => Some(Self::Subtitled),
             "bitmap" => Some(Self::Bitmap),
+            "finding-peers" => Some(Self::FindingPeers),
+            "loading-stats" => Some(Self::LoadingStats),
+            "no-peers" => Some(Self::NoPeers),
             _ => None,
         }
     }
@@ -55,6 +72,7 @@ pub struct Script {
     pub ignore_cancel: bool,
     pub error: Option<PlaybackError>,
     pub events: Vec<PlayerEvent>,
+    pub torrent: Option<TorrentStats>,
 }
 
 impl Default for Script {
@@ -67,6 +85,7 @@ impl Default for Script {
                 PlayerEvent::Duration(Some(600.0)),
                 PlayerEvent::TimePos(Some(1.0)),
             ],
+            torrent: None,
         }
     }
 }
@@ -100,7 +119,10 @@ impl Backend for FakeBackend {
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<Box<dyn Playback>, PlaybackError>> {
         Box::pin(async move {
-            if self.state == Some(FixtureState::Preparing) {
+            if matches!(
+                self.state,
+                Some(FixtureState::Preparing | FixtureState::FindingPeers)
+            ) {
                 cancel.cancelled().await;
                 return Err(PlaybackError::SourceUnavailable);
             }
@@ -113,6 +135,9 @@ impl Backend for FakeBackend {
                     _ = cancel.cancelled() => return Err(PlaybackError::SourceUnavailable),
                 }
             }
+            if self.state == Some(FixtureState::NoPeers) {
+                return Err(PlaybackError::NoPeers);
+            }
             if let Some(error) = script.error {
                 return Err(error);
             }
@@ -123,7 +148,10 @@ impl Backend for FakeBackend {
                     FixtureState::Error => {
                         vec![PlayerEvent::Error(panorama_mpv::MpvError::Loading)]
                     }
-                    FixtureState::Preparing => vec![],
+                    FixtureState::Preparing
+                    | FixtureState::FindingPeers
+                    | FixtureState::LoadingStats
+                    | FixtureState::NoPeers => vec![],
                     _ => vec![
                         PlayerEvent::Duration(Some(6100.0)),
                         PlayerEvent::TimePos(Some(1200.0)),
@@ -182,9 +210,14 @@ impl Backend for FakeBackend {
                 download_mbps: Some(2.1),
                 transfer_demanded: Some(true),
             });
+            let torrent = script.torrent.or_else(|| {
+                (self.state == Some(FixtureState::LoadingStats))
+                    .then(|| stats(TorrentState::Streaming, 7, 1_800_000))
+            });
             let playback: Box<dyn Playback> = Box::new(FakePlayback {
                 events,
                 link,
+                torrent,
                 log: self.log.clone(),
             });
             Ok(playback)
@@ -259,9 +292,24 @@ fn fixture_tracks(subtitle: Option<i64>) -> Vec<Track> {
     ]
 }
 
+/// Torrent stats with the given state, live peers and download rate.
+pub fn stats(state: TorrentState, peers_live: u32, download_bps: u64) -> TorrentStats {
+    TorrentStats {
+        peers_live,
+        peers_connecting: 2,
+        downloaded_bytes: 0,
+        verified_bytes: 0,
+        download_bps,
+        upload_bps: 0,
+        state,
+        error: None,
+    }
+}
+
 struct FakePlayback {
     events: Vec<PlayerEvent>,
     link: Option<LinkHealth>,
+    torrent: Option<TorrentStats>,
     log: Arc<Mutex<Vec<String>>>,
 }
 
@@ -306,7 +354,13 @@ impl Playback for FakePlayback {
         self.link
     }
     fn error(&self) -> Option<PlaybackError> {
-        None
+        self.torrent
+            .as_ref()
+            .and_then(|stats| stats.error)
+            .map(super::backend::torrent_error)
+    }
+    fn torrent(&self) -> Option<TorrentStats> {
+        self.torrent.clone()
     }
     fn stop(&mut self) {
         lock(&self.log).push("mpv stop".into());

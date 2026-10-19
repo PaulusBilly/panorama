@@ -12,7 +12,9 @@ use panorama_core::{
         policy::BufferingSample,
         proxy::{MediaProxy, ProxyOptions, SessionHandle},
     },
-    torrent::{CancellationToken, TorrentEngine, TorrentError, TorrentOptions, TorrentStream},
+    torrent::{
+        CancellationToken, TorrentEngine, TorrentError, TorrentOptions, TorrentStats, TorrentStream,
+    },
 };
 use panorama_mpv::{
     CacheState, Mpv, MpvLibrary, Player, PlayerEvent, PlayerOptions, RawWindow, SeekMode,
@@ -51,6 +53,10 @@ pub trait Playback: Send {
     fn events(&mut self) -> Vec<PlayerEvent>;
     fn cache(&self, cache: &CacheState, now_ms: u64, duration: Option<f64>) -> Option<LinkHealth>;
     fn error(&self) -> Option<PlaybackError>;
+    /// The torrent's stats, for a torrent source.
+    fn torrent(&self) -> Option<TorrentStats> {
+        None
+    }
     fn stop(&mut self);
     fn close_session(&mut self) -> BoxFuture<'_, ()>;
     fn close_player(self: Box<Self>) -> BoxFuture<'static, ()>;
@@ -202,10 +208,11 @@ fn media_error(error: MediaError) -> PlaybackError {
     }
 }
 
-fn torrent_error(error: TorrentError) -> PlaybackError {
+pub(super) fn torrent_error(error: TorrentError) -> PlaybackError {
     match error {
         TorrentError::NoPeers | TorrentError::MetadataTimeout => PlaybackError::NoPeers,
         TorrentError::NoVideoFile => PlaybackError::NoVideoFile,
+        TorrentError::Disk(_) => PlaybackError::TorrentCache,
         TorrentError::InvalidSource => PlaybackError::SourceUnavailable,
         _ => PlaybackError::Network,
     }
