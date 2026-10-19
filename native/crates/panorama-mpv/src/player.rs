@@ -21,8 +21,9 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub struct Mpv;
 
 impl Mpv {
-    /// Loads only the canonical full DLL path. `None` selects the executable's
-    /// directory; this does not search PATH or read `PANORAMA_LIBMPV_DIR` implicitly.
+    /// Loads only the canonical full library path. `None` selects the executable's
+    /// directory (on macOS, the bundle's `Frameworks` first); this does not search
+    /// PATH or read `PANORAMA_LIBMPV_DIR` implicitly.
     /// Filesystem access and the OS loader are synchronous startup operations.
     pub fn load_library(dir: Option<&Path>) -> Result<MpvLibrary, MpvError> {
         Api::load(dir).map(|api| MpvLibrary { api })

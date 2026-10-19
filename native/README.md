@@ -49,8 +49,11 @@ mpv host (PR 3.1):
   window disabling, and WindowsAndMessaging features are enabled here.
 - `raw-window-handle` (=0.6.2): matches GPUI's `HasWindowHandle` contract.
 - `panorama-mpv` uses standard-library mpsc channels; no channel dependency.
-- `serde_json` (=1.0.151, Windows dev-dependency): parses explicit mpv IPC clock
-  readings in playback tests; reuses the version already in the lockfile.
+- `serde_json` (=1.0.151, Windows and macOS dev-dependency): parses explicit mpv IPC
+  clock readings in playback tests; reuses the version already in the lockfile.
+- `objc2` (=0.6.5), `objc2-app-kit`, `objc2-foundation`, `objc2-quartz-core` (=0.3.2,
+  defaults off, macOS only): the video `NSView` and `CAMetalLayer`. GPUI already
+  resolves these versions.
 
 Media proxy (PR 3.2):
 
@@ -268,9 +271,10 @@ in the app crate.
 | `subtitle.rs` | mpv fallback subtitle preference batch |
 | `ffi.rs`, `ffi/{nodes,receive}.rs` | Dynamic C ABI and copying event payloads; unsafe confined here |
 | `win32.rs`, `win32/preview.rs` | Retained child HWND and standalone preview; unsafe confined here |
+| `macos.rs` | Metal-layer `NSView` below GPUI's view and the `panorama-macvk` surface descriptor; unsafe confined here |
 
-The crate inherits workspace lints, allows unsafe only in the FFI and Win32
-module trees, and denies `unsafe_op_in_unsafe_fn`. Every unsafe block explains
+The crate inherits workspace lints, allows unsafe only in the FFI, Win32 and
+macOS modules, and denies `unsafe_op_in_unsafe_fn`. Every unsafe block explains
 its safety conditions. No DLL, import library, or generated media is tracked.
 
 ### Public API and PR 3.3 integration

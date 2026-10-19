@@ -1,9 +1,8 @@
-#![cfg(windows)]
+#![cfg(any(windows, target_os = "macos"))]
 use panorama_mpv::{
     EndReason, Mpv, MpvError, Player, PlayerEvent, PlayerOptions, SeekMode, TrackKind,
 };
 use std::{
-    fs::OpenOptions,
     io::{BufRead, BufReader, Write},
     net::TcpListener,
     path::PathBuf,
@@ -63,11 +62,73 @@ fn close(player: Player) {
     );
 }
 
+/// Five seconds of 30 fps Y4M video and an 8 kHz WAV tone; every libmpv build demuxes
+/// both, unlike `av://lavfi`, which needs libavdevice.
+fn media() -> (PathBuf, PathBuf) {
+    let directory = std::env::temp_dir().join(format!("panorama-mpv-media-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let (width, height, frames) = (64, 48, 150);
+    let mut video = format!("YUV4MPEG2 W{width} H{height} F30:1 Ip A1:1 C420jpeg\n").into_bytes();
+    for frame in 0..frames {
+        video.extend_from_slice(b"FRAME\n");
+        video.extend(std::iter::repeat_n(
+            (frame * 255 / frames) as u8,
+            width * height,
+        ));
+        video.extend(std::iter::repeat_n(128, width * height / 2));
+    }
+    let samples: Vec<u8> = (0..8000 * 5)
+        .flat_map(|i| {
+            (((i as f64 * 440.0 / 8000.0 * std::f64::consts::TAU).sin() * 8000.0) as i16)
+                .to_le_bytes()
+        })
+        .collect();
+    let mut audio = b"RIFF".to_vec();
+    audio.extend((36 + samples.len() as u32).to_le_bytes());
+    audio.extend(b"WAVEfmt ");
+    for field in [16u32, 1 | 1 << 16, 8000, 16000, 2 | 16 << 16] {
+        audio.extend(field.to_le_bytes());
+    }
+    audio.extend(b"data");
+    audio.extend((samples.len() as u32).to_le_bytes());
+    audio.extend(samples);
+    let (video_path, audio_path) = (directory.join("clip.y4m"), directory.join("tone.wav"));
+    std::fs::write(&video_path, video).unwrap();
+    std::fs::write(&audio_path, audio).unwrap();
+    (video_path, audio_path)
+}
+
+#[cfg(windows)]
+fn ipc() -> (String, impl Fn() -> std::io::Result<std::fs::File>) {
+    let pipe = format!(r"\\.\pipe\panorama-mpv-clock-{}", std::process::id());
+    let path = pipe.clone();
+    (pipe, move || {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+    })
+}
+
+#[cfg(unix)]
+fn ipc() -> (
+    String,
+    impl Fn() -> std::io::Result<std::os::unix::net::UnixStream>,
+) {
+    let socket =
+        std::env::temp_dir().join(format!("panorama-mpv-clock-{}.sock", std::process::id()));
+    let path = socket.clone();
+    (socket.to_string_lossy().into_owned(), move || {
+        std::os::unix::net::UnixStream::connect(&path)
+    })
+}
+
 #[test]
 fn generated_media_clock_pause_seek_tracks_eof_and_close() {
-    let pipe = format!(r"\\.\pipe\panorama-mpv-clock-{}", std::process::id());
+    let (video, audio) = media();
+    let (pipe, connect) = ipc();
     let Some((player, events)) = player(&[
-        ("audio-files", "av://lavfi:sine=duration=5"),
+        ("audio-files", audio.to_str().unwrap()),
         ("input-ipc-server", &pipe),
     ]) else {
         return;
@@ -77,7 +138,7 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
     let clock_thread = thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(3);
         let connection = loop {
-            match OpenOptions::new().read(true).write(true).open(&pipe) {
+            match connect() {
                 Ok(connection) => break connection,
                 Err(error) => {
                     assert!(Instant::now() < deadline, "IPC connection failed: {error}");
@@ -103,9 +164,7 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
             }
         }
     });
-    player
-        .load("av://lavfi:testsrc=duration=5:size=320x240:rate=30")
-        .unwrap();
+    player.load(video.to_str().unwrap()).unwrap();
     let mut saw_video = false;
     let mut saw_audio = false;
     let mut first_time = None;

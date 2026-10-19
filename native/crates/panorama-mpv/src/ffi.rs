@@ -27,25 +27,8 @@ pub(crate) struct Api {
 }
 
 impl Api {
-    #[cfg(windows)]
     pub(crate) fn load(dir: Option<&Path>) -> Result<Arc<Self>, MpvError> {
-        let default = if dir.is_none() {
-            Some(std::env::current_exe().map_err(|_| MpvError::LibraryUnavailable)?)
-        } else {
-            None
-        };
-        let directory = dir
-            .or_else(|| default.as_deref().and_then(Path::parent))
-            .ok_or(MpvError::LibraryUnavailable)?;
-        let dll = directory
-            .join("libmpv-2.dll")
-            .canonicalize()
-            .map_err(|_| MpvError::LibraryUnavailable)?;
-        // SAFETY: Full canonical DLL path; dependencies use only DLL/default directories.
-        let library: libloading::Library =
-            unsafe { libloading::os::windows::Library::load_with_flags(&dll, 0x100 | 0x1000) }
-                .map_err(|_| MpvError::LibraryUnavailable)?
-                .into();
+        let library = open(dir)?;
         // SAFETY: All symbols use the client.h C ABI; the library outlives every pointer.
         unsafe {
             let version: libloading::Symbol<unsafe extern "C" fn() -> std::os::raw::c_ulong> =
@@ -86,11 +69,6 @@ impl Api {
                 _library: library,
             }))
         }
-    }
-
-    #[cfg(not(windows))]
-    pub(crate) fn load(_: Option<&Path>) -> Result<Arc<Self>, MpvError> {
-        Err(MpvError::UnsupportedPlatform)
     }
 
     pub(crate) fn create(
@@ -219,6 +197,50 @@ impl Wake {
             *value = Weak::new();
         }
     }
+}
+
+#[cfg(windows)]
+fn open(dir: Option<&Path>) -> Result<libloading::Library, MpvError> {
+    let default = if dir.is_none() {
+        Some(std::env::current_exe().map_err(|_| MpvError::LibraryUnavailable)?)
+    } else {
+        None
+    };
+    let directory = dir
+        .or_else(|| default.as_deref().and_then(Path::parent))
+        .ok_or(MpvError::LibraryUnavailable)?;
+    let dll = directory
+        .join("libmpv-2.dll")
+        .canonicalize()
+        .map_err(|_| MpvError::LibraryUnavailable)?;
+    // SAFETY: Full canonical DLL path; dependencies use only DLL/default directories.
+    unsafe { libloading::os::windows::Library::load_with_flags(&dll, 0x100 | 0x1000) }
+        .map(Into::into)
+        .map_err(|_| MpvError::LibraryUnavailable)
+}
+
+/// `None` selects the app bundle's `Contents/Frameworks`, then the executable's directory.
+#[cfg(target_os = "macos")]
+fn open(dir: Option<&Path>) -> Result<libloading::Library, MpvError> {
+    let candidates = match dir {
+        Some(dir) => vec![dir.to_path_buf()],
+        None => {
+            let exe = std::env::current_exe().map_err(|_| MpvError::LibraryUnavailable)?;
+            let exe = exe.parent().ok_or(MpvError::LibraryUnavailable)?;
+            vec![exe.join("../Frameworks"), exe.to_path_buf()]
+        }
+    };
+    let dylib = candidates
+        .iter()
+        .find_map(|dir| dir.join("libmpv.2.dylib").canonicalize().ok())
+        .ok_or(MpvError::LibraryUnavailable)?;
+    // SAFETY: Full canonical path; dependencies resolve through its install names.
+    unsafe { libloading::Library::new(dylib) }.map_err(|_| MpvError::LibraryUnavailable)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn open(_: Option<&Path>) -> Result<libloading::Library, MpvError> {
+    Err(MpvError::UnsupportedPlatform)
 }
 
 fn cstring(value: &str) -> Result<CString, MpvError> {

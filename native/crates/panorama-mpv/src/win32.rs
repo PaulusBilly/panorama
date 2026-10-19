@@ -1,4 +1,4 @@
-use crate::{MpvError, RawWindow};
+use crate::{MpvError, PhysicalRect, RawWindow};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     marker::PhantomData,
@@ -100,19 +100,6 @@ impl Drop for WindowLease {
             }
         }
     }
-}
-
-/// Physical client-relative rectangle, in pixels.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PhysicalRect {
-    /// Left offset.
-    pub x: i32,
-    /// Top offset.
-    pub y: i32,
-    /// Non-negative width.
-    pub width: i32,
-    /// Non-negative height.
-    pub height: i32,
 }
 
 /// Disabled bottom child HWND from Gate 1 approach A. Use on the parent's thread.

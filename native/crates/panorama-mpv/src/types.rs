@@ -6,6 +6,8 @@ use crate::MpvError;
 pub struct RawWindow {
     #[cfg(windows)]
     pub(crate) lease: std::sync::Arc<crate::win32::WindowLease>,
+    #[cfg(target_os = "macos")]
+    pub(crate) lease: std::sync::Arc<crate::macos::WindowLease>,
 }
 
 impl RawWindow {
@@ -14,11 +16,28 @@ impl RawWindow {
         {
             self.lease.id
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        {
+            self.lease.id()
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             0
         }
     }
+}
+
+/// Physical rectangle relative to the window content's top-left, in pixels.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PhysicalRect {
+    /// Left offset.
+    pub x: i32,
+    /// Top offset.
+    pub y: i32,
+    /// Non-negative width.
+    pub width: i32,
+    /// Non-negative height.
+    pub height: i32,
 }
 
 /// Initialization options; overrides are applied after the Electron defaults.
