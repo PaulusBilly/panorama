@@ -5,7 +5,7 @@ use std::sync::{
 
 use stremio_core::{
     constants::*,
-    models::ctx::Ctx,
+    models::{ctx::Ctx, player::Player},
     runtime::{Effects, Env, Update, msg::Msg},
     types::{
         events::DismissedEventsBucket, library::LibraryBucket, notifications::NotificationsBucket,
@@ -20,12 +20,22 @@ use super::{CoreError, CoreErrorKind, env::PanoramaEnv};
 #[model(PanoramaEnv)]
 pub(super) struct CoreModel {
     pub(super) ctx: SessionCtx,
+    pub(super) player: Player,
 }
 
 #[derive(Clone)]
 pub(super) struct SessionCtx {
     pub(super) inner: Ctx,
     pub(super) active: Arc<AtomicBool>,
+}
+
+// The derived model passes `&self.ctx` to child models that expect the core `Ctx`.
+impl std::ops::Deref for SessionCtx {
+    type Target = Ctx;
+
+    fn deref(&self) -> &Ctx {
+        &self.inner
+    }
 }
 
 impl Update<PanoramaEnv> for SessionCtx {

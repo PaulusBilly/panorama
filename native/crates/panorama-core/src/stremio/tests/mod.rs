@@ -1,9 +1,9 @@
 mod addons;
 mod cancellation;
 mod fetch;
-mod library;
 mod lifecycle;
 mod mock;
+mod progress;
 mod session;
 mod storage;
 mod tls;

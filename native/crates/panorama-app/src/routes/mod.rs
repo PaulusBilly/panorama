@@ -27,15 +27,9 @@ pub fn create(
         Route::Film { id: film_id } => cx
             .new(|cx| film::Film::new(film_id.clone(), id, shell, state, args, cx))
             .into(),
-        Route::Player { id } => {
-            let source = state
-                .read(cx)
-                .playback
-                .as_ref()
-                .filter(|selection| selection.film_id == *id)
-                .map(|selection| selection.source.clone());
-            cx.new(|_| player::Player::new(id.clone(), source)).into()
-        }
+        Route::Player { id: film_id } => cx
+            .new(|cx| player::Player::new(film_id.clone(), id, shell, state, args, cx))
+            .into(),
         Route::Addons => cx.new(|_| addons::Addons::new()).into(),
     }
 }

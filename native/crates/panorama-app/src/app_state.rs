@@ -20,15 +20,6 @@ pub enum Account {
     Error(String),
 }
 
-/// Film-to-Player handoff retaining the complete redacted source and behavior hints.
-#[derive(Clone)]
-pub struct PlaybackSelection {
-    /// Opaque film identifier associated with the chosen source.
-    pub film_id: String,
-    /// First playable source in account group order.
-    pub source: panorama_core::addons::StreamSource,
-}
-
 /// Map sanitized core failures to plain sign-in copy.
 pub fn account_error(kind: CoreErrorKind) -> &'static str {
     match kind {
@@ -62,7 +53,10 @@ pub struct AppState {
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
     /// Source selected by Film for the next Player mount.
-    pub playback: Option<PlaybackSelection>,
+    pub playback: Option<crate::playback::selection::PlaybackSelection>,
+    pub closing: bool,
+    pub player: Option<crate::playback::shell::ShellPlayerState>,
+    pub playback_host: Option<crate::playback::host::PlaybackHost>,
     host: Arc<ServicesHost>,
     events: Option<Task<()>>,
     request: Option<Task<()>>,
@@ -87,6 +81,9 @@ impl AppState {
             images,
             film_preview: None,
             playback: None,
+            playback_host: None,
+            player: None,
+            closing: false,
             account: Account::SignedOut,
             installed: vec![],
             services,

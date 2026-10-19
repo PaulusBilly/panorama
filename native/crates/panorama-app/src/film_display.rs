@@ -190,3 +190,41 @@ mod tests {
         assert_eq!(rating_count(1), "1 rating");
     }
 }
+
+pub fn format_time_left(offset: f64, duration: Option<f64>) -> Option<String> {
+    let duration = duration.filter(|value| value.is_finite() && *value > 0.0)?;
+    if !offset.is_finite() {
+        return None;
+    }
+    let minutes = ((duration - offset).max(0.0) / 60.0).round().max(1.0) as u64;
+    let hours = minutes / 60;
+    Some(if hours > 0 {
+        format!("{hours}h {}m", minutes % 60)
+    } else {
+        format!("{minutes}m")
+    })
+}
+
+#[cfg(test)]
+mod time_left_tests {
+    #[test]
+    fn electron_time_left_rounding_and_bounds() {
+        for (offset, duration, expected) in [
+            (0.0, None, None),
+            (0.0, Some(0.0), None),
+            (0.0, Some(-1.0), None),
+            (0.0, Some(89.0), Some("1m")),
+            (0.0, Some(90.0), Some("2m")),
+            (0.0, Some(3600.0), Some("1h 0m")),
+            (1200.0, Some(6100.0), Some("1h 22m")),
+            (100.0, Some(20.0), Some("1m")),
+        ] {
+            assert_eq!(
+                super::format_time_left(offset, duration).as_deref(),
+                expected
+            );
+        }
+        assert!(super::format_time_left(f64::NAN, Some(60.0)).is_none());
+        assert!(super::format_time_left(0.0, Some(f64::INFINITY)).is_none());
+    }
+}

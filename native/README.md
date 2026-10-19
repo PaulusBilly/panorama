@@ -41,6 +41,54 @@ The Electron app remains the shipping app.
 - `raw-window-handle` (=0.6.2): obtain the GPUI window's HWND without platform assumptions.
 - `png` (=0.18.1): encode debug window captures on a background executor.
 
+mpv host (PR 3.1):
+
+- `libloading` (=0.8.9): Gate 1's runtime loader; no link-time mpv dependency.
+- `windows` (=0.62.2): matches GPUI and Gate 1; only Foundation, GDI (window
+  class/background), LibraryLoader, Threading (window owner validation), keyboard
+  window disabling, and WindowsAndMessaging features are enabled here.
+- `raw-window-handle` (=0.6.2): matches GPUI's `HasWindowHandle` contract.
+- `panorama-mpv` uses standard-library mpsc channels; no channel dependency.
+- `serde_json` (=1.0.151, Windows dev-dependency): parses explicit mpv IPC clock
+  readings in playback tests; reuses the version already in the lockfile.
+
+Media proxy (PR 3.2):
+
+- `tokio` (=1.53.2): asynchronous media requests, loopback sockets, cancellation, tracked tasks and virtual-time tests.
+- `reqwest` (=0.12.28, defaults disabled, `rustls-tls`, `stream`): cookie-free streaming upstream HTTP with manual redirects; no native TLS.
+- `hyper` (=1.12.0, `server`, `http1`): direct loopback HTTP server without a web framework.
+- `hyper-util` (=0.1.21, `tokio`): adapts Tokio sockets to Hyper.
+- `http-body-util` (=0.1.5): bounded streaming response bodies.
+- `http` (=1.5.0): shared HTTP methods, status codes and headers.
+- `bytes` (=1.12.1): chunk buffers and shared immutable cache data.
+- `futures` (=0.3.34): injectable asynchronous transports and streaming bodies.
+- `sha2` (=0.10.9): SHA-256 cache filenames; source URLs never identify cache entries.
+- `getrandom` (=0.3.4): operating-system randomness for 128-bit session tokens and owner names.
+- `httpdate` (=1.0.3): HTTP Retry-After and Last-Modified dates.
+- `fs4` (=0.13.1, `sync`): safe free-space, filesystem block-size and actual file-allocation queries. Owner locks use stable `std::fs::File::try_lock`.
+
+Torrent engine (PR 4.1):
+
+- `librqbit` (=9.0.1, default features off, `rust-tls`): the spike-proven BTv1 engine;
+  excludes its control HTTP API/client and native TLS backend.
+- `tokio` (=1.53.2), `tokio-util` (=0.7.20): private asynchronous runtime,
+  cancellable I/O, timers, and cancellation tokens; versions already in the lockfile.
+- `hyper` (=1.12.0), `hyper-util` (=0.1.21), `http-body-util` (=0.1.5),
+  `http` (=1.5.0), `bytes` (=1.12.1), `futures` (=0.3.34): streaming loopback
+  HTTP/1 and Range responses; match the Phase 3 proxy's pins.
+- `fs4` (=0.13.1, `sync`): free-space/allocation-granularity queries,
+  physical preallocation, and allocated-byte measurement; matches the media cache.
+- `cap-std` / `cap-primitives` (=4.0.3): safe directory-relative I/O and no-follow
+  directory opens; cleanup stays anchored to verified handles.
+- `same-file` (=1.0.6): retained directory identity (Windows volume serial/file
+  index; Unix device/inode), already present transitively in the lockfile.
+- `getrandom` (=0.3.4): 128-bit operating-system-random bearer tokens.
+- `url` (=2.5.8): tracker validation and magnet query encoding.
+- `anyhow` (=1.0.104): required by librqbit's storage interface; public errors
+  discard library diagnostics, which can contain tracker credentials.
+- `tracing` (=0.1.44): disable upstream tracing on every private runtime thread,
+  including its blocking pool, because librqbit logs tracker URLs internally.
+
 ## Addon data for PR 2.4
 
 `panorama_core::addons` contains `mod.rs` (client, installation identity, blocking storage and cancellable delivery), `catalog.rs` (Home selection and fallback), `search.rs` (concurrent search and enrichment), `details.rs` (metadata chain and stream groups), `transport.rs` (core transport adapter), `sanitize.rs` (untrusted response validation), and `types.rs` (screen data and events). Tests live under `addons/tests/`; the production transport also has a local HTTPS test under `stremio/tests/addons.rs`.
@@ -200,3 +248,579 @@ preserves bounded legacy catalog director/country fields that Stremio's typed
 preview drops. Paging tests verify raw skip offsets, terminal empty pages, and
 preservation of the first-page cache; fixture/layout/header/error/cache tests live
 in the app crate.
+
+## panorama-mpv (PR 3.1)
+
+`panorama-core` remains independent and unsafe-free. The new library contains:
+
+| Module | Responsibility |
+| --- | --- |
+| `player.rs` | Safe command API, event worker, asynchronous close and teardown deadline |
+| `types.rs`, `error.rs` | Copied public values and static sanitized errors |
+| `options.rs` | Electron defaults and source-drift test |
+| `events.rs` | Owned node parsing, track/device lists and buffering snapshots |
+| `subtitle.rs` | mpv fallback subtitle preference batch |
+| `ffi.rs`, `ffi/{nodes,receive}.rs` | Dynamic C ABI and copying event payloads; unsafe confined here |
+| `win32.rs`, `win32/preview.rs` | Retained child HWND and standalone preview; unsafe confined here |
+
+The crate inherits workspace lints, allows unsafe only in the FFI and Win32
+module trees, and denies `unsafe_op_in_unsafe_fn`. Every unsafe block explains
+its safety conditions. No DLL, import library, or generated media is tracked.
+
+### Public API and PR 3.3 integration
+
+1. On an application background thread, call
+   `Mpv::load_library(Some(install_dir)) -> Result<MpvLibrary, MpvError>`.
+   `None` selects the executable directory. The full canonical
+   `libmpv-2.dll` path is loaded with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+   LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`; PATH is never searched for that DLL.
+   Required symbols are resolved once, and client API major 2 is required.
+   DLL dependencies must also be packaged appropriately; no global DLL-search
+   configuration is changed.
+2. On GPUI's window thread, call `VideoSurface::from_window(&window)` (or
+   `create(HWND)`), set its client-relative physical `PhysicalRect`, then show
+   it. Update bounds on resize/DPI/fullscreen and hide it when appropriate.
+   The surface is disabled and uses `WS_CHILD | WS_CLIPSIBLINGS |
+   WS_CLIPCHILDREN`, at `HWND_BOTTOM`, underneath the DirectComposition controls.
+   Keep DirectComposition enabled and GPUI's window/root transparent over video;
+   opaque fills should be confined to the controls.
+3. Call `library.create(PlayerOptions { wid: Some(surface.raw_window()), extra })`.
+   This returns a `Player` immediately; `Ready` confirms initialization, and
+   `Error` followed by `Shutdown` reports startup failure. This asynchronous
+   readiness is intentional: synchronous initialization can block on mpv.
+4. Take `player.events() -> Result<Receiver<PlayerEvent>, MpvError>` once, poll
+   from a background task, update player state, then call `cx.notify()`.
+   The Result reflects std mpsc's single-consumer receiver (second call is
+   `EventsTaken`). `load`, `stop`, `set_pause`, `seek` (Absolute/Relative exact),
+   `set_property<T: MpvValue>`, `command`, `set_audio_track`, `set_subtitle_track`,
+   `set_volume` (0..=100), and `set_subtitle_style` enqueue owned arguments.
+   Track IDs are positive i64; `None` disables the stream. Property scalars
+   support bool, i64, finite f64, String and &str. Queue acceptance is synchronous;
+   mpv operation failures arrive as sanitized `Error` events. Requests wait for
+   async replies before the next request, including subtitle preference batches.
+5. Feed the proxy policy from `DemuxerCacheState`: `buffered_seconds`,
+   `buffering`, `paused`, and `playback_speed` map directly to PR 3.2's
+   `BufferingSample`. `input_bytes_per_second * 8 / 1_000_000` supplies an mpv
+   download-rate fallback. Prefer the proxy's measured `download_mbps`; the
+   proxy supplies `source_mbps`, `transfer_demanded`, `throttled`, and `now_ms`.
+   Forward bytes and cache-end time are also available for diagnostics.
+6. Stop playback before closing the proxy session, then call `player.close()`.
+   Poll its completion off GPUI and retain the parent until actual `Shutdown`.
+   Release the surface and continue pumping posted child-window destruction.
+
+Events include time-pos/duration (Option for unavailable values), pause,
+paused-for-cache, cache-buffering-state, cache measurements, hwdec-current,
+complete typed track lists, audio-device lists, subtitle cue properties,
+end-file (EOF/stop/quit/error/redirect/other with playlist entry ID), sanitized
+errors, readiness and shutdown. C event memory is copied before the next wait;
+no pointer escapes. The event channel is unbounded; PR 3.3 must drain it promptly.
+Never log load URLs, especially debrid URLs and loopback session tokens.
+Error and end-file diagnostics contain only static kinds, never raw mpv error
+strings or log messages. The crate does not subscribe to mpv logs.
+
+### Exact Electron options
+
+Source: `desktop/native/mpv-host/src/addon_win.cc`; applied in this exact order
+before initialization. `extra` overrides follow `wid`. The unit test extracts
+every literal `SetOption`/`TrySetOption` pair from the C++ file and checks the
+entire ordered Rust list, including which options are best effort.
+
+| C++ line | Option | Value | Requirement |
+| --- | --- | --- | --- |
+| 173 | terminal | no | required |
+| 174 | msg-level | all=warn | required |
+| 175 | keep-open | yes | required |
+| 176 | hr-seek | default | required |
+| 177 | vo | gpu-next | required |
+| 178 | gpu-api | d3d11 | required |
+| 179 | gpu-context | d3d11 | required |
+| 180 | target-colorspace-hint | auto | required |
+| 181 | hwdec | d3d11va,auto-safe | required |
+| 182 | cache | yes | required |
+| 183 | demuxer-max-bytes | 512MiB | required |
+| 184 | demuxer-max-back-bytes | 64MiB | required |
+| 185 | cache-pause | yes | required |
+| 186 | cache-pause-wait | 2 | required |
+| 187 | cache-on-disk | no | required |
+| 188 | demuxer-cache-wait | no | required |
+| 191 | cache-pause-initial | yes | best effort |
+| 192 | network-timeout | 60 | best effort |
+| 193 | osc | no | required |
+| 194 | input-default-bindings | no | required |
+| 195 | input-vo-keyboard | no | required |
+| 196 | audio-client-name | Panorama | required |
+| 197 | wid | retained child HWND decimal value, if present | required |
+
+The best-effort options tolerate older compatible runtimes. Defaults deliberately
+retain Electron's `keep-open=yes`; EOF integration tests override it to `no`.
+
+### Threads and shutdown
+
+| Thread | mpv calls |
+| --- | --- |
+| App startup background thread | `mpv_client_api_version` after DLL/symbol loading |
+| Dedicated event thread | `mpv_create`, `mpv_set_option_string`, `mpv_initialize`, `mpv_observe_property`, `mpv_command_async`, `mpv_set_property_async`, `mpv_wait_event` |
+| Command caller, including GPUI | Only `mpv_wakeup`, documented thread-safe and non-blocking in packaged `include/mpv/client.h` |
+| Dedicated teardown thread | `mpv_terminate_destroy`, after joining the event thread |
+
+Idle `mpv_wait_event` timeout is 50 ms. Wakeup uses a retained weak handle under a
+try-lock; it never waits on the caller. Teardown disables wakeups while retaining
+the final handle, so no wakeup can race destruction. Every playback command and
+property set uses mpv's async API; the caller never waits for the playback core.
+
+`close(self)` and Drop signal the event thread and wake it. The event thread
+queues `stop`, exits, and is joined by the teardown thread. That thread calls
+`mpv_terminate_destroy` with the library and child-window lease retained, then
+releases the child lease. Its last release destroys the HWND on its owner thread
+or posts a private destruction message to that thread. A surviving surface
+wrapper intentionally retains the HWND until its own Drop.
+The child procedure records `WM_NCDESTROY` in shared lease state, so destroying
+the parent invalidates surviving leases. Posted destruction carries a unique
+lease token to protect against HWND reuse before message dispatch.
+
+`close` returns a completion receiver immediately. A separate deadline worker
+waits at most two seconds for join plus teardown. On expiration it reports
+`Err(ShutdownTimeout)` and an `Error(ShutdownTimeout)` event; it never kills a
+thread, unloads an in-use DLL, or destroys a window underneath mpv. The detached
+teardown thread retains those resources until mpv returns (possibly until process
+exit for a stuck driver). Actual `Shutdown` arrives only after teardown returns;
+keep the parent and its message loop alive until then. Drop uses the same path
+and discards the completion receiver. No GPUI thread joins or waits.
+
+### Subtitles
+
+`PanoramaSubtitleBridge` (`desktop/native/mpv-host/src/subtitle-cue.h`) extracts
+cues; `runtime/subtitle-renderer.ts` draws ordinary text with renderer preferences.
+Bitmap and authored ASS subtitles fall back to mpv. Renderer CSS padding, radius,
+line height, font size and opacity have no direct mpv preference port. PR 3.3
+owns custom cue styling and must explicitly choose `sub-visibility`; this host
+keeps mpv subtitles visible by default so unsupported tracks retain their layout.
+Only the cue properties `sub-text`, `sub-start/full` and `sub-end/full` are exposed
+for a future bridge. This is not a port of the Electron bridge's authored-ASS
+classification or playback/selection/seek generation filtering; PR 3.3 must retain
+mpv rendering until it can handle those cases safely.
+
+`set_subtitle_style(SubtitleStyle)` supplies the mpv fallback options from
+`desktop/main/main.ts:123-126`: `sub-font=DM Sans`,
+`sub-border-style=background-box`, `sub-border-size=0`,
+`sub-shadow-offset=10`; optional `sub-fonts-dir` comes from line 122. It also
+accepts the shared protocol's scale, position, delay, text/background/outline
+colors and bold flag. Renderer-only preferences belong to the player screen.
+Colors use [mpv's alpha-first hex syntax](https://mpv.io/manual/stable/#options-sub-color):
+the default background is `#AD000000` (black, approximately 68% opaque).
+
+### Validation and playback example
+
+Run from `native/`:
+
+```powershell
+$env:PANORAMA_LIBMPV_DIR = 'D:\codeOS\panorama\.cache\panorama\windows-libmpv\current'
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo run -p panorama-mpv --example play -- <file-or-url>
+```
+
+The example creates a plain Win32 window with no GPUI dependency, prints active
+hwdec and sanitized end/error kinds, and pumps messages throughout asynchronous
+close. No input path or URL is printed. Other platforms compile the library
+and report `UnsupportedPlatform` when loading; Windows surfaces are cfg-gated.
+
+Integration tests use the environment variable explicitly, with null audio/video
+outputs. They print a skip note if it is absent. Generated lavfi media requires
+no file or network ([mpv's av protocol documentation](https://mpv.io/manual/stable/#protocols)).
+Tests exercise clock, pause, absolute/relative seeks, typed video/audio tracks,
+EOF, redacted unreachable-URL errors, and close both after error and during load.
+Pause checks require prior clock advancement and two explicit IPC clock reads
+at least 500 ms apart. Pending-load shutdown waits for a local server to receive
+mpv's HTTP request, then keeps the connection unanswered through close; completion
+must arrive within two seconds plus 250 ms scheduling tolerance, with `Shutdown`
+and no URL or session token in event/error text.
+
+Verified on Windows on 2026-10-11: workspace fmt, strict Clippy and locked tests
+passed (56 tests total, including 16 panorama-mpv unit tests and all three libmpv
+integration tests; none of those integration tests were skipped). The final
+library and all targets also passed a Linux `cargo check` with
+`--target x86_64-unknown-linux-gnu`. The standalone example created its Win32
+window with generated lavfi input and exited 0 after WM_CLOSE. This hidden-window
+probe did not visually assess playback or certify H.264/HEVC hardware decoding.
+
+## Native media proxy
+
+`panorama_core::media` ports the Electron range proxy, cache, validators, retries,
+manual redirect transport and buffering policy. See
+[`panorama-core/MEDIA_PORT.md`](crates/panorama-core/MEDIA_PORT.md) for the test
+mapping, refresh contract and Phase 3.3 player integration.
+
+## Torrent engine (PR 4.1)
+
+`panorama_core::torrent` is UI-free. `source.rs` validates addon hashes and trackers;
+`engine.rs` owns the public lifecycle; `opening.rs` resolves metadata, chooses
+files, reuses torrents, and evicts inactive entries; `directory.rs` retains cache
+directory handles and verifies ownership; `cache.rs` implements librqbit's storage interface; `stream.rs` owns leases,
+readers, and stats; `server.rs` serves authenticated Range requests; `runtime.rs`
+owns the private runtime and teardown. Tests use real, locally created torrents
+and a seeder on 127.0.0.1 with DHT, trackers, and LAN discovery disabled.
+
+Public entrypoints are `TorrentSource::from_stream`, `TorrentEngine::new`,
+`TorrentEngine::open(source, CancellationToken)`, `TorrentStream::stats`,
+`TorrentStream::close().await`, and `TorrentEngine::shutdown().await`.
+`new` is synchronous and performs no I/O; options are validated at `open`.
+Invoke the asynchronous lifecycle methods on a Tokio runtime.
+`TorrentOptions { cache_dir, ..Default::default() }` sets a dedicated **initially
+absent** directory whose parent exists. Existing directories are refused and
+never deleted. The engine owns this directory until shutdown or idle teardown.
+Defaults are 10 GiB of allocated cache data, five minutes idle, 45 seconds for
+metadata/initialization, 60 seconds for first payload, and 1 MiB/s upload.
+The metadata and first-payload deadlines share the public open's origin,
+including lazy startup and waiting for idle teardown, rather than adding
+45 and 60 seconds. Cancellation applies throughout open and the returned lease.
+
+HTTP binds 127.0.0.1 on an OS-assigned port. URLs use `/torrent/<32 hex digits>`;
+requests require that token, an exact single Host header, origin-form URI, and a
+loopback peer. GET/HEAD and single byte ranges (including suffixes) are supported;
+multipart/malformed ranges and unvalidated If-Range fall back to the full file.
+At most eight HTTP readers share one torrent. By default no incoming TCP/uTP
+peer listener exists and UPnP/LAN discovery/persistence are disabled.
+An explicit `listen_port` enables IPv4 TCP on that port (0 selects a port),
+with UPnP still disabled. If both library sessions are needed, the first owns
+this listener; the other is outbound-only to avoid binding the same port twice.
+DHT-allowed discovery uses DHT without persistence and an
+ephemeral UDP socket on 0.0.0.0. librqbit cannot express an outbound-only DHT
+socket; absence of a peer listener is not a guarantee about Windows Firewall
+prompt behavior. No firewall rules are installed.
+
+### Source privacy and discovery
+
+A `tracker:` source without a matching, valid `dht:<hash>` marker is possibly
+private. Its unresolved magnet is resolved in a separate lazy Session with
+`SessionOptions.dht = None`; that session remains DHT-disabled for playback,
+even if metadata later proves public. An explicit matching DHT marker permits
+DHT. With neither trackers nor a DHT marker, DHT is permitted because there is
+no other discovery method. Invalid `tracker:` entries still suppress DHT; a
+marker for another hash does not authorize this hash. Markers are scanned before
+the 20-tracker cap. Existing resolved entries can be reused: librqbit then knows
+the metadata's private flag. Explicitly authorizing DHT for a private magnet can
+expose its hash and the caller's IP before metadata is learned. Trackers also
+learn the hash and IP; tracker-only discovery does not provide anonymity.
+Upload limits apply to each library session; the two sessions share the disk
+budget and HTTP service and stop concurrently.
+Tracker-only metadata discovery still needs a peer willing to serve metadata.
+The bundled seeder refuses `ut_metadata` requests for private torrents
+(`src/torrent_state/live/mod.rs:1083-1098`); such peers can yield a bounded
+`MetadataTimeout`. The local tracker-only regression therefore uses public
+metadata behind a possibly private source, and keeps DHT disabled after resolution.
+
+Installed `librqbit-9.0.1` evidence (paths relative to that registry package):
+
+- `src/session.rs:244-294`: `AddTorrentOptions` includes `disable_trackers` and
+  `peer_opts`, but no per-torrent DHT override. `src/peer_connection.rs:71-81`
+  restricts `peer_opts` to connection/read-write/keepalive timeouts.
+- `src/session.rs:394-428`, `:606-634`: DHT is configured on the Session;
+  `dht = None` creates no DHT instance. `disable_trackers` disables trackers,
+  not DHT (`:1553-1564`).
+- `src/session.rs:1230-1259`: an unresolved magnet has `private = false` and
+  creates its peer stream before resolving metadata, including in list-only mode.
+- `src/session.rs:1537-1543`: non-private discovery calls DHT `get_peers`;
+  an announce port is passed when announcing. `:1511-1524` uses known metadata's
+  private flag on managed-torrent resume.
+
+The local tracker test supplies compact loopback peers with no injected peers,
+reads the seeder's media, asserts a DHT-disabled session, and observes no UDP
+bootstrap traffic. No public tracker or bootstrap endpoint is used in tests.
+
+### Download policy and installed 9.0.1 source evidence
+
+Paths below are relative to the Cargo registry's `librqbit-9.0.1/` directory,
+not upstream HEAD:
+
+| Source | Behavior used |
+| --- | --- |
+| `src/session.rs:244-294`, `:1298-1308` | Initialize paused with `only_files=[chosen]`; list-only metadata fetch writes no payload. |
+| `src/session.rs:1617-1625`; `src/chunk_tracker.rs:323-365` | Public `update_only_files(empty)` clears the ordinary selected-file download queue. |
+| `src/torrent_state/live/mod.rs:819-835` | Active streams of unselected files still need peers, even with no selected background files. |
+| `src/torrent_state/streaming.rs:29-50`, `:337-381` | Every FileStream registers its position and prioritizes a fixed 32 MiB lookahead, rounded to pieces. |
+| `src/piece_tracker.rs:136-160` | Streaming priorities precede the ordinary queue; clearing that queue avoids the spike's whole-file fallback. |
+| `src/chunk_tracker.rs:254-270`; `src/piece_tracker.rs:104-111` | Broken/in-flight pieces can be requeued. Clear the background queue again before each new reader/resume. |
+| `src/torrent_state/live/mod.rs:1320-1335`; `src/torrent_state/streaming.rs:361-374`; `src/session.rs:1522`, `:1610-1614` | Disconnects can leave peers marked not needed across the reader-registration gap. Public pause/resume rebuilds discovery with known peers. |
+| `src/storage/mod.rs:142-191` | Public storage write/length/take hooks allow a write-time byte cap without forking. |
+| `src/session.rs:1108-1118` | Magnet trackers come from the URI, so filtered addon trackers are encoded as `tr`. |
+| `src/session.rs:1059-1075` | Stop cancels/pauses then sleeps one second; no join handles are exposed for all session tasks. |
+
+The chosen file is initialized as selected, then the ordinary queue is cleared
+before registering an HTTP reader and resuming. Other files are never opened for
+playback unless another lease explicitly chooses them. The torrent pauses when
+no reader is active (50 ms monitor interval), including between open's one-byte
+availability probe and mpv's first request. Multiple readers have independent
+positions and 32 MiB lookaheads. Reader changes retain a healthy live generation;
+pausing during librqbit's piece verification can strand a received piece before
+it is marked verified. Its piece requester observes the updated stream queues
+on subsequent requests or its five-second idle wake. With no connected or connecting
+peers, the monitor also retries at most every 500 ms without extending the
+no-peers deadline. Pieces can overlap neighboring files, and seeks,
+failed pieces, and in-flight requests retain work from earlier windows. This is
+not a strict current-position-only download guarantee; the storage cap is the
+unconditional bound on engine-owned cache payload allocation.
+
+The lookahead regression keeps a direct reader stationary at 4 MiB in a
+64 MiB local torrent, waits for the lookahead to fill and settle, and checks a
+two-second plateau while the reader is still registered. Its ceiling is
+4 MiB + 32 MiB + one 64 KiB boundary piece. The seeder's test limit is
+32 MiB/s to shorten transfers without shortening the plateau observation.
+Removing the ordinary-queue clearing is tested as a deliberate mutation; the
+previous read-and-close check could pass because closing paused the torrent.
+
+With a nonreading client keeping its reader alive and an **8,388,608-byte cap**,
+the engine stopped at **8,388,608 allocated bytes** and **8,323,072 verified bytes**,
+receiving **8,388,608 to 8,404,992 bytes** across two runs (0 to 16 KiB of network
+payload beyond the cap, including redundant transfers), with **zero disk
+overshoot** and `stats().error == Some(Disk(Full))`. These are local-seeder
+measurements, not speed or peer-availability promises for public swarms.
+
+### Cache and teardown guarantees
+
+Media is stored as fixed 64 KiB blocks, identified by file index and block number;
+a distant seek does not create a giant sparse file. A shared mutex reserves the
+allocation-granularity-rounded charge **before** each new block. `fs4::allocate`
+preallocates its storage, `allocated_size` verifies the charge, and writes only
+overwrite that reserved extent. Unexpected allocation sizes are rejected;
+compressed/sparse allocation schemes are not supported. The budget counts
+allocated file data, including unfinished/unverified pieces and block padding,
+not logical torrent length; filesystem bookkeeping is outside this data budget.
+Free space is checked before adding a torrent and before every new block.
+Before adding, the engine makes room for up to one 32 MiB window (or the smaller
+file/cap) by evicting whole inactive torrents in LRU order when either the cache
+budget or filesystem free space is insufficient. Open leases and active
+readers cannot be evicted. A rejected write records `Disk(Full)` immediately,
+and library fatal-error handling or the monitor stops fetching. Already received
+network payload can exceed the disk cap; it cannot allocate another cache block.
+
+Cache creation retains a no-follow directory handle immediately after creation;
+no canonicalized replacement target is adopted. Reparse points (Windows file
+attribute 0x400) and Unix symlinks are rejected. Before cleanup, the path entry
+is opened without following links and compared with the still-open identity
+handle (volume serial + file index on Windows; dev + ino on Unix). Contents are
+removed relative to those verified directory handles; each nested directory is
+verified before recursion and again before its final empty-directory removal.
+No path-based `remove_dir_all` is used. Windows handles deny delete sharing,
+preventing rename/replacement while owned; tests exercise that denial and reject
+an inserted junction without touching its external sentinel.
+
+A disposable Windows demonstration of the old sequence created `cache`, replaced
+it with a junction to `external`, canonicalized it, then recursively deleted the
+adopted path: the external sentinel disappeared. Identity replacement likewise
+made the old cache-retirement regression incorrectly return success.
+Residual risk: creation and first no-follow open are separate OS operations, so
+an ordinary directory substitution before identity capture is not atomic.
+Concurrent mutation can make cleanup fail and leave cache data behind. The final
+empty-directory removal follows closing its handles; a replacement at that
+point can only cause failure or removal of an empty directory, not recursive
+deletion of the replacement's contents. Keep the cache parent application-owned.
+
+Initialization is coordinated per hash. Metadata, initialization, and first
+payload waits do not hold the global torrent-state lock, and initializing hashes
+cannot be evicted. A cancelled initializer releases its gate and operation count.
+An inactive entry with `NoPeers` clears that playback error and progress/retry
+clocks on its next open; readers and active leases retain their current errors.
+The local test pauses the seeder, records `NoPeers`, closes, resumes the seeder,
+then reopens and reads a previously unavailable distant range.
+
+HTTP reads wait through seeks while peers are live or connecting, or received
+payload keeps progressing. `NoPeers` requires no live or connecting peers and a
+full configured window without received-byte progress. Pauses, reader resumes,
+new readers, and seeks reset that window; automatic peer retries do not. A body
+failure is propagated to Hyper to abort the connection
+with an incomplete Content-Length, so HTTP clients report a truncated response.
+Tests that enable DHT are ignored because librqbit binds it on 0.0.0.0 and can
+trigger Windows Firewall prompts. Default-run tests bind only to 127.0.0.1.
+
+The old fixed 30 ms startup probe was reproduced with a held startup barrier:
+it panicked on an absent Host. The pending-open test now waits for a local peer
+connection (which proves startup and pending metadata discovery), asserts the
+operation is still active, then aborts it and verifies idle cleanup.
+
+Deliberately disabling the fixes failed the DHT-disabled-session assertion,
+the cached-open deadline, reopening with `NoPeers`, the active-reader lookahead
+ceiling, and the pre-shutdown UDP ownership assertion. The held-startup
+demonstration also reproduced the old 30 ms probe's absent-Host panic.
+
+Shutdown cancels opens/leases, drops the listener, gives tracked Hyper connection
+tasks 300 ms to drain, then aborts and joins the remaining tasks. Library stop is
+bounded at three seconds. All library work runs on a dedicated thread/runtime
+with suppressed tracing, so detached async library tasks are disposed when that
+runtime shuts down. Its blocking-pool shutdown has a two-second bound; librqbit
+still does not provide individual task/socket join handles, and a stuck OS
+filesystem operation cannot be forcibly terminated safely. The owner thread is
+joined off the caller's thread. Tests verify HTTP and peer TCP port closure,
+DHT UDP ownership before shutdown and rebinding after shutdown with a local
+bootstrap endpoint (including receipt of its bootstrap request), release of the Session even while stream objects
+remain, startup cancellation, bounded nonreading-client shutdown
+(locally about one second), and removal of the directory. Drop signals teardown
+without joining or blocking; explicit shutdown is needed to await its outcome.
+Idle teardown also removes the cache; the next open starts a fresh session.
+
+The player in PR 4.2 should retain the `TorrentStream`, give `url` to mpv, poll
+`stats()` for peers/rates/state/error, and call `close().await` on source change.
+Show `MetadataTimeout`/`NoPeers` from `open`, and `Stalled` plus `error` after
+playback begins. Cancel the token to interrupt pending metadata/reads, and await
+the engine's `shutdown()` on application exit. Tracker/magnet strings and token
+URLs must not be logged. `TorrentStats.error` is an intentional API addition so
+the player can distinguish `Disk(Full)` from `NoPeers` while both are stalled.
+
+## Progress and presence for PR 3.4
+
+`panorama_core::stremio::progress` (re-exported from `stremio`) ports the Electron watch-progress behaviour onto the core's own `Player` model, added to the core model as a field next to `Ctx`. Calls only dispatch core actions and never block; the core creates library items, applies the watched threshold, persists through the Env storage and syncs with the API. Like the TS runtime, everything is a no-op while signed out (`resume` is `None`, `in_library` is `false`, the others return `NotSignedIn` or do nothing).
+
+- `resume(film_id)`: `ResumePoint { offset_secs, duration_secs }` from the library item, only when at least 30 s in with at least 60 s left (`normalizeResumeState`).
+- `begin_playback(PlaybackTarget, start_secs)` loads the player (`beginPlayback`); the target carries the chosen core `Stream`, the meta addon URL (the core loads the film's meta to create a temporary library item when none exists) and the stream addon URL.
+- `report_progress(film_id, PlaybackSample)` sends `PausedChanged` when the pause state changes (also flushing, unless it is the first sample) and `TimeChanged` once the position is 10 s or more from the last push (`PROGRESS_SYNC_INTERVAL_SECONDS`, `flushPlaybackProgress`). Samples without a positive duration are not pushed. `report_seek` sends `Seek` and restarts the window. The core itself throttles library pushes to one per 90 s and pushes on pause and unload.
+- `finish(film_id)` pushes the final position at the duration and sends `Ended`; the core's 70 % watched threshold then marks the film watched. `stop_playback(film_id)` flushes the last position and unloads the player (`stopPlayback`), which pushes the library item.
+- `set_in_library(&FilmMeta, saved)` / `in_library(film_id)`: `AddToLibrary` / `RemoveFromLibrary`; saved means neither removed nor temporary (`normalizeWatchlisted`). The change lands asynchronously; observe `CoreChange::LibraryChanged`.
+
+`panorama_core::discord` ports `desktop/main/discord-presence.ts` and `desktop/shared/discord-presence.ts`. `DiscordPresence::new(&runtime_handle, settings_file, discord_paths(Platform::current(), env), SystemConnector)` starts a task; `update`/`update_value`/`clear`/`set_enabled` only queue work. The transport is a `Connector` trait: `SystemConnector` uses `tokio::net::windows::named_pipe` on `\\?\pipe\discord-ipc-0..9` and Unix sockets in `$XDG_RUNTIME_DIR`/`$TMPDIR`/`$TMP`/`$TEMP`/`/tmp` elsewhere; tests use in-process duplex streams. Presence is opt-in (default off, persisted atomically with owner-only permissions), coalesced to one `SET_ACTIVITY` per 5 s, walks the ten paths on failure then retries every 15 s, drops oversized (over 64 KiB) or error frames, answers PING and fails silently when Discord is not running. Text limits count Unicode scalar values where the TS counted UTF-16 units. Tokio gained the `net` and `io-util` features (no new crate).
+
+| TS test (`tests/unit/discord-presence.test.ts`) | Rust test (`discord::tests`) |
+| --- | --- |
+| maps watching, artwork and seek timing without advancing paused or buffering activities | `maps_watching_artwork_and_seek_timing_without_advancing_paused_or_buffering_activities` |
+| defaults off, persists opt-in, handles split frames, coalesces updates and clears immediately | `defaults_off_persists_opt_in_handles_split_frames_coalesces_updates_and_clears_immediately` |
+| retries disconnected clients after 15 seconds and cancels retries on clear | `retries_disconnected_clients_after_15_seconds_and_cancels_retries_on_clear` |
+| rejects oversized frames and discovers platform socket paths | `rejects_oversized_frames_and_discovers_platform_socket_paths` |
+
+## Player host and frame (PR 3.3a)
+
+`panorama-app/src/playback` owns playback independently of GPUI:
+`model.rs` is the pure reducer; `selection.rs` retains Film metadata, addon-ordered
+source groups and index-based `SourceRef { group, stream }`; `source.rs` validates
+HTTP and torrent sources. `host.rs` serializes commands and generations;
+`host_events.rs` reduces mpv events, starts progress tracking after readiness and
+feeds presence. `backend.rs` and `backend_playback.rs` own lazy libmpv, proxy and torrent services behind
+the `Backend`/`Playback` traits; `fake.rs` scripts the same lifecycle without
+libmpv or network. `progress.rs` dispatches signed-in core progress and Discord
+presence. `surface.rs` converts logical client bounds to outward-rounded physical
+bounds. `window.rs` waits asynchronously for teardown for at most three seconds
+before removing a window.
+
+PR 3.3b calls `AppState::playback_host.as_ref().send(Command)`. Commands are
+`Start { window: RawWindow, selection: Box<PlaybackSelection> }`,
+`SwitchSource(SourceRef)`, `Retry`, `SetPaused(bool)`, `TogglePause`,
+`Seek(f64)`, `SeekRelative(f64)`, `SetVolume(u8)`, `SetMuted(bool)`,
+`SelectAudio(i64)`, `SelectSubtitle(Option<i64>)`, and `Stop`.
+`events()` attaches a new route consumer and returns its unbounded futures
+receiver; drain it with `cx.spawn`, then apply each event to `PlaybackModel`.
+Events are `Resolving`, `Loading`, `Failed(PlaybackError)`, `Mpv(PlayerEvent)`,
+`SourceChanged(SourceRef)`, `Closed`, plus `Volume`, `Muted` and `Seeked`
+command acknowledgements. Event Debug output never formats mpv text payloads.
+`AppState::player` retains only capture readiness and fullscreen state, notifying
+the shell only when those values change.
+
+Retry and source changes preserve position, volume, mute and the playable latch.
+Resume seeks once after a positive duration and suppresses progress samples until
+the clock is within three seconds of the target or the user seeks. Retry retains
+that target while the resume seek is pending. Observed `eof-reached` transitions
+handle EOF with `keep-open=yes`; `EndFile { Eof }` still handles `keep-open=no`.
+EOF stays ended until an explicit Replay seek. A generation rejects late resolutions after a new Start, switch or
+Stop. The shared close path stops mpv, closes the transport, cancels its token,
+then closes the player and polls completion off GPUI, accepting success, error or
+disconnection. Window-close and screenshot completion await teardown for at most
+three seconds before removing the window or calling GPUI quit. The app-quit
+hook uses the same deadline and requests backend cleanup; GPUI quit observers alone cannot protect
+the parent because GPUI clears windows before awaiting those observers. The host closes its proxy
+and torrent engine on shutdown. HTTP uses the Electron defaults: 96 MiB memory,
+2 GiB disk, 1 GiB free-space reserve under `<app data>/media-cache`. Torrent
+options retain PR 4.1 defaults under the initially absent
+`<app data>/torrent-cache`; no firewall rules are changed.
+
+The player route is deliberately not retained in the history view cache.
+Close replaces its history entry with Film, matching Electron backToDetails.
+`routes/player/{mod,view,overlays,keyboard}.rs` mounts the bottom child surface,
+renders the frame, and handles close/retry/replay. Player transitions skip route
+fades, so an outgoing Film cannot cover the video. While mounted, the window
+uses `WindowBackgroundAppearance::Transparent`, the component theme's
+background is transparent (including its semantic/Base projection),
+`app_view.rs` omits the shell canvas fill, and route/Player layers omit opaque
+fills over video. Initial loading and errors supply their own canvas fills. FakeBackend frames
+also supply a canvas because no mpv video output paints their child window.
+Leaving Player restores the opaque window and component background. The surface
+bounds exclude the 32 px caption, or cover the client area in fullscreen;
+`Player::toggle_fullscreen` is ready for 3.3b. Bounds and visibility calls run
+only when changed. The retained mpv lease protects the HWND after route release.
+
+`cascade_loader.rs` uses the bundled app icon, Electron's four clip intervals,
+100 ms stagger, 1.6 s keyframes and cubic-bezier(0.22, 1, 0.36, 1).
+Reduced motion holds the static frame. Film's resume button uses the core resume
+point and the ported `format_time_left`; `AddonClient::metadata_base` is the
+only core accessor added, preserving the actual cached metadata addon.
+
+Developer aids (no media is copied into the repository):
+
+```powershell
+$env:PANORAMA_LIBMPV_DIR = 'D:\codeOS\panorama\.cache\panorama\windows-libmpv\current'
+target/release/panorama.exe --screenshot player:tmdb:100 player-preparing.png --player-state preparing
+target/release/panorama.exe --screenshot player:tmdb:100 player-buffering.png --player-state buffering
+target/release/panorama.exe --screenshot player:tmdb:100 player-error.png --player-state error
+target/release/panorama.exe --screenshot player:tmdb:100 player-ended.png --player-state ended
+target/release/panorama.exe --screenshot film:tmdb:100 film-resume.png --film-resume
+target/release/panorama.exe --screenshot player:tmdb:100 player-video.png --play-file <absolute-media-path>
+target/release/panorama.exe --play-url <public-https-mp4>
+target/release/panorama.exe --play-torrent
+```
+
+`--player-state preparing|loading|buffering|error|ended|ready` holds a
+no-network FakeBackend in that state. `--play-file` loads directly into mpv,
+bypassing the proxy; it is a debug aid available in debug builds or explicitly
+requested release screenshot runs. `--play-url` uses the real range proxy;
+`--play-torrent` opens Gate 6's Big Buck Bunny source with its DHT marker and
+trackers. These developer inputs use fixture Film data without touching account
+state. They emit only sanitized hwdec, seek-confirmation and close-duration
+diagnostics on the background logger. Real playback captures wait for a playable
+clock; the capture timeout allows torrent metadata discovery. `--size 1024x700`
+sets capture dimensions; live resizing exercises the same bounds observer.
+
+PR 3.3b should use the existing grouped selection, command API, model tracks,
+buffered end time and fullscreen hook. PR 3.3c should retain mpv subtitle rendering
+until its renderer supports cue generations, bitmap and authored ASS fallback.
+No controls, seek bar, source/audio panels, subtitle UI or playback-settings UI
+ship in this frame PR.
+
+### Verification on Windows, 2026-10-17
+
+All required commands passed: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings`,
+`cargo test --workspace --locked`, and
+`cargo build -p panorama-app --release --locked`.
+Results: **335 passed, 3 ignored**, including 57 app tests and all three real
+libmpv integration tests. The ignored cases are the existing real-account test
+and two DHT-binding tests. The app adds 28 tests for the reducer, host scenarios,
+source resolution, loader keyframes, time-left formatting and surface bounds.
+
+All eight final captures use the release app. Overlay geometry/copy was checked
+against the TSX. The resized capture follows a live change to a 1024×700 logical
+client; five immediate desktop frame samples retained video, with no black
+frame observed. Escape released the video child (one HWND before, zero after)
+while the parent remained alive and restored the opaque Film screen; the Film
+resume capture was refreshed after that transition.
+
+| Capture | Path |
+| --- | --- |
+| Preparing | [player-preparing.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-preparing.png) |
+| Buffering | [player-buffering.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-buffering.png) |
+| Error | [player-error.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-error.png) |
+| Ended | [player-ended.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-ended.png) |
+| Film resume | [film-resume.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/film-resume.png) |
+| Real file | [player-video.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-video.png) |
+| Real file EOF | [player-ended-real.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-ended-real.png) |
+| Live resize | [player-video-resized.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-video-resized.png) |
+
+| Real path | Result | hwdec-current | Playback close | Whole-window exit |
+| --- | --- | --- | --- | --- |
+| Supplied local Big Buck Bunny file | Video visible; keyboard seek confirmed | d3d11va | 166–177 ms | Capture exits after teardown |
+| HTTPS through proxy, host `media.w3.org` | Started; seek confirmed | d3d11va | 133 ms | 232 ms |
+| Gate 6 Big Buck Bunny torrent | Started; seek confirmed after settling | d3d11va | 101 ms | 1322 ms |
+
+No Windows Firewall prompt appeared and no firewall rules were changed.
+Real file playback also reached the Ended overlay after seeking to about ten
+seconds before EOF and letting the configured `keep-open=yes` player finish.
+Playback close measures mpv stop, transport close and actual player teardown;
+whole-window exit additionally includes proxy/torrent-engine shutdown.
+The initial HTTP candidate refused requests; the successful HTTPS probe used
+the host listed above. Media was used in place, never copied into this worktree.

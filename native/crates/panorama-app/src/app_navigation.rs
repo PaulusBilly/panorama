@@ -8,6 +8,12 @@ impl AppShell {
         }
     }
 
+    pub fn back_to_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.history.replace(Route::Film { id }) {
+            self.changed(window, cx);
+        }
+    }
+
     /// Go backward when history permits it.
     pub fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.history.can_back() && self.history.back() {
@@ -84,12 +90,21 @@ impl AppShell {
                 route,
             })
         });
-        self.cache.retain(|entry| self.history.contains(entry.id));
-        self.cache.push_back(mounted.clone());
+        let player_transition = matches!(mounted.route, Route::Player { .. })
+            || self
+                .presence
+                .iter()
+                .any(|presence| matches!(presence.view.route, Route::Player { .. }));
+        self.cache.retain(|entry| {
+            self.history.contains(entry.id) && !matches!(entry.route, Route::Player { .. })
+        });
+        if !matches!(mounted.route, Route::Player { .. }) {
+            self.cache.push_back(mounted.clone());
+        }
         while self.cache.len() > 8 {
             self.cache.pop_front();
         }
-        if self.reduced_motion {
+        if self.reduced_motion || player_transition {
             self.presence.clear();
         }
         for presence in &mut self.presence {
