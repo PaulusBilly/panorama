@@ -8,6 +8,8 @@ pub(super) enum Transport {
 
 pub(super) struct NativePlayback {
     pub(super) library: MpvLibrary,
+    /// Directory holding the Aspekta faces for libass; `None` falls back to system fonts.
+    pub(super) fonts: Option<PathBuf>,
     pub(super) url: String,
     pub(super) transport: Transport,
     pub(super) player: Option<Player>,
@@ -32,7 +34,10 @@ impl Playback for NativePlayback {
             .library
             .create(PlayerOptions {
                 wid: window,
-                extra: vec![("cache-pause-wait".into(), "5".into())],
+                extra: subtitle_fonts(self.fonts.as_deref())
+                    .into_iter()
+                    .chain([("cache-pause-wait".into(), "5".into())])
+                    .collect(),
             })
             .map_err(PlaybackError::from)?;
         self.events = Some(player.events().map_err(PlaybackError::from)?);
@@ -209,6 +214,18 @@ impl Playback for NativePlayback {
             }
         })
     }
+}
+
+/// Init options that make libass load the bundled faces before any subtitle renders.
+fn subtitle_fonts(dir: Option<&std::path::Path>) -> Vec<(String, String)> {
+    dir.and_then(std::path::Path::to_str)
+        .map(|dir| {
+            vec![
+                ("sub-fonts-dir".into(), dir.into()),
+                ("sub-font".into(), "Aspekta 400".into()),
+            ]
+        })
+        .unwrap_or_default()
 }
 
 async fn wait_for_close(
