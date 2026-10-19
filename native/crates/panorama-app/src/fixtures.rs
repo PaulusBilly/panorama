@@ -156,3 +156,63 @@ mod tests {
         }
     }
 }
+
+fn fixture_source(value: serde_json::Value, name: &str, title: &str) -> Option<StreamSource> {
+    Some(StreamSource {
+        stream: serde_json::from_value(value).ok()?,
+        name: Some(name.into()),
+        title: Some(title.into()),
+        description: Some(title.into()),
+    })
+}
+
+/// Three addons for the player's Sources panel: one with sources, one empty, one failed.
+pub fn player_groups() -> Vec<StreamGroup> {
+    let group = |key: &str, name: &str, state: StreamState| {
+        serde_json::from_value::<AddonKey>(key.into())
+            .ok()
+            .map(|addon| StreamGroup {
+                addon,
+                name: name.into(),
+                state,
+            })
+    };
+    let sources = [
+        fixture_source(
+            serde_json::json!({"url": "https://fixture.invalid/aftersun-2160p.mp4"}),
+            "Fixture 2160p HDR",
+            "Aftersun 2160p HDR DDP5.1 14.2 GB",
+        ),
+        fixture_source(
+            serde_json::json!({"url": "https://fixture.invalid/aftersun-1080p.mp4"}),
+            "Fixture 1080p",
+            "Aftersun 1080p BluRay 6.8 GB",
+        ),
+        fixture_source(
+            serde_json::json!({"url": "https://fixture.invalid/aftersun-720p.mp4"}),
+            "Fixture 720p",
+            "Aftersun 720p WEB-DL 2.1 GB with a long release name that wraps onto a second line",
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(fixture_source(
+        serde_json::json!({"infoHash": "0123456789abcdef0123456789abcdef01234567"}),
+        "Fixture Torrent 1080p",
+        "Aftersun 1080p BluRay x265
+👤 128 💾 4.2 GB",
+    ))
+    .collect();
+    [
+        group("fixture#0", "Fixture Streams", StreamState::Ready(sources)),
+        group("quiet#1", "Quiet Addon", StreamState::Empty),
+        group(
+            "broken#2",
+            "Broken Addon",
+            StreamState::Failed(panorama_core::addons::FailureKind::Offline),
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}

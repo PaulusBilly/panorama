@@ -8,6 +8,7 @@ use std::ffi::{c_char, c_int, c_void};
 pub(crate) const OBSERVED: &[&str] = &[
     "time-pos",
     "duration",
+    "eof-reached",
     "pause",
     "paused-for-cache",
     "cache-buffering-state",

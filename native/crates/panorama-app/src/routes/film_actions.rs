@@ -20,14 +20,21 @@ impl Film {
             self.sign_in(window, cx);
             return;
         }
-        if let Some(source) = self.selected.clone() {
+        if let (Some(source), Some(film)) = (self.selected, self.metadata.clone()) {
             let id = self.id.clone();
-            self.state.update(cx, |state, _| {
-                state.playback = Some(crate::app_state::PlaybackSelection {
-                    film_id: id.clone(),
-                    source,
-                })
-            });
+            let selection = crate::playback::selection::PlaybackSelection {
+                film,
+                groups: self.groups.clone(),
+                source,
+                start: self
+                    .resume
+                    .map_or(crate::playback::selection::StartMode::Restart, |point| {
+                        crate::playback::selection::StartMode::Resume(point.offset_secs)
+                    }),
+                meta_base: self.meta_base.clone(),
+            };
+            self.state
+                .update(cx, |state, _| state.playback = Some(selection));
             let _ = self.shell.update(cx, |shell, cx| {
                 shell.navigate(crate::router::Route::Player { id }, window, cx)
             });
@@ -45,7 +52,17 @@ impl Film {
             self.sources_loading,
             self.selected.is_some(),
         );
-        let label = primary.label();
+        let remaining = (primary == Primary::Play)
+            .then_some(self.resume)
+            .flatten()
+            .and_then(|point| {
+                crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
+            });
+        let visible_label = remaining.clone().unwrap_or_else(|| primary.label().into());
+        let label = remaining.as_ref().map_or_else(
+            || primary.label().to_owned(),
+            |time| format!("Resume, {time} left"),
+        );
         let enabled = primary.enabled();
         let now = Instant::now();
         let press = self.press[0].value(now, view.reduced);
@@ -55,10 +72,10 @@ impl Film {
             window
                 .text_system()
                 .shape_line(
-                    label.into(),
+                    visible_label.clone().into(),
                     px(17.0),
                     &[gpui::TextRun {
-                        len: label.len(),
+                        len: visible_label.len(),
                         font,
                         ..Default::default()
                     }],
@@ -73,12 +90,16 @@ impl Film {
         } else {
             None
         };
-        let width = (60.0 + text_width + if icon.is_some() { 27.0 } else { 0.0 }).max(144.0);
+        let width = (60.0
+            + text_width
+            + if icon.is_some() { 27.0 } else { 0.0 }
+            + if remaining.is_some() { 74.0 } else { 0.0 })
+        .max(144.0);
         let button = focus_ring(
             div()
                 .id("film-primary")
                 .role(gpui::Role::Button)
-                .aria_label(label)
+                .aria_label(label.clone())
                 .w(px(width * press))
                 .h(px(40.0 * press))
                 .rounded_full()
@@ -141,7 +162,31 @@ impl Film {
                             }),
                     )
                 })
-                .child(label),
+                .when_some(remaining, |button, _| {
+                    let progress = self.resume.map_or(0.0, |point| {
+                        (point.offset_secs / point.duration_secs).clamp(0.0, 1.0)
+                    }) as f32;
+                    button.child(
+                        div()
+                            .relative()
+                            .w(px(64.0 * press))
+                            .h(px(6.0 * press))
+                            .rounded_full()
+                            .overflow_hidden()
+                            .bg(theme.ink.opacity(0.2))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .top_0()
+                                    .h_full()
+                                    .w(px((64.0 * progress).max(6.0) * press))
+                                    .rounded_full()
+                                    .bg(theme.ink),
+                            ),
+                    )
+                })
+                .child(visible_label),
             &self.primary,
             theme,
             view.active && enabled,
@@ -253,7 +298,7 @@ impl Film {
                     .justify_center()
                     .child(watchlist),
             )
-            .child(crate::a11y::status("film-primary-status", label.into()))
+            .child(crate::a11y::status("film-primary-status", label))
     }
     pub(super) fn retry(
         &self,

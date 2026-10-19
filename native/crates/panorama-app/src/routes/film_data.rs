@@ -23,7 +23,10 @@ impl Film {
             if let Some(client) = &services.addons {
                 let mut events = client.details(&addons, &id, None);
                 while let Some(event) = events.next().await {
-                    if sender.unbounded_send(event).is_err() {
+                    if sender
+                        .unbounded_send((event, client.metadata_base(&addons, &id).await))
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -32,14 +35,15 @@ impl Film {
                     ResourceEvent::Failed(panorama_core::addons::FailureKind::InvalidInput),
                     ResourceEvent::Fresh,
                 );
-                let _ = sender.unbounded_send(event);
+                let _ = sender.unbounded_send((event, None));
             }
         }));
         self.details_task = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
-            while let Some(event) = receiver.next().await {
+            while let Some((event, meta_base)) = receiver.next().await {
                 if entity
                     .update(cx, |film, cx| {
+                        film.meta_base = meta_base;
                         film.loading = false;
                         match event {
                             ResourceEvent::CacheHit(meta) | ResourceEvent::Fresh(meta) => {
@@ -98,8 +102,13 @@ impl Film {
                                 film.sources_error = groups
                                     .iter()
                                     .any(|group| matches!(group.state, StreamState::Failed(_)));
-                                film.selected = crate::film_display::first_playable(&groups);
+                                film.selected = crate::playback::selection::first_source(&groups);
                                 film.groups = groups;
+                                let shared = (film.id.clone(), Arc::new(film.groups.clone()));
+                                film.state.update(cx, |state, cx| {
+                                    state.streams = Some(shared);
+                                    cx.notify();
+                                });
                             }
                             StreamsEvent::Failed(_) => film.sources_error = true,
                             StreamsEvent::NoSources => {}
@@ -117,6 +126,7 @@ impl Film {
     pub(super) fn subscribe_library(&mut self, cx: &mut Context<Self>) {
         self.library_task = None;
         self.saved = false;
+        self.resume = None;
         if !matches!(self.account, Account::SignedIn(_)) {
             return;
         }
@@ -124,6 +134,12 @@ impl Film {
             return;
         };
         let Some(session) = services.session.clone() else {
+            if self.args.film_resume {
+                self.resume = Some(panorama_core::stremio::ResumePoint {
+                    offset_secs: 1200.0,
+                    duration_secs: 6100.0,
+                });
+            }
             return;
         };
         let id = self.id.clone();
@@ -131,8 +147,11 @@ impl Film {
         let job = Job(services.runtime.spawn(async move {
             let mut events = session.lock().await.subscribe();
             loop {
-                let saved = session.lock().await.in_library(&id);
-                if sender.unbounded_send(saved).is_err() {
+                let (saved, resume) = {
+                    let session = session.lock().await;
+                    (session.in_library(&id), session.resume(&id))
+                };
+                if sender.unbounded_send((saved, resume)).is_err() {
                     break;
                 }
                 loop {
@@ -147,9 +166,10 @@ impl Film {
         }));
         self.library_task = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
-            while let Some(saved) = receiver.next().await {
+            while let Some((saved, resume)) = receiver.next().await {
                 if entity
                     .update(cx, |film, cx| {
+                        film.resume = resume;
                         film.set_saved(saved);
                         cx.notify();
                     })

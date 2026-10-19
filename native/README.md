@@ -685,6 +685,221 @@ the player can distinguish `Disk(Full)` from `NoPeers` while both are stalled.
 | defaults off, persists opt-in, handles split frames, coalesces updates and clears immediately | `defaults_off_persists_opt_in_handles_split_frames_coalesces_updates_and_clears_immediately` |
 | retries disconnected clients after 15 seconds and cancels retries on clear | `retries_disconnected_clients_after_15_seconds_and_cancels_retries_on_clear` |
 | rejects oversized frames and discovers platform socket paths | `rejects_oversized_frames_and_discovers_platform_socket_paths` |
+
+## Player host and frame (PR 3.3a)
+
+`panorama-app/src/playback` owns playback independently of GPUI:
+`model.rs` is the pure reducer; `selection.rs` retains Film metadata, addon-ordered
+source groups and index-based `SourceRef { group, stream }`; `source.rs` validates
+HTTP and torrent sources. `host.rs` serializes commands and generations;
+`host_events.rs` reduces mpv events, starts progress tracking after readiness and
+feeds presence. `backend.rs` and `backend_playback.rs` own lazy libmpv, proxy and torrent services behind
+the `Backend`/`Playback` traits; `fake.rs` scripts the same lifecycle without
+libmpv or network. `progress.rs` dispatches signed-in core progress and Discord
+presence. `surface.rs` converts logical client bounds to outward-rounded physical
+bounds. `window.rs` waits asynchronously for teardown for at most three seconds
+before removing a window.
+
+PR 3.3b calls `AppState::playback_host.as_ref().send(Command)`. Commands are
+`Start { window: RawWindow, selection: Box<PlaybackSelection> }`,
+`SwitchSource(SourceRef)`, `Retry`, `SetPaused(bool)`, `TogglePause`,
+`Seek(f64)`, `SeekRelative(f64)`, `SetVolume(u8)`, `SetMuted(bool)`,
+`SelectAudio(i64)`, `SelectSubtitle(Option<i64>)`, and `Stop`.
+`events()` attaches a new route consumer and returns its unbounded futures
+receiver; drain it with `cx.spawn`, then apply each event to `PlaybackModel`.
+Events are `Resolving`, `Loading`, `Failed(PlaybackError)`, `Mpv(PlayerEvent)`,
+`SourceChanged(SourceRef)`, `Closed`, plus `Volume`, `Muted` and `Seeked`
+command acknowledgements. Event Debug output never formats mpv text payloads.
+`AppState::player` retains only capture readiness and fullscreen state, notifying
+the shell only when those values change.
+
+Retry and source changes preserve position, volume, mute and the playable latch.
+Resume seeks once after a positive duration and suppresses progress samples until
+the clock is within three seconds of the target or the user seeks. Retry retains
+that target while the resume seek is pending. Observed `eof-reached` transitions
+handle EOF with `keep-open=yes`; `EndFile { Eof }` still handles `keep-open=no`.
+EOF stays ended until an explicit Replay seek. A generation rejects late resolutions after a new Start, switch or
+Stop. The shared close path stops mpv, closes the transport, cancels its token,
+then closes the player and polls completion off GPUI, accepting success, error or
+disconnection. Window-close and screenshot completion await teardown for at most
+three seconds before removing the window or calling GPUI quit. The app-quit
+hook uses the same deadline and requests backend cleanup; GPUI quit observers alone cannot protect
+the parent because GPUI clears windows before awaiting those observers. The host closes its proxy
+and torrent engine on shutdown. HTTP uses the Electron defaults: 96 MiB memory,
+2 GiB disk, 1 GiB free-space reserve under `<app data>/media-cache`. Torrent
+options retain PR 4.1 defaults under the initially absent
+`<app data>/torrent-cache`; no firewall rules are changed.
+
+The player route is deliberately not retained in the history view cache.
+Close replaces its history entry with Film, matching Electron backToDetails.
+`routes/player/{mod,view,overlays,keyboard}.rs` mounts the bottom child surface,
+renders the frame, and handles close/retry/replay. Player transitions skip route
+fades, so an outgoing Film cannot cover the video. While mounted, the window
+uses `WindowBackgroundAppearance::Transparent`, the component theme's
+background is transparent (including its semantic/Base projection),
+`app_view.rs` omits the shell canvas fill, and route/Player layers omit opaque
+fills over video. Initial loading and errors supply their own canvas fills. FakeBackend frames
+also supply a canvas because no mpv video output paints their child window.
+Leaving Player restores the opaque window and component background. The surface
+bounds exclude the 32 px caption, or cover the client area in fullscreen;
+`Player::toggle_fullscreen` is ready for 3.3b. Bounds and visibility calls run
+only when changed. The retained mpv lease protects the HWND after route release.
+
+`cascade_loader.rs` uses the bundled app icon, Electron's four clip intervals,
+100 ms stagger, 1.6 s keyframes and cubic-bezier(0.22, 1, 0.36, 1).
+Reduced motion holds the static frame. Film's resume button uses the core resume
+point and the ported `format_time_left`; `AddonClient::metadata_base` is the
+only core accessor added, preserving the actual cached metadata addon.
+
+Developer aids (no media is copied into the repository):
+
+```powershell
+$env:PANORAMA_LIBMPV_DIR = 'D:\codeOS\panorama\.cache\panorama\windows-libmpv\current'
+target/release/panorama.exe --screenshot player:tmdb:100 player-preparing.png --player-state preparing
+target/release/panorama.exe --screenshot player:tmdb:100 player-buffering.png --player-state buffering
+target/release/panorama.exe --screenshot player:tmdb:100 player-error.png --player-state error
+target/release/panorama.exe --screenshot player:tmdb:100 player-ended.png --player-state ended
+target/release/panorama.exe --screenshot film:tmdb:100 film-resume.png --film-resume
+target/release/panorama.exe --screenshot player:tmdb:100 player-video.png --play-file <absolute-media-path>
+target/release/panorama.exe --play-url <public-https-mp4>
+target/release/panorama.exe --play-torrent
+```
+
+`--player-state preparing|loading|buffering|error|ended|ready` holds a
+no-network FakeBackend in that state. `--play-file` loads directly into mpv,
+bypassing the proxy; it is a debug aid available in debug builds or explicitly
+requested release screenshot runs. `--play-url` uses the real range proxy;
+`--play-torrent` opens Gate 6's Big Buck Bunny source with its DHT marker and
+trackers. These developer inputs use fixture Film data without touching account
+state. They emit only sanitized hwdec, seek-confirmation and close-duration
+diagnostics on the background logger. Real playback captures wait for a playable
+clock; the capture timeout allows torrent metadata discovery. `--size 1024x700`
+sets capture dimensions; live resizing exercises the same bounds observer.
+
+PR 3.3b should use the existing grouped selection, command API, model tracks,
+buffered end time and fullscreen hook. PR 3.3c should retain mpv subtitle rendering
+until its renderer supports cue generations, bitmap and authored ASS fallback.
+No controls, seek bar, source/audio panels, subtitle UI or playback-settings UI
+ship in this frame PR.
+
+### Verification on Windows, 2026-10-17
+
+All required commands passed: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings`,
+`cargo test --workspace --locked`, and
+`cargo build -p panorama-app --release --locked`.
+Results: **335 passed, 3 ignored**, including 57 app tests and all three real
+libmpv integration tests. The ignored cases are the existing real-account test
+and two DHT-binding tests. The app adds 28 tests for the reducer, host scenarios,
+source resolution, loader keyframes, time-left formatting and surface bounds.
+
+All eight final captures use the release app. Overlay geometry/copy was checked
+against the TSX. The resized capture follows a live change to a 1024×700 logical
+client; five immediate desktop frame samples retained video, with no black
+frame observed. Escape released the video child (one HWND before, zero after)
+while the parent remained alive and restored the opaque Film screen; the Film
+resume capture was refreshed after that transition.
+
+| Capture | Path |
+| --- | --- |
+| Preparing | [player-preparing.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-preparing.png) |
+| Buffering | [player-buffering.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-buffering.png) |
+| Error | [player-error.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-error.png) |
+| Ended | [player-ended.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-ended.png) |
+| Film resume | [film-resume.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/film-resume.png) |
+| Real file | [player-video.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-video.png) |
+| Real file EOF | [player-ended-real.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-ended-real.png) |
+| Live resize | [player-video-resized.png](C:/Users/billi/AppData/Local/Temp/panorama-pr33a/player-video-resized.png) |
+
+| Real path | Result | hwdec-current | Playback close | Whole-window exit |
+| --- | --- | --- | --- | --- |
+| Supplied local Big Buck Bunny file | Video visible; keyboard seek confirmed | d3d11va | 166–177 ms | Capture exits after teardown |
+| HTTPS through proxy, host `media.w3.org` | Started; seek confirmed | d3d11va | 133 ms | 232 ms |
+| Gate 6 Big Buck Bunny torrent | Started; seek confirmed after settling | d3d11va | 101 ms | 1322 ms |
+
+No Windows Firewall prompt appeared and no firewall rules were changed.
+Real file playback also reached the Ended overlay after seeking to about ten
+seconds before EOF and letting the configured `keep-open=yes` player finish.
+Playback close measures mpv stop, transport close and actual player teardown;
+whole-window exit additionally includes proxy/torrent-engine shutdown.
+The initial HTTP candidate refused requests; the successful HTTPS probe used
+the host listed above. Media was used in place, never copied into this worktree.
+
+## Player controls and panels (PR 3.3b)
+
+`routes/player/` adds, on top of the 3.3a frame: `chrome.rs` (auto-hide state
+machine: 3 s idle timer, pins for keyboard focus, open panel, pause and any
+non-Ready status, timer restart on release), `range.rs` + `range_view.rs` (shared
+seek/volume range: geometry, scrub preview/commit/cancel, painting), `panel.rs`
+(open/switch/close, outside-press swallowing, radio row navigation),
+`panel_motion.rs` + `panel_view.rs` (one surface, measured page switch, sticky
+section labels), `content.rs` (Audio and Sources rows, tags, disabled rules),
+`controls.rs` (top and bottom bars), `widgets.rs` (icon buttons, pills, focus
+handles), `input.rs` (pointer layer, keys, panel actions), `measure.rs` (bounds
+read back from the previous frame), `time.rs`. `playback/health.rs` ports
+`usePlaybackHealth`; the host emits `HostEvent::Link` at most once a second from the
+proxy stats, and `Command::Groups` keeps its source list in step with Film
+(`AppState::streams`). Capture flags: `--open-panel audio|sources`,
+`--hover-seek`, `--fullscreen`, `--player-state waiting|heavy`; `--player-state`
+without `--screenshot` opens the fixture player live. `--size` accepts 480x400 and
+up in capture mode (no minimum window size there) for the 540 px capture.
+
+## Idle pointer (PR 3.3d)
+
+The pointer hides when the chrome does: after `chrome::HIDE_DELAY` of rest over the player,
+never while the chrome is pinned (not Ready, paused, a panel open, a drag, keyboard focus on a
+control). `routes/player/pointer.rs` reaches GPUI's safe `hide_cursor_until_mouse_moves` by
+dispatching a sentinel `KeyDownEvent` (`f24`, `key_char: Some("")`) through
+`Window::dispatch_event` when `Shown.pointer` falls while `Window::is_window_hovered()`; the
+shell's capture handler consumes it first, so it is neither activity nor routed. It fires once
+per edge and re-arms when the pointer shows again. A control focused by a pointer press is
+blurred first so the keyboard modality brings no focus ring. `Hider::on_move` classifies a move: a new position wakes the chrome; the same position
+(Windows can send a `WM_MOUSEMOVE` without movement) never wakes it, and when the hide has already
+fired it hides the pointer again, because GPUI restores the pointer on any `WM_MOUSEMOVE`.
+The hide
+relies on `CursorHideMode::OnTyping` or `OnTypingAndAction` (the default); `hide_until_moved`
+asserts this in debug builds.
+
+## Subtitles, subtitle preferences and playback settings (PR 3.3c)
+
+`playback/subtitle_prefs.rs` holds the preferences (defaults, limits and
+normalisation of `subtitle-preferences.ts`), persisted as JSON under
+`pref:subtitlePreferences`; `playback/output.rs` holds the audio and video output
+settings (`pref:playbackSettings`) and their mpv property mapping;
+`playback/subtitle_render.rs` is the codec to renderer table, the cue sanitiser and the
+mpv style mapping; `playback/prefs.rs` loads and saves on blocking workers and wraps the
+Discord opt-in behind a `DiscordPort`. The UI is in `routes/player/`: `subtitles*.rs`
+(language and track memory, three columns or tabs), `stepper_view.rs` and `edit.rs`
+(`PlayerStepperControl`), `panel_widgets.rs`, `settings_view.rs` (settings, select menu,
+custom colour popover), `cue_view.rs` (the cue GPUI draws), `prefs_actions.rs`.
+
+Text tracks (`subrip`, `webvtt`, `mov_text`, `text`) are drawn by GPUI with mpv
+`sub-visibility=no`; bitmap and ASS/SSA tracks stay with mpv, which receives the
+supported subset, and the Appearance column shows the limitation note. Delay always goes
+through mpv `sub-delay`. The host remembers the latest subtitle and output settings and
+replays them onto every new player.
+
+Capture flags: `--open-panel subtitles|settings`, `--open-control edit|color|select|scroll`,
+`--player-state subtitled|bitmap`, `--subtitle-prefs <json>`, `--playback-settings <json>`.
+
+Receiver passthrough cannot be enabled in this PR: libmpv does not report which codecs an
+output takes undecoded, so `Device.passthrough` is always empty and the checkbox stays
+disabled with its helper copy. The `audio-spdif` mapping is implemented and tested with
+confirmed codecs; a WASAPI probe is the follow-up that fills the list. Preference writes
+go through one ordered writer task, and capture overrides (`--subtitle-prefs`,
+`--playback-settings`) are never written.
+
+## Torrent source label and the no-peers state (PR 4.2)
+
+`playback/torrent_ui.rs` holds `TorrentHealth { state, peers_live, peers_connecting, download_bps, since_ms }`, the "<n> peers · <rate>/s" caption (rate as MB/s, one decimal under 10, via `health::format_mbps`), `is_torrent` and `parse_seeders`. `playback/model_torrent.rs` is the torrent half of the reducer.
+
+- **Host.** `Backend`'s `Playback::torrent()` returns the stream's `TorrentStats`. For a torrent source the host emits `HostEvent::Torrent(connecting)` right after `Resolving` (so the player knows it is a torrent before the engine's `open` returns), then every second `poll_stats` emits any transport error as `Failed`, otherwise `HostEvent::Torrent(health)`. `since_ms` is the time since the source started. The engine's `open` blocks until the first payload, so peer counts only exist after it returns: "Finding peers" never has a second line, and the "<n> peers · <rate>/s" line appears from "Loading video" and buffering onward.
+- **Model.** `Status::NoPeers` replaces `Error(NoPeers)`. It is entered only by `Failed(NoPeers)`: the engine's `NoPeers` error (read through `Playback::error()` in `poll_stats`), or a metadata or first-payload timeout in `open`. The engine reports `Stalled` only together with an error, so `poll_stats` sends the error instead of a health reading, and readings never change the status (buffering comes from mpv). `NoPeers` is latched until the host restarts the source, like the engine's error; mpv errors after it are ignored, and mpv is paused so sound does not run under the overlay. `TorrentError::Disk(_)` maps to `PlaybackError::TorrentCache` ("Panorama couldn't use its torrent cache..."), an ordinary error overlay.
+- **Keep waiting.** `Command::RetryTorrent` restarts the source at the current position (`stop`, then `start`). `TorrentStream::retry` is not public and the engine's `Entry::retry` only clears the latched error when no lease is open, so releasing the lease and reopening is the one path that reaches it. The torrent stays open while the overlay shows.
+- **UI.** Sources rows for `infoHash` streams get a "Torrent" tag before the quality tags and, when the title or description carries "👤 N", "Seeders: N" or "Seeds: N" (digits only, at most six, first 1000 characters scanned), a "· N seeders" suffix (the matched token is removed from the description so the count is shown once; "1,234" or "12.5k" show nothing). First preparation shows "Finding peers" and the caption under the cascade loader; later preparation and buffering use the overlay with the caption as a second `type-caption` line. The no-peers overlay is a `player_canvas` 75% `Role::Alert` with "Choose another source" and "Keep waiting".
+- **Fixtures.** `--player-state finding-peers | loading-stats | no-peers` (torrent source, fake backend), and the fixture Sources group has a torrent entry. No infoHash, magnet or tracker is logged or put in any error text (`no_hash_magnet_or_tracker_reaches_events_logs_or_errors`).
+
+`TorrentSource`'s `Debug` no longer prints the info hash (PR 4.2 fix round 1).
 ## Addon management for PR 5.1
 
 `addons/manage/` contains URL validation, manifest validation, display summaries,

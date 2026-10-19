@@ -129,7 +129,7 @@ impl Home {
                         )
                         .child(
                             svg()
-                                .path("chevron-down.svg")
+                                .path("chevron-down-thin.svg")
                                 .size(px(20.0))
                                 .text_color(theme.ink)
                                 .when(!view.reduced, |icon| {

@@ -27,15 +27,6 @@ pub enum Account {
     Error(String),
 }
 
-/// Film-to-Player handoff retaining the complete redacted source and behavior hints.
-#[derive(Clone)]
-pub struct PlaybackSelection {
-    /// Opaque film identifier associated with the chosen source.
-    pub film_id: String,
-    /// First playable source in account group order.
-    pub source: panorama_core::addons::StreamSource,
-}
-
 /// Map sanitized core failures to plain sign-in copy.
 pub fn account_error(kind: CoreErrorKind) -> &'static str {
     match kind {
@@ -74,8 +65,13 @@ pub struct AppState {
     pub images: gpui::Entity<crate::image_cache::ImageCache>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
+    /// Stream groups for a film; Film keeps this current so an open Player follows late addons.
+    pub streams: Option<(String, Arc<Vec<panorama_core::addons::StreamGroup>>)>,
     /// Source selected by Film for the next Player mount.
-    pub playback: Option<PlaybackSelection>,
+    pub playback: Option<crate::playback::selection::PlaybackSelection>,
+    pub closing: bool,
+    pub player: Option<crate::playback::shell::ShellPlayerState>,
+    pub playback_host: Option<crate::playback::host::PlaybackHost>,
     host: Arc<ServicesHost>,
     events: Option<Task<()>>,
     request: Option<Task<()>>,
@@ -99,7 +95,11 @@ impl AppState {
         let mut state = Self {
             images,
             film_preview: None,
+            streams: None,
             playback: None,
+            playback_host: None,
+            player: None,
+            closing: false,
             account: Account::SignedOut,
             installed: vec![],
             services,

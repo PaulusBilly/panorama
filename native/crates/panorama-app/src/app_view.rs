@@ -2,6 +2,22 @@ use super::*;
 
 impl Render for AppShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let player = matches!(self.history.current(), Route::Player { .. });
+        if player != self.player_transparent {
+            self.player_transparent = player;
+            window.set_background_appearance(if player {
+                gpui::WindowBackgroundAppearance::Transparent
+            } else {
+                gpui::WindowBackgroundAppearance::Opaque
+            });
+            gpui_component::Theme::update(cx, |theme| {
+                theme.colors.background = self
+                    .theme
+                    .canvas
+                    .opacity(if player { 0.0 } else { 1.0 })
+                    .into()
+            });
+        }
         let now = Instant::now();
         if self.viewport != window.viewport_size() {
             self.viewport = window.viewport_size();
@@ -17,6 +33,15 @@ impl Render for AppShell {
                 || self.trigger.moving(now, false)
                 || self.search.motion.moving(now, false)
                 || self.menu.moving(false));
+        let real_playback =
+            self.args.play_file.is_some() || self.args.play_url.is_some() || self.args.play_torrent;
+        let playback_ready = !real_playback
+            || self
+                .state
+                .read(cx)
+                .player
+                .as_ref()
+                .is_some_and(|player| player.capture_ready);
         let capture_waiting = self.screenshot.is_some() && !self.capture_scheduled;
         if moving || capture_waiting {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
@@ -24,11 +49,12 @@ impl Render for AppShell {
         }
         if capture_waiting
             && !moving
+            && playback_ready
             && now.duration_since(self.launched) >= Duration::from_millis(1600)
             && let Some(path) = self.screenshot.take()
         {
             self.capture_scheduled = true;
-            debug::screenshot::schedule(window, cx, path, self.outcome.clone());
+            debug::screenshot::schedule(window, cx, path, self.outcome.clone(), self.state.clone());
         }
         let mut body = div()
             .relative()
@@ -37,7 +63,8 @@ impl Render for AppShell {
             .w_full()
             .overflow_hidden();
         for presence in &self.presence {
-            let pose = if self.reduced_motion {
+            let pose = if self.reduced_motion || matches!(presence.view.route, Route::Player { .. })
+            {
                 Pose {
                     opacity: 1.0,
                     y: 0.0,
@@ -151,7 +178,7 @@ impl Render for AppShell {
             .size_full()
             .flex()
             .flex_col()
-            .bg(self.theme.canvas)
+            .when(!player, |shell| shell.bg(self.theme.canvas))
             .text_color(self.theme.ink)
             .font(assets::font())
             .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![(
@@ -176,6 +203,12 @@ impl Render for AppShell {
             })
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(|shell, event: &KeyDownEvent, window, cx| {
+                if crate::routes::player::pointer::is_sentinel(event) {
+                    // The idle-pointer hide key: consumed here, seen by nothing else.
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    return;
+                }
                 if shell.login.is_none()
                     && event.keystroke.key == "escape"
                     && (shell.search.open
@@ -184,6 +217,37 @@ impl Render for AppShell {
                     shell.clear_search(window, cx);
                     window.prevent_default();
                     cx.stop_propagation();
+                }
+                if let Route::Player { id } = shell.history.current()
+                    && let Some(player) = shell
+                        .presence
+                        .iter()
+                        .find(|presence| !presence.exiting)
+                        .and_then(|presence| {
+                            presence
+                                .view
+                                .view
+                                .clone()
+                                .downcast::<routes::player::Player>()
+                                .ok()
+                        })
+                {
+                    let id = id.clone();
+                    let action = player.update(cx, |player, cx| player.key_down(event, window, cx));
+                    let handled = action.is_some();
+                    if let Some(crate::routes::player::keyboard::KeyAction::Close) = action {
+                        if let Some(host) = &shell.state.read(cx).playback_host {
+                            host.send(crate::playback::host::Command::Stop);
+                        }
+                        if window.is_fullscreen() {
+                            window.toggle_fullscreen();
+                        }
+                        shell.back_to_film(id, window, cx);
+                    }
+                    if handled {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    }
                 }
                 shell.keyboard_navigation = true;
                 cx.notify();

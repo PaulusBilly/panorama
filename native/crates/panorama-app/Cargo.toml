@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 panorama-core = { path = "../panorama-core" }
+panorama-mpv = { path = "../panorama-mpv" }
 tokio.workspace = true
 futures.workspace = true
 image.workspace = true

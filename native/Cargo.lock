@@ -5819,6 +5819,7 @@ dependencies = [
  "gpui-pre-platform",
  "image",
  "panorama-core",
+ "panorama-mpv",
  "png 0.18.1",
  "raw-window-handle",
  "serde_json",

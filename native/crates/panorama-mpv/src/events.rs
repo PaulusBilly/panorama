@@ -101,6 +101,7 @@ impl Properties {
         let event = match name {
             "time-pos" => PlayerEvent::TimePos(value.number()),
             "duration" => PlayerEvent::Duration(value.number()),
+            "eof-reached" => PlayerEvent::EofReached(value.flag()),
             "pause" => {
                 self.cache.paused = value.flag();
                 events.push(PlayerEvent::DemuxerCacheState(self.cache.clone()));
@@ -191,6 +192,21 @@ mod tests {
             }]
         );
         assert!(tracks(&Node::None).is_empty());
+    }
+
+    #[test]
+    fn eof_reached_parses_flags_and_unavailable_values() {
+        let mut properties = Properties::default();
+        for (value, expected) in [
+            (Node::Flag(false), false),
+            (Node::Flag(true), true),
+            (Node::None, false),
+        ] {
+            assert_eq!(
+                properties.event("eof-reached", value),
+                vec![PlayerEvent::EofReached(expected)]
+            );
+        }
     }
 
     #[test]

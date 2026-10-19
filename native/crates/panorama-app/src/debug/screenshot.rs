@@ -8,6 +8,7 @@ pub fn schedule<T: 'static>(
     cx: &mut Context<T>,
     path: PathBuf,
     outcome: Sender<Result<(), String>>,
+    state: gpui::Entity<crate::app_state::AppState>,
 ) {
     let handle = window_handle(window);
     let executor = cx.background_executor().clone();
@@ -15,6 +16,19 @@ pub fn schedule<T: 'static>(
         let task = executor.spawn(async move { handle.and_then(|handle| capture(handle, &path)) });
         cx.spawn(async move |cx| {
             let result = task.await;
+            let done = cx.update(|cx| {
+                state
+                    .read(cx)
+                    .playback_host
+                    .as_ref()
+                    .map(|host| host.shutdown())
+            });
+            if let Some(done) = done {
+                crate::playback::window::wait_for_shutdown(done, |duration| {
+                    cx.background_executor().timer(duration)
+                })
+                .await;
+            }
             let _ = outcome.send(result);
             cx.update(|cx| cx.quit());
         })
