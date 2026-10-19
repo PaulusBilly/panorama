@@ -12,6 +12,12 @@ impl AssetSource for Assets {
             "panorama.svg" => Some(include_bytes!("../assets/panorama.svg")),
             "search.svg" => Some(include_bytes!("../assets/icons/search.svg")),
             "menu-2.svg" => Some(include_bytes!("../assets/icons/menu-2.svg")),
+            "x.svg" => Some(include_bytes!("../assets/icons/x.svg")),
+            "arrow-right.svg" => Some(include_bytes!("../assets/icons/arrow-right.svg")),
+            "plus.svg" => Some(include_bytes!("../assets/icons/plus.svg")),
+            "check.svg" => Some(include_bytes!("../assets/icons/check.svg")),
+            "loader-2.svg" => Some(include_bytes!("../assets/icons/loader-2.svg")),
+            "star-filled.svg" => Some(include_bytes!("../assets/icons/star-filled.svg")),
             "player-play-filled.svg" => {
                 Some(include_bytes!("../assets/icons/player-play-filled.svg"))
             }

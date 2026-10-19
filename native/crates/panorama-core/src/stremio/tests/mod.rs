@@ -1,6 +1,7 @@
 mod addons;
 mod cancellation;
 mod fetch;
+mod library;
 mod lifecycle;
 mod mock;
 mod session;

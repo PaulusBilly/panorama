@@ -19,6 +19,8 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 
+#[path = "home_alert.rs"]
+mod alert;
 #[path = "home_keyboard.rs"]
 mod keyboard;
 #[path = "home_view.rs"]
@@ -26,13 +28,14 @@ mod view;
 
 /// Retained Home catalog, virtual row state and visible image interests.
 pub struct Home {
-    shell: WeakEntity<AppShell>,
-    state: Entity<AppState>,
+    pub(crate) shell: WeakEntity<AppShell>,
+    pub(crate) state: Entity<AppState>,
     args: Args,
     id: u64,
     scroll: ScrollHandle,
-    films: Arc<[FilmDetails]>,
-    cards: Vec<FocusHandle>,
+    pub(crate) films: Arc<[FilmDetails]>,
+    pub(crate) cards: Vec<FocusHandle>,
+    pub(crate) search: Option<super::search::SearchData>,
     watch: FocusHandle,
     retry: FocusHandle,
     reload: FocusHandle,
@@ -76,7 +79,13 @@ impl Home {
             films = fixture_benchmark().into();
         }
         let observer = cx.observe(&state, |home, state, cx| {
-            if !home.args.bench_scroll {
+            if home.search.as_ref().is_some_and(|search| {
+                search.installed != state.read(cx).installed
+                    || search.account != state.read(cx).account
+            }) {
+                home.load_search(cx);
+            }
+            if !home.args.bench_scroll && home.search.is_none() {
                 home.films = state
                     .read(cx)
                     .catalog
@@ -112,6 +121,7 @@ impl Home {
             scroll: ScrollHandle::new(),
             cards: (0..films.len()).map(|_| cx.focus_handle()).collect(),
             films,
+            search: None,
             watch,
             retry: cx.focus_handle(),
             reload: cx.focus_handle(),
@@ -265,6 +275,9 @@ impl Home {
     }
     /// Open the card's opaque film identifier in the existing router.
     pub(crate) fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.film_preview = self.films.iter().find(|film| film.id == id).cloned()
+        });
         let _ = self.shell.update(cx, |shell, cx| {
             shell.navigate(Route::Film { id }, window, cx)
         });
@@ -300,9 +313,14 @@ impl Home {
         let top = -f32::from(self.scroll.offset().y);
         if top != self.last_top {
             self.last_top = top;
+            let height = if self.search.is_some() {
+                0.0
+            } else {
+                self.content_start(view, cx)
+            };
             let _ = self.shell.update(cx, |shell, cx| {
                 shell.menu.dismiss();
-                shell.update_home_header(self.id, top, view.height, self.ready, cx);
+                shell.update_home_header(self.id, top, height, self.ready, cx);
             });
             cx.notify();
         }

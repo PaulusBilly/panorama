@@ -4,6 +4,8 @@ use gpui::Rgba;
 /// Home header color state, matching the nested TSX conditions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeaderColor {
+    /// Search disclosure paints the full header with player colors.
+    SearchOpen,
     /// Artwork and featured copy are ready over the hero.
     HeroReady,
     /// Hero surface overlay is still visible.
@@ -24,7 +26,7 @@ impl HeaderColor {
     }
     /// Foreground color and logo tint.
     pub fn foreground(self, theme: Theme) -> Rgba {
-        if self == Self::HeroReady {
+        if matches!(self, Self::HeroReady | Self::SearchOpen) {
             theme.inverse
         } else {
             theme.ink
@@ -32,7 +34,9 @@ impl HeaderColor {
     }
     /// Solid background appears only below the hero.
     pub fn background(self, theme: Theme) -> Rgba {
-        if self == Self::Below {
+        if self == Self::SearchOpen {
+            theme.player_canvas
+        } else if self == Self::Below {
             theme.canvas
         } else {
             theme.canvas.opacity(0.0)

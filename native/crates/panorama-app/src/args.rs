@@ -29,6 +29,14 @@ pub struct Args {
     pub open_sign_in: bool,
     /// Measure five seconds of scrolling with 200 fixture cards.
     pub bench_scroll: bool,
+    /// Open Home's search band before capture.
+    pub open_search: bool,
+    /// Present the fixture account as signed out.
+    pub signed_out: bool,
+    /// Return no fixture playback sources.
+    pub no_sources: bool,
+    /// Hold fixture metadata in its initial loading state.
+    pub film_loading: bool,
 }
 
 impl Args {
@@ -48,6 +56,10 @@ impl Args {
             open_account_menu: false,
             open_sign_in: false,
             bench_scroll: false,
+            open_search: false,
+            signed_out: false,
+            no_sources: false,
+            film_loading: false,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -100,6 +112,10 @@ impl Args {
                 "--focus-first-card" => result.focus_first_card = true,
                 "--open-account-menu" => result.open_account_menu = true,
                 "--open-sign-in" => result.open_sign_in = true,
+                "--open-search" => result.open_search = true,
+                "--signed-out" => result.signed_out = true,
+                "--no-sources" => result.no_sources = true,
+                "--film-loading" => result.film_loading = true,
                 "--scroll" => {
                     let value = args.next().ok_or("--scroll needs a pixel delta or end")?;
                     let value = value.to_str().ok_or("Invalid scroll delta")?;

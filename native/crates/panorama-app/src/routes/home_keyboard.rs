@@ -48,6 +48,7 @@ impl Home {
                 .catalog
                 .as_ref()
                 .is_some_and(|page| page.has_more)
+                || self.search.is_some()
             {
                 self.scroll.set_offset(point(px(0.0), px(0.0)));
                 let _ = self
@@ -67,7 +68,10 @@ impl Home {
             }
         } else {
             let next = if forward { index + 1 } else { index - 1 };
-            let y = view.height + 32.0 + (next / grid.columns) as f32 * grid.stride();
+            let y = self.content_start(view, cx)
+                + if self.search.is_some() { 72.0 } else { 0.0 }
+                + 32.0
+                + (next / grid.columns) as f32 * grid.stride();
             let top = -f32::from(self.scroll.offset().y);
             if y < top {
                 self.scroll.set_offset(point(px(0.0), px(-y)));

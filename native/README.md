@@ -98,6 +98,8 @@ Interrupted motion resumes from the sampled opacity and offset. The macOS
 38px caption keeps system traffic lights and native titlebar dragging; it has
 not been run on macOS.
 
+PR 2.4b adds `search_band`/`app_search`/`app_view` (header search disclosure, 320 ms height tween, query handoff), `routes/search` (Home's grid with a Films tab; Cast & Crew is hidden until a TMDB key ships), `routes/film{,_data,_actions,_view,_images}` (details + sources start together; first ready URL/info-hash stream is the Play target and is handed to Player through `AppState::playback`), `film_display` (primary-button table, quality badges, rating rule), `film_overlay`, `a11y` (polite status nodes) and fixture search/details/streams. New capture flags: `--open-search`, `--signed-out`, `--no-sources`, `--film-loading`; routes `search:<q>`, `film:<id>`. `CoreSession::set_watchlisted`/`is_watchlisted` toggle the account library. The original (native) film title is not shown because addon metadata sanitising does not carry it.
+
 The component theme is synchronized through `Theme::change` then `Theme::update`
 so its solid colors, renderable tokens and Base projection agree. Mapped tokens:
 background/foreground/border, accent/foreground, muted/foreground,

@@ -30,6 +30,8 @@ use super::{
 };
 
 type CoreRuntime = Runtime<PanoramaEnv, CoreModel>;
+#[path = "library.rs"]
+mod library;
 
 #[derive(Clone)]
 enum Progress {
