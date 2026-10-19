@@ -357,7 +357,8 @@ impl Render for Film {
             .track_scroll(&self.scroll)
             .on_scroll_wheel(cx.listener(|_, _, window, cx| {
                 cx.on_next_frame(window, |film, window, cx| film.tick(window, cx));
-                window.request_animation_frame();
+                // request_animation_frame panics outside render; notify schedules the frame instead.
+                cx.notify();
             }))
             .child(page)
     }

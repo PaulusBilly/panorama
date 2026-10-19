@@ -316,7 +316,8 @@ impl Render for Home {
             .track_scroll(&self.scroll)
             .on_scroll_wheel(cx.listener(|_, _, window, cx| {
                 cx.on_next_frame(window, |home, window, cx| home.tick(window, cx));
-                window.request_animation_frame();
+                // request_animation_frame panics outside render; notify schedules the frame instead.
+                cx.notify();
             }))
             .when(self.search.is_none(), |root| {
                 root.child(
