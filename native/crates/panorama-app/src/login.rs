@@ -1,3 +1,4 @@
+use crate::assets::Weighted;
 use crate::{
     app::AppShell,
     app_state::{Account, AppState},
@@ -283,7 +284,7 @@ impl Render for LoginDialog {
                     .border_color(theme.ink)
                     .bg(theme.ink)
                     .text_color(theme.canvas)
-                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .weight(gpui::FontWeight::MEDIUM)
                     .flex()
                     .justify_center()
                     .items_center()

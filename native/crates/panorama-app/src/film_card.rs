@@ -1,3 +1,4 @@
+use crate::assets::Weighted;
 use crate::{
     hero,
     home_layout::{Grid, ViewSettings},
@@ -140,7 +141,7 @@ pub fn render(
                     div()
                         .min_w_0()
                         .truncate()
-                        .font_weight(FontWeight::BOLD)
+                        .weight(FontWeight::BOLD)
                         .child(film.director.join(", ").to_uppercase()),
                 )
             })
@@ -184,7 +185,7 @@ pub fn render(
                 .child(
                     div()
                         .text_size(px((view.width * 0.018).clamp(16.0, 24.0)))
-                        .font_weight(FontWeight::MEDIUM)
+                        .weight(FontWeight::MEDIUM)
                         .line_height(relative(1.18))
                         .line_clamp(2)
                         .child(film.name.to_uppercase()),

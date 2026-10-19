@@ -1,3 +1,4 @@
+use crate::assets::Weighted;
 use crate::{
     app::AppShell,
     home_layout::ViewSettings,
@@ -105,7 +106,7 @@ pub fn render(
         let measure = |text: &str, size: f32, weight: FontWeight| {
             let text = text.replace(['\r', '\n'], " ");
             let mut font = window.text_style().font();
-            font.weight = weight;
+            crate::assets::weighted(&mut font, weight);
             let run = gpui::TextRun {
                 len: text.len(),
                 font,
@@ -153,7 +154,7 @@ pub fn render(
             title = title.child(
                 div()
                     .text_size(px(32.0))
-                    .font_weight(FontWeight::MEDIUM)
+                    .weight(FontWeight::MEDIUM)
                     .line_height(relative(0.9))
                     .child(film.name.to_uppercase()),
             );
@@ -189,7 +190,7 @@ pub fn render(
                 .bg(theme.inverse.opacity(1.0 - props.hover))
                 .text_color(foreground)
                 .text_size(px(16.0))
-                .font_weight(FontWeight::MEDIUM)
+                .weight(FontWeight::MEDIUM)
                 .flex()
                 .items_center()
                 .gap(px(8.0))
@@ -301,7 +302,7 @@ pub fn credits(film: &FilmDetails, theme: Theme) -> Div {
         credits = credits.child(
             div().flex().child("DIRECTED BY ").child(
                 div()
-                    .font_weight(FontWeight::BOLD)
+                    .weight(FontWeight::BOLD)
                     .child(film.director.join(", ").to_uppercase()),
             ),
         );

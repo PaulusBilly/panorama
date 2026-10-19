@@ -1,4 +1,5 @@
 use super::*;
+use crate::assets::Weighted;
 use crate::{
     film_display::Primary,
     theme::{focus_ring, motion::*},
@@ -67,7 +68,7 @@ impl Film {
         let now = Instant::now();
         let press = self.press[0].value(now, view.reduced);
         let mut font = window.text_style().font();
-        font.weight = FontWeight::MEDIUM;
+        crate::assets::weighted(&mut font, FontWeight::MEDIUM);
         let text_width = f32::from(
             window
                 .text_system()
@@ -108,7 +109,7 @@ impl Film {
                     .opacity(1.0 - 0.1 * self.hover[0].value(now, view.reduced)))
                 .text_color(theme.ink)
                 .text_size(px(17.0 * press))
-                .font_weight(FontWeight::MEDIUM)
+                .weight(FontWeight::MEDIUM)
                 .line_height(relative(1.0))
                 .pl(px(28.0 * press))
                 .pr(px(32.0 * press))

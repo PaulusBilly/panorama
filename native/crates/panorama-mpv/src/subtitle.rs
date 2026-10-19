@@ -5,7 +5,7 @@ use std::path::PathBuf;
 /// writable-property contract. Renderer-only CSS geometry belongs to PR 3.3.
 #[derive(Clone, Debug)]
 pub struct SubtitleStyle {
-    /// Font family; Electron uses DM Sans.
+    /// Font family name as libass matches it (name ID 1 of the bundled Aspekta faces).
     pub font: String,
     /// Packaged font directory, if supplied by the app.
     pub fonts_dir: Option<PathBuf>,
@@ -30,7 +30,7 @@ pub struct SubtitleStyle {
 impl Default for SubtitleStyle {
     fn default() -> Self {
         Self {
-            font: "DM Sans".into(),
+            font: "Aspekta 400".into(),
             fonts_dir: None,
             scale: 1.0,
             position: 100.0,
@@ -84,9 +84,10 @@ mod tests {
     #[test]
     fn fallback_matches_electron_and_rejects_nonfinite_values() {
         let values = SubtitleStyle::default().properties().unwrap();
-        assert!(values.iter().any(
-            |(n, v)| n == "sub-font" && matches!(v, PropertyValue::String(s) if s == "DM Sans")
-        ));
+        assert!(
+            values.iter().any(|(n, v)| n == "sub-font"
+                && matches!(v, PropertyValue::String(s) if s == "Aspekta 400"))
+        );
         assert!(
             values
                 .iter()

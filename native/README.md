@@ -136,7 +136,13 @@ writing run off the UI thread, after a settled frame and at least 1600 ms.
 
 Every `--screenshot` invocation checks the shell's inherited GPUI text style at
 400/500/700. It fails with a non-zero exit if the resolved family or the bundled
-faces' M advances differ. On Windows the registered family is `DM Sans 14pt`.
+faces' M advances differ.
+
+The typeface is Aspekta (SIL OFL 1.1, static 400/500/700 faces, licence in
+`assets/fonts/OFL.txt`). Its faces name their weights with numbers, so DirectWrite files
+each one under its own family: `Aspekta 400`, `Aspekta 500` and `Aspekta 700`. Set weights
+with `assets::Weighted::weight` or `assets::weighted`, never `font_weight` alone, so the
+family follows the weight; other platforms use the single family `Aspekta`.
 
 The app modules are `main` (startup), `args`, `app`, `router`, `titlebar`,
 `header`, `routes/{home,search,film,player,addons}`, `theme`, `motion`, `assets`,
@@ -153,7 +159,7 @@ so its solid colors, renderable tokens and Base projection agree. Mapped tokens:
 background/foreground/border, accent/foreground, muted/foreground,
 popover/foreground, ring, selection, scrollbar/thumb/hover, button/foreground/
 hover/active, primary/foreground, secondary/foreground/hover/active,
-danger/foreground, input, caret and skeleton. Component fonts use DM Sans;
+danger/foreground, input, caret and skeleton. Component fonts use Aspekta;
 component radii are zero because the CSS supplies no general radius.
 
 GPUI 0.3.8 provides Windows caption hit-test areas (including snap layouts) and
@@ -401,7 +407,7 @@ classification or playback/selection/seek generation filtering; PR 3.3 must reta
 mpv rendering until it can handle those cases safely.
 
 `set_subtitle_style(SubtitleStyle)` supplies the mpv fallback options from
-`desktop/main/main.ts:123-126`: `sub-font=DM Sans`,
+`desktop/main/main.ts:123-126`, with the font now `sub-font=Aspekta 400` (name ID 1 of the bundled face),
 `sub-border-style=background-box`, `sub-border-size=0`,
 `sub-shadow-offset=10`; optional `sub-fonts-dir` comes from line 122. It also
 accepts the shared protocol's scale, position, delay, text/background/outline

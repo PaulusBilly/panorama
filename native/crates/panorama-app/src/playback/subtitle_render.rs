@@ -192,9 +192,9 @@ fn argb(color: [u8; 3], alpha: f64) -> String {
 pub fn mpv_style(prefs: &SubtitlePreferences) -> SubtitleStyle {
     SubtitleStyle {
         font: if prefs.font_weight == FontWeight::Medium {
-            "DM Sans Medium"
+            "Aspekta 500"
         } else {
-            "DM Sans"
+            "Aspekta 400"
         }
         .into(),
         scale: (prefs.font_size / REFERENCE_FONT_PX).max(0.1),

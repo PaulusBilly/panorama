@@ -1,5 +1,5 @@
 //! Embedded assets keep startup independent of disk access.
-use gpui::{App, AssetSource, Font, FontFallbacks, SharedString};
+use gpui::{App, AssetSource, Font, FontFallbacks, FontWeight, SharedString, Styled};
 use std::borrow::Cow;
 
 /// Bundled SVG and icon source.
@@ -68,26 +68,52 @@ impl AssetSource for Assets {
     }
 }
 
-/// Register the proven static 400/500/700 DM Sans faces before opening a window.
+/// Register the static 400/500/700 Aspekta faces before opening a window.
 pub fn register_fonts(cx: &App) -> Result<(), String> {
     cx.text_system()
         .add_fonts(vec![
-            Cow::Borrowed(include_bytes!("../assets/fonts/DMSans-Regular.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/DMSans-Medium.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/DMSans-Bold.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/Aspekta-400.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/Aspekta-500.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/Aspekta-700.ttf")),
         ])
-        .map_err(|error| format!("Cannot register DM Sans: {error}"))
+        .map_err(|error| format!("Cannot register Aspekta: {error}"))
 }
+
+/// The family that holds `weight`. DirectWrite files each static Aspekta face under its own
+/// family ("Aspekta 400", "Aspekta 500", "Aspekta 700") because the faces name their weights with
+/// numbers, so on Windows a weight change must also change the family.
+pub fn family(weight: FontWeight) -> &'static str {
+    if !cfg!(target_os = "windows") {
+        "Aspekta"
+    } else if weight.0 < 450.0 {
+        "Aspekta 400"
+    } else if weight.0 < 600.0 {
+        "Aspekta 500"
+    } else {
+        "Aspekta 700"
+    }
+}
+
+/// Set a font's weight together with the family that contains it.
+pub fn weighted(font: &mut Font, weight: FontWeight) {
+    font.family = family(weight).into();
+    font.weight = weight;
+}
+
+/// Weight setter for elements; use it instead of `font_weight` so the family follows the weight.
+pub trait Weighted: Styled + Sized {
+    /// Apply `weight` and its Aspekta family.
+    fn weight(self, weight: FontWeight) -> Self {
+        self.font_family(family(weight)).font_weight(weight)
+    }
+}
+
+impl<T: Styled> Weighted for T {}
 
 /// The application font with ordered platform fallbacks.
 pub fn font() -> Font {
     Font {
-        family: if cfg!(target_os = "windows") {
-            "DM Sans 14pt"
-        } else {
-            "DM Sans"
-        }
-        .into(),
+        family: family(FontWeight::NORMAL).into(),
         fallbacks: Some(FontFallbacks::from_fonts(vec![
             "Segoe UI".into(),
             ".SystemUIFont".into(),
