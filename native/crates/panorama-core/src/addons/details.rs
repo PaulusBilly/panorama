@@ -99,6 +99,15 @@ impl AddonClient {
                                             if !response.credits.cast.is_empty() {
                                                 details.cast = response.credits.cast;
                                             }
+                                            if let Some(credits) = response
+                                                .credits
+                                                .previews
+                                                .iter()
+                                                .find(|p| p.id == id)
+                                                && credits.country.is_some()
+                                            {
+                                                details.origin_country.clone_from(&credits.country);
+                                            }
                                             details
                                         })
                                         .ok_or(FailureKind::InvalidResponse)

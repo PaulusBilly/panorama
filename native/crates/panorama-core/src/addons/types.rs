@@ -44,6 +44,9 @@ pub struct FilmDetails {
     pub description: Option<String>,
     /// Directors, when provided by metadata fields or links.
     pub director: Vec<String>,
+    /// Origin country supplied by the addon, when available.
+    #[serde(default)]
+    pub origin_country: Option<String>,
     /// Cast, when provided by metadata fields or links.
     pub cast: Vec<String>,
     /// HTTPS poster URL.
@@ -65,6 +68,23 @@ pub struct Page {
     pub catalog: CatalogRef,
     /// At most 200 usable movie cards.
     pub items: Vec<FilmDetails>,
+    /// Raw source offset for the next request, before unusable cards are removed.
+    #[serde(default)]
+    pub next_skip: usize,
+    /// Whether the source supports skip paging and returned a nonempty page.
+    #[serde(default)]
+    pub has_more: bool,
+}
+
+/// Display fields preserved before Stremio discards legacy preview properties.
+#[derive(Clone, Default)]
+pub struct PreviewCredits {
+    /// Opaque movie identifier.
+    pub id: String,
+    /// Bounded director names.
+    pub director: Vec<String>,
+    /// Bounded origin country.
+    pub country: Option<String>,
 }
 
 /// Sanitized failures; never retain transport URLs, response bodies or raw errors.

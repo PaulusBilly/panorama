@@ -1,5 +1,5 @@
 use futures::{FutureExt, SinkExt};
-use stremio_core::types::addon::ResourcePath;
+use stremio_core::types::addon::{ExtraValue, ResourcePath, ResourceResponse};
 
 use super::{
     AddonClient, CatalogRef, CatalogStream, FailureKind, Installation, Page, ResourceEvent,
@@ -105,15 +105,12 @@ impl AddonClient {
                     let result = client
                         .request(&addon, path, 8)
                         .await
-                        .and_then(|response| sanitize::films(response, false))
-                        .and_then(|items| {
-                            if items.is_empty() {
+                        .and_then(|response| page(response, &addon, catalog.clone(), 0))
+                        .and_then(|page| {
+                            if page.items.is_empty() {
                                 Err(FailureKind::InvalidResponse)
                             } else {
-                                Ok(Page {
-                                    catalog: catalog.clone(),
-                                    items,
-                                })
+                                Ok(page)
                             }
                         });
                     match result {
@@ -141,4 +138,76 @@ impl AddonClient {
             .boxed()
         })
     }
+
+    /// Fetches the next page from the actual Home source without replacing its cache.
+    /// Empty results finish paging; dropping the stream cancels the request.
+    pub fn catalog_next(
+        &self,
+        addons: &[Descriptor],
+        catalog: CatalogRef,
+        skip: usize,
+    ) -> CatalogStream {
+        let client = self.for_request();
+        let installation = self
+            .catalog_plan(addons)
+            .into_iter()
+            .chain(std::iter::once(self.cinemeta_catalog()))
+            .find(|(_, source)| source == &catalog)
+            .map(|(addon, _)| addon);
+        delivery(&self.runtime, move |mut sender| {
+            async move {
+                let result = match installation {
+                    Some(addon) if skip <= 100_000 => {
+                        let path = ResourcePath::with_extra(
+                            "catalog",
+                            "movie",
+                            &catalog.catalog_id,
+                            &[ExtraValue {
+                                name: "skip".into(),
+                                value: skip.to_string(),
+                            }],
+                        );
+                        client
+                            .request(&addon, path, 8)
+                            .await
+                            .and_then(|response| page(response, &addon, catalog, skip))
+                    }
+                    _ => Err(FailureKind::InvalidInput),
+                };
+                let event = match result {
+                    Ok(page) => ResourceEvent::Fresh(page),
+                    Err(kind) => ResourceEvent::Failed(kind),
+                };
+                let _ = sender.send(event).await;
+            }
+            .boxed()
+        })
+    }
+}
+
+fn page(
+    response: sanitize::Response,
+    addon: &Installation,
+    catalog: CatalogRef,
+    skip: usize,
+) -> Result<Page, FailureKind> {
+    let count = match &response.core {
+        ResourceResponse::Metas { metas } => metas.len(),
+        ResourceResponse::MetasDetailed { metas_detailed } => metas_detailed.len(),
+        _ => return Err(FailureKind::InvalidResponse),
+    };
+    let paging = addon.descriptor.transport_url == *stremio_core::constants::CINEMETA_URL
+        || addon
+            .descriptor
+            .manifest
+            .catalogs
+            .iter()
+            .find(|c| c.id == catalog.catalog_id && c.r#type == "movie")
+            .is_some_and(|c| c.extra.iter().any(|e| e.name == "skip"));
+    Ok(Page {
+        catalog,
+        items: sanitize::films(response, false)?,
+        next_skip: skip.saturating_add(count),
+        has_more: paging && count > 0,
+    })
 }

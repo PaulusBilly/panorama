@@ -2,7 +2,7 @@
 
 This workspace is the foundation for Panorama's Rust and GPUI desktop app.
 `panorama-core` contains shared logic without UI dependencies.
-`panorama-app` opens the initial native window.
+`panorama-app` provides the native shell, navigation and shared theme.
 
 Install rustup; this workspace selects Rust 1.99.0 with rustfmt and Clippy.
 On Windows, install the MSVC Build Tools with Desktop development with C++
@@ -35,6 +35,11 @@ The Electron app remains the shipping app.
 - `rusqlite` (=0.40.2, `bundled`): the native key-value store; ships SQLite without a system dependency.
 - `tempfile` (=3.27.0, dev-dependency): isolated directories for store tests.
 - `sha2` (=0.10.9) and `getrandom` (=0.3.4): salted installation identities and OS-generated installation salt. Both reuse versions already in the workspace lockfile.
+- `image` (=0.25.10, defaults off; `jpeg`, `png`, `webp`): content sniffing, bounded decoding (4096×4096, 64 MiB), and aspect-preserving downscaling.
+- `axum` (=0.8.9, dev-dependency, defaults off; `http1`, `tokio`): deterministic HTTP test server on 127.0.0.1 with counters and explicit release gates, without public internet.
+- `windows` (=0.62.2): Win32 HWND and GDI desktop capture, matching GPUI's resolved version.
+- `raw-window-handle` (=0.6.2): obtain the GPUI window's HWND without platform assumptions.
+- `png` (=0.18.1): encode debug window captures on a background executor.
 
 ## Addon data for PR 2.4
 
@@ -65,3 +70,131 @@ The production adapter bounds encoded request URIs before invoking the core's in
 | Metadata/streams | `details_chain_prefers_meta_addon_then_matching_addons_then_cinemeta`, `streams_grouped_by_addon_in_account_order_with_failures_isolated` |
 | Security | `spoofed_addon_id_cannot_poison_another_addons_cache`, `cache_keys_and_errors_never_contain_transport_urls`, `non_https_images_dropped_and_oversized_fields_truncated`, `film_id_validation_rejects_path_injection`, byte/list-cap and sign-out/salt tests |
 | Production adapter | `core_addon_transport_encodes_opaque_ids_preserves_credits_and_enforces_fetch_cap` (local HTTPS only) |
+
+## App shell
+
+Run `cargo run -p panorama-app -- --reduced-motion` to disable route transitions.
+Light is the shipping default; dark is available only for debug captures:
+
+```sh
+target/release/panorama.exe --screenshot home home.png
+target/release/panorama.exe --screenshot search:arrival search.png --size 1280x800 --theme dark --reduced-motion
+```
+
+Screenshot sizes use logical pixels and respect the 960x600 window minimum.
+On Windows capture maps the client rectangle to screen coordinates for desktop BitBlt;
+keep the interactive desktop visible and the window unobscured. Capture and PNG
+writing run off the UI thread, after a settled frame and at least 1600 ms.
+
+Every `--screenshot` invocation checks the shell's inherited GPUI text style at
+400/500/700. It fails with a non-zero exit if the resolved family or the bundled
+faces' M advances differ. On Windows the registered family is `DM Sans 14pt`.
+
+The app modules are `main` (startup), `args`, `app`, `router`, `titlebar`,
+`header`, `routes/{home,search,film,player,addons}`, `theme`, `motion`, `assets`,
+and `debug/screenshot`. History stores 100 entries; the eight most recently visited
+views retain their entities and scroll handles. Older entries remount on revisit.
+Interrupted motion resumes from the sampled opacity and offset. The macOS
+38px caption keeps system traffic lights and native titlebar dragging; it has
+not been run on macOS.
+
+The component theme is synchronized through `Theme::change` then `Theme::update`
+so its solid colors, renderable tokens and Base projection agree. Mapped tokens:
+background/foreground/border, accent/foreground, muted/foreground,
+popover/foreground, ring, selection, scrollbar/thumb/hover, button/foreground/
+hover/active, primary/foreground, secondary/foreground/hover/active,
+danger/foreground, input, caret and skeleton. Component fonts use DM Sans;
+component radii are zero because the CSS supplies no general radius.
+
+GPUI 0.3.8 provides Windows caption hit-test areas (including snap layouts) and
+keyboard click activation for focused controls. Raw SVG elements require an explicit
+text color; parent text color is not inherited, so caption icon hover uses group hover.
+It has no exit animation primitive; the shell retains outgoing views during their fades.
+Windows application activation is a no-op, so debug captures activate the window
+explicitly. Frame callbacks have no current view; animation requests must be made
+during rendering. Its text-input focus query is component-owned, so future custom
+text inputs should register with that facility or extend the app's Backspace guard.
+Tracked focus handles own their Tab eligibility; element tab_stop settings do not
+update those handles. Bound Tab actions bypass raw key handlers, so a keystroke
+observer updates focus visibility. GPUI clears keyboard modality on mouse movement;
+the shell keeps focus rings visible until pointer-down, matching Electron. Rings use
+border overlays because GPUI drop shadows fill transparent control interiors.
+The CSS drift tests fall back to the fixture when the Electron stylesheet is absent.
+
+## Images
+
+`panorama_core::images` exports `ImageUrl`, `ImageTarget`, `ImageRequest`,
+`ImageLoaderOptions`, `ImageLoader`, `DecodedImage`, and sanitized `ImageError` kinds.
+`ImageLoader::new` synchronously rebuilds/prunes its disk index; construct it off the
+UI thread, then call async `load` and `clear` in a Tokio runtime. Decoding, resizing,
+and cache I/O run on blocking workers. Same-URL loads share acquisition and decode;
+dropping the last interested future cancels a pending download.
+
+The dedicated cache stores original encoded bytes at
+`<cache_dir>/<first two hash digits>/<SHA-256(normalized URL)>`. Same-directory
+temporary writes are flushed and atomically renamed. An in-memory index is rebuilt
+on startup and refreshed under a cross-process lock to include other processes'
+inserts and reads. Modified times, touched on reads, provide restart-safe LRU order.
+Overflow evicts oldest files until at most 90% of the disk budget remains; startup
+also enforces a lowered budget. Originals larger than the budget are decoded without
+retention. A corrupt disk hit is deleted and fetched once.
+
+The persistent sibling `<cache_dir>.images.lock` contains a clear generation and
+serializes cache reads, publication, eviction, and clearing across processes.
+Readers close image handles before releasing it, so Windows deletion waits for
+cooperating readers and cannot invalidate their reads. `clear` empties the cache
+directory and prevents downloads that observed an earlier generation from inserting;
+the sibling coordination file stays in place. Abandoned temporary files are cleaned
+under that lock. Use a dedicated directory with the user's normal profile ACLs.
+
+Image tests cover URL validation/redaction; generated PNG/JPEG/WebP decoding,
+RGBA channels, aspect ratio and no upscaling; original-byte reuse and offline restart;
+Content-Length and chunked streaming caps; content sniffing, decoder limits, malformed
+images and HTTP status; HTTPS-only redirects and the five-hop boundary; single-flight,
+download concurrency and cancellation; LRU budget/read touches/restart; concurrent
+loaders and a second-process Windows-safe read/clear; corrupt-hit recovery; paused-clock
+timeout; clear during downloads; zero-budget retention and abandoned temporary cleanup.
+
+The GPUI adapter remains separate: own a byte-bounded memory LRU of `RenderImage`s,
+convert straight RGBA8 to BGRA, and call `cx.drop_image` on eviction. Avoid synchronous
+logging or file work on the UI thread, as established by Phase 0 Gate 2.
+
+## Home and account services
+
+`--fixtures` uses the nine Electron preview films and `preview@panorama.local`,
+without network or persistent storage. Screenshot mode implies fixtures. Capture
+options are `--scroll <delta|end>` (repeatable), `--hover-first-card`,
+`--focus-first-card`, `--open-account-menu`, and `--open-sign-in`.
+`--fixtures --bench-scroll` measures five seconds of scrolling through 200 cards;
+frame-completion results go to the background diagnostics channel.
+
+`services` creates two named Tokio workers before GPUI starts. Storage and image
+cache initialization run on blocking workers. `app_state` consumes futures mpsc
+channels from Tokio catalog, authentication and CoreSession subscription jobs;
+dropping a GPUI consumer aborts its producer. Profile/addon changes refresh Home,
+retaining cached cards until fresh data arrives. Startup errors expose Reload
+Panorama; store lock contention opens the single-instance error window.
+
+`header_state`, `header`, `account_menu`, `login`, and `transition` own fixed chrome,
+modal focus, and reversible motion. `routes/home` retains scroll and keyboard
+state; `home_view` virtualizes fixed-height rows; `hero` and `film_card` paint the
+Electron layouts. `home_layout` owns the breakpoint calculations.
+
+`image_cache` requests physical sizes rounded up to 64 px, allows six visible
+loads, and cancels futures that leave the viewport. Its shared 160 MiB pixel LRU
+calls `cx.drop_image` on replacement, eviction, and teardown. Disk originals use
+`<store directory>/cache/images` with a 256 MiB budget. RGBA pixels are converted
+to **straight BGRA8**, retaining alpha: GPUI 0.3.8 `src/assets.rs:42` documents
+BGRA and `src/elements/img.rs:678-681` swaps R/B without premultiplication;
+`gpui-pre-windows-0.3.8/src/directx_renderer.rs:1500-1502` uses SRC_ALPHA blending.
+The hero's radial-over-linear gradient is generated once per physical size on a
+blocking worker and uploaded as a RenderImage. Poster saturation is omitted
+because GPUI has no saturation filter. Explicit `--reduced-motion` disables
+transforms and makes transitions instant; this GPUI version exposes no OS reduced
+motion preference.
+
+Home paging requires the core `catalog_next` API and page cursor fields. Core also
+preserves bounded legacy catalog director/country fields that Stremio's typed
+preview drops. Paging tests verify raw skip offsets, terminal empty pages, and
+preservation of the first-page cache; fixture/layout/header/error/cache tests live
+in the app crate.
