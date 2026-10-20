@@ -54,7 +54,7 @@ fn scalars_and_convenience_arguments_are_validated() {
     assert_eq!(player.command(&[]), Err(MpvError::InvalidArgument));
     assert_eq!(player.load("secret\0url"), Err(MpvError::InvalidArgument));
     assert_eq!(
-        player.set_property("speed", f64::INFINITY),
+        player.property("speed", f64::INFINITY),
         Err(MpvError::InvalidArgument)
     );
     completed.send(Ok(())).unwrap();
@@ -105,13 +105,16 @@ fn drop_uses_the_same_nonblocking_shutdown_path() {
 }
 
 #[test]
-fn wid_cannot_be_overridden_after_the_surface_lease() {
+fn set_property_accepts_only_listed_names() {
     let (player, incoming, _completed) = fake();
-    for name in ["wid", "options/wid", "file-local-options/wid"] {
+    for name in ["wid", "options/wid", "include", "profile", "speed"] {
         assert_eq!(
-            player.set_property(name, 1_i64),
-            Err(MpvError::InvalidArgument)
+            player.set_property(name, "1"),
+            Err(MpvError::InvalidArgument),
+            "{name}"
         );
     }
     assert!(incoming.try_recv().is_err());
+    player.set_property("mute", true).unwrap();
+    assert!(matches!(incoming.try_recv(), Ok(Request::Property(name, _)) if name == "mute"));
 }

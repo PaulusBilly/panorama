@@ -287,4 +287,26 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn runtime_properties_are_all_accepted_by_the_mpv_host() {
+        let settings = crate::playback::output::PlaybackSettings::default();
+        let output = crate::playback::output::properties(&settings, &[], true);
+        let names: Vec<_> = output.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            names,
+            [
+                "audio-spdif",
+                "audio-device",
+                "audio-channels",
+                "audio-spdif",
+                "target-colorspace-hint",
+                "target-prim",
+                "target-trc"
+            ]
+        );
+        for name in names.into_iter().chain(["mute", "sub-visibility"]) {
+            assert!(panorama_mpv::PROPERTIES.contains(&name), "{name}");
+        }
+    }
 }

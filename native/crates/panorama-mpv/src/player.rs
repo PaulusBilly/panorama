@@ -139,7 +139,7 @@ impl Player {
     }
     /// Queues user pause state.
     pub fn set_pause(&self, paused: bool) -> Result<(), MpvError> {
-        self.set_property("pause", paused)
+        self.property("pause", paused)
     }
     /// Queues a finite, exact seek. Absolute positions must be non-negative.
     pub fn seek(&self, seconds: f64, mode: SeekMode) -> Result<(), MpvError> {
@@ -155,10 +155,13 @@ impl Player {
             },
         ])
     }
-    /// Queues a scalar property. Runtime failures arrive as sanitized `Error` events.
+    /// Queues a scalar property named in `PROPERTIES`; others are rejected as
+    /// `InvalidArgument`. Runtime failures arrive as sanitized `Error` events.
     pub fn set_property<T: MpvValue>(&self, name: &str, value: T) -> Result<(), MpvError> {
-        validate_name(name)?;
-        self.send(Request::Property(name.to_owned(), value.into_mpv_value()?))
+        if !PROPERTIES.contains(&name) {
+            return Err(MpvError::InvalidArgument);
+        }
+        self.property(name, value)
     }
     /// Queues pause toggling.
     pub fn toggle_pause(&self) -> Result<(), MpvError> {
@@ -191,7 +194,7 @@ impl Player {
         if !(0.0..=100.0).contains(&volume) {
             return Err(MpvError::InvalidArgument);
         }
-        self.set_property("volume", volume)
+        self.property("volume", volume)
     }
     /// Applies the Electron subtitle fallback style in one ordered batch.
     /// Text cue rendering in PR 3.3 may override mpv visibility explicitly.
@@ -210,10 +213,14 @@ impl Player {
         if id.is_some_and(|id| id <= 0) {
             return Err(MpvError::InvalidArgument);
         }
-        self.set_property(
+        self.property(
             name,
             id.map(|id| id.to_string()).unwrap_or_else(|| "no".into()),
         )
+    }
+
+    fn property<T: MpvValue>(&self, name: &str, value: T) -> Result<(), MpvError> {
+        self.send(Request::Property(name.to_owned(), value.into_mpv_value()?))
     }
 
     fn send(&self, request: Request) -> Result<(), MpvError> {
@@ -331,8 +338,9 @@ fn run(
     Some(client)
 }
 
-/// Options `PlayerOptions::extra` accepts. None loads configuration: an `include`d
-/// config or `config-dir` can define profiles that rewrite `wid` long after startup.
+/// Options `PlayerOptions::extra` accepts. On macOS mpv dereferences `wid` as the
+/// surface lease, and `include`, `profile` or `config-dir` can rewrite it, so callers
+/// get closed lists rather than mpv's option and command grammar.
 pub const EXTRA_OPTIONS: &[&str] = &[
     "ao",
     "audio-files",
@@ -345,16 +353,17 @@ pub const EXTRA_OPTIONS: &[&str] = &[
     "vo",
 ];
 
-/// `wid` holds the leased surface's address, which mpv dereferences; a caller-chosen
-/// value would make it read arbitrary memory, so only `PlayerOptions::wid` sets it.
-fn validate_name(name: &str) -> Result<(), MpvError> {
-    let name = name.trim_start_matches("file-local-options/");
-    let name = name.trim_start_matches("options/");
-    if name == "wid" {
-        return Err(MpvError::InvalidArgument);
-    }
-    validate(name)
-}
+/// Properties `Player::set_property` accepts; see `EXTRA_OPTIONS`.
+pub const PROPERTIES: &[&str] = &[
+    "audio-channels",
+    "audio-device",
+    "audio-spdif",
+    "mute",
+    "sub-visibility",
+    "target-colorspace-hint",
+    "target-prim",
+    "target-trc",
+];
 
 fn validate(value: &str) -> Result<(), MpvError> {
     if value.contains('\0') {
