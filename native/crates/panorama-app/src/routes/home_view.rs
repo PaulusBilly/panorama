@@ -116,9 +116,6 @@ impl Render for Home {
         let view = self.settings(window, cx);
         let theme = view.theme;
         self.advance_swap(view.reduced, cx);
-        if self.search.is_none() {
-            self.ensure_overlay(view, window, cx);
-        }
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         } else {
@@ -179,7 +176,6 @@ impl Render for Home {
                 poster,
                 logo,
                 title_logo,
-                overlay: self.overlay.clone(),
                 surface: self.surface.value(Instant::now(), view.reduced),
                 focus: &self.watch,
                 shell: self.shell.clone(),

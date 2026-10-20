@@ -4,6 +4,7 @@ mod component;
 mod focus;
 pub mod layout;
 pub mod motion;
+pub mod scrim;
 #[cfg(test)]
 mod token_tests;
 pub mod typography;

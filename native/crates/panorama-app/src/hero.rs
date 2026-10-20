@@ -4,69 +4,25 @@ use crate::{
     home_layout::ViewSettings,
     image_cache::CachedImage,
     router::Route,
-    theme::{Theme, content_width, focus_ring},
+    theme::{
+        Theme, content_width, focus_ring,
+        scrim::{Edge, scrim},
+    },
 };
 use gpui::{
     Div, FocusHandle, FontWeight, RenderImage, WeakEntity, Window, div, img, prelude::*, px,
     relative, svg,
 };
-use panorama_core::{addons::FilmDetails, images::DecodedImage};
+use panorama_core::addons::FilmDetails;
 use std::sync::Arc;
 
-/// Render a single size-specific CSS radial-over-linear overlay off the UI thread.
-pub fn overlay(width: u32, height: u32, theme: Theme) -> DecodedImage {
-    let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
-    let center = width as f32 * 0.18;
-    let radius = ((width as f32 - center).powi(2) + (height as f32).powi(2)).sqrt() * 0.58;
-    for y in 0..height {
-        let t = (y as f32 + 0.5) / height as f32;
-        let (from, to, u) = if t <= 0.44 {
-            (theme.hero_top, theme.hero_mid, t / 0.44)
-        } else {
-            (theme.hero_mid, theme.hero_bottom, (t - 0.44) / 0.56)
-        };
-        let va = from.a + (to.a - from.a) * u;
-        let rgb = |f: f32, t: f32| {
-            if va > 0.0 {
-                (f * from.a * (1.0 - u) + t * to.a * u) / va
-            } else {
-                0.0
-            }
-        };
-        let vertical = [rgb(from.r, to.r), rgb(from.g, to.g), rgb(from.b, to.b)];
-        for x in 0..width {
-            let distance = ((x as f32 + 0.5 - center).powi(2)
-                + (y as f32 + 0.5 - height as f32).powi(2))
-            .sqrt();
-            let ra = theme.hero_copy_fade.a * (1.0 - distance / radius).clamp(0.0, 1.0);
-            let alpha = ra + va * (1.0 - ra);
-            let copy = theme.hero_copy_fade;
-            for (radial, vertical) in [copy.r, copy.g, copy.b].into_iter().zip(vertical) {
-                let channel = if alpha > 0.0 {
-                    (radial * ra + vertical * va * (1.0 - ra)) / alpha
-                } else {
-                    0.0
-                };
-                rgba.push((channel * 255.0).round() as u8);
-            }
-            rgba.push((alpha * 255.0).round() as u8);
-        }
-    }
-    DecodedImage {
-        width,
-        height,
-        rgba,
-    }
-}
-
-/// Featured film resources and sampled overlay opacity.
+/// Featured film resources and sampled surface opacity.
 pub struct HeroProps<'a> {
     pub(crate) film: Option<&'a FilmDetails>,
     pub(crate) artwork: Option<CachedImage>,
     pub(crate) poster: bool,
     pub(crate) logo: Option<CachedImage>,
     pub(crate) title_logo: bool,
-    pub(crate) overlay: Option<Arc<RenderImage>>,
     pub(crate) surface: f32,
     pub(crate) focus: &'a FocusHandle,
     pub(crate) shell: WeakEntity<AppShell>,
@@ -99,16 +55,9 @@ pub fn render(
             1.0,
         ));
     }
-    if let Some(overlay) = props.overlay {
-        // Stretch, not contain: a bucketed or still-rendering overlay must always cover the hero.
-        hero = hero.child(
-            img(overlay)
-                .absolute()
-                .inset_0()
-                .size_full()
-                .object_fit(gpui::ObjectFit::Fill),
-        );
-    }
+    hero = hero
+        .child(scrim(theme, Edge::Left, relative(0.65), 0.92))
+        .child(scrim(theme, Edge::Bottom, relative(0.45), 1.0));
     if let Some(film) = props.film {
         let measure = |text: &str, size: f32, weight: FontWeight| {
             let text = text.replace(['\r', '\n'], " ");

@@ -3,15 +3,13 @@ use crate::{
     app_state::AppState,
     args::Args,
     home_layout::ViewSettings,
-    image_cache::{CachedImage, ImageCache, render_image},
+    image_cache::{CachedImage, ImageCache},
     router::Route,
-    services::Job,
     theme::motion::*,
     transition::Tween,
 };
-use futures::{StreamExt, channel::mpsc};
 use gpui::{
-    Context, Entity, FocusHandle, RenderImage, ScrollHandle, Subscription, Task, WeakEntity,
+    Context, Entity, FocusHandle, ScrollHandle, Subscription, WeakEntity,
     Window, point, prelude::*, px,
 };
 use panorama_core::addons::FilmDetails;
@@ -45,9 +43,6 @@ pub struct Home {
     more: FocusHandle,
     images: Entity<ImageCache>,
     hovered: HashMap<usize, Tween>,
-    overlay: Option<Arc<RenderImage>>,
-    overlay_size: (u32, u32),
-    overlay_task: Option<Task<()>>,
     surface: Tween,
     ready: bool,
     watch_hover: Tween,
@@ -60,7 +55,6 @@ pub struct Home {
     _images: Subscription,
     _catalog: Subscription,
     _shell: Subscription,
-    _release: Subscription,
 }
 impl Home {
     /// Create one history entry with independent scroll, focus and request lifetimes.
@@ -110,11 +104,6 @@ impl Home {
         };
         let images = state.read(cx).images.clone();
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
-        let release = cx.on_release(|home, cx| {
-            if let Some(image) = home.overlay.take() {
-                cx.drop_image(image, None);
-            }
-        });
         let watch = cx.focus_handle();
         let mut switcher =
             crate::catalog_switcher::CatalogSwitcher::new(cx.focus_handle(), cx.focus_handle());
@@ -135,9 +124,6 @@ impl Home {
             more: cx.focus_handle(),
             images,
             hovered: HashMap::new(),
-            overlay: None,
-            overlay_size: (0, 0),
-            overlay_task: None,
             surface: Tween::fixed(1.0),
             ready: false,
             watch_hover: Tween::fixed(0.0),
@@ -150,7 +136,6 @@ impl Home {
             _images: image_observer,
             _catalog: observer,
             _shell: shell_observer,
-            _release: release,
         }
     }
     fn settings(&self, window: &Window, cx: &Context<Self>) -> ViewSettings {
@@ -181,43 +166,6 @@ impl Home {
             keyboard: keyboard || self.args.focus_first_card,
             reduced,
         }
-    }
-    fn ensure_overlay(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) {
-        let scale = window.scale_factor();
-        // The overlay is stretched to the hero, so redraw it per 64px bucket rather than per pixel of a resize.
-        let size = (
-            crate::image_cache::bucket(view.width, scale),
-            crate::image_cache::bucket(view.height, scale),
-        );
-        if size == self.overlay_size {
-            return;
-        }
-        let Some(services) = self.state.read(cx).services.clone() else {
-            return;
-        };
-        self.overlay_size = size;
-        let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                render_image(crate::hero::overlay(size.0, size.1, view.theme))
-            })
-            .await;
-            let _ = sender.unbounded_send(result.ok().and_then(Result::ok));
-        }));
-        self.overlay_task = Some(cx.spawn_in(window, async move |entity, cx| {
-            let _job = job;
-            if let Some(image) = receiver.next().await {
-                let _ = cx.update(|window, cx| {
-                    entity.update(cx, |home, cx| {
-                        if let Some(old) = home.overlay.take() {
-                            cx.drop_image(old, Some(window));
-                        }
-                        home.overlay = image;
-                        cx.notify();
-                    })
-                });
-            }
-        }));
     }
     fn artwork(
         &mut self,
