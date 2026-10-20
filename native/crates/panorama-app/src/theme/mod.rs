@@ -17,7 +17,7 @@ pub use motion::{DURATION_DELIBERATE, DURATION_FAST, DURATION_STANDARD, EASE_EDI
 use std::sync::OnceLock;
 pub use typography::Typography;
 
-/// Color roles shared with app/globals.css.
+/// Color roles (`--theme-*` in tests/fixtures/globals.css).
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
     /// The CSS theme-canvas role.

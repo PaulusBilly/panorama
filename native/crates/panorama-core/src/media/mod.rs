@@ -1,4 +1,4 @@
-//! Loopback media transport ported from `desktop/main/media-proxy.ts` and its helpers.
+//! Loopback media transport.
 
 pub mod cache;
 pub mod fetch;

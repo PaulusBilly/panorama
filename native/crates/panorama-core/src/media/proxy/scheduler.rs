@@ -1,4 +1,4 @@
-//! Chunk scheduling and readers ported from `desktop/main/media-proxy.ts`.
+//! Chunk scheduling and readers.
 
 use super::{
     CHUNK_BYTES,

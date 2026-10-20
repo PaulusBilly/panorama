@@ -59,7 +59,7 @@ fn has_word(text: &str, word: &str) -> bool {
     })
 }
 
-/// `subtitleLanguageId` of `runtime/normalize.ts`.
+/// Normalized language identity of a subtitle track.
 pub fn language_id(language: Option<&str>, label: Option<&str>) -> Option<Lang> {
     let code = language
         .unwrap_or("")

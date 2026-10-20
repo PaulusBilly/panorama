@@ -28,7 +28,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formats_like_the_electron_player() {
+    fn formats_playback_time() {
         for (value, expected) in [
             (0.0, "0:00"),
             (5.9, "0:05"),

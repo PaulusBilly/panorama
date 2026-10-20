@@ -22,7 +22,7 @@ pub struct Args {
     pub dark: bool,
     /// Disable route motion.
     pub reduced_motion: bool,
-    /// Use the in-process Electron preview data.
+    /// Use the in-process preview data.
     pub fixtures: bool,
     /// Ordered scroll deltas; an infinite delta scrolls to the end.
     pub scroll: Vec<f32>,

@@ -1,4 +1,4 @@
-//! HTTP serving and peer validation ported from `desktop/main/media-proxy.ts`.
+//! HTTP serving and peer validation.
 
 use super::{
     Shared,

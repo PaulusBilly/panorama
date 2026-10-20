@@ -2,7 +2,7 @@ use panorama_core::addons::{
     AddonKey, FilmDetails, StreamGroup, StreamSource, StreamState, StreamsEvent,
 };
 
-/// The nine film records from runtime/fake-runtime.ts, in exactly the same order.
+/// The nine preview film records.
 pub fn films() -> Vec<FilmDetails> {
     (0..9)
         .map(|index| FilmDetails {
@@ -24,7 +24,7 @@ pub fn films() -> Vec<FilmDetails> {
         .collect()
 }
 
-/// Match Electron's fixture name containment or complete director equality.
+/// Match by name containment or complete director equality.
 pub fn search(query: &str) -> Vec<FilmDetails> {
     let query = query.to_lowercase();
     films()
@@ -39,7 +39,7 @@ pub fn search(query: &str) -> Vec<FilmDetails> {
         .collect()
 }
 
-/// Electron's film-details fixture, with the selected card's opaque identifier.
+/// The film-details fixture, with the selected card's opaque identifier.
 pub fn details(id: &str) -> Option<FilmDetails> {
     let mut film = films().into_iter().find(|film| film.id == id)?;
     film.runtime = Some("102 min".into());
@@ -114,22 +114,7 @@ mod search_tests {
 mod tests {
     use super::*;
     #[test]
-    fn matches_electron_preview_source() {
-        let source = include_str!("../../../../runtime/fake-runtime.ts");
-        for literal in [
-            "length: 9",
-            "100 + index",
-            "2022 + (index % 3)",
-            "[\"Aftersun\", \"Perfect Days\", \"Past Lives\"]",
-            "[\"Charlotte Wells\", \"Wim Wenders\", \"Celine Song\"]",
-            "[null, \"Japan\", null]",
-            "posterUrl: null",
-            "landscapeUrl: null",
-            "logoUrl: null",
-            "description: null",
-        ] {
-            assert!(source.contains(literal), "{literal}");
-        }
+    fn preview_films() {
         let films = films();
         assert_eq!(films.len(), 9);
         for (index, film) in films.iter().enumerate() {

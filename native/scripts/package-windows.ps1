@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 
 $native = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent $native
-$manifestPath = Join-Path $repo 'desktop/native/mpv-host/windows-libmpv.json'
+$manifestPath = Join-Path $repo 'native/libmpv/windows.json'
 $appDir = Join-Path $native 'crates/panorama-app'
 
 function Need([string]$path, [string]$what) {
@@ -28,8 +28,7 @@ if (-not (Test-Path -LiteralPath $stagedDll) -and (Test-Path -LiteralPath (Join-
 }
 if (-not (Test-Path -LiteralPath $stagedDll)) {
     Write-Host 'Staged libmpv missing; running the stage script.'
-    node (Join-Path $repo 'desktop/scripts/stage-windows-libmpv.mjs')
-    if ($LASTEXITCODE -ne 0) { throw "stage-windows-libmpv.mjs failed ($LASTEXITCODE)" }
+    & (Join-Path $PSScriptRoot 'stage-windows-libmpv.ps1')
 }
 Need $stagedDll 'staged libmpv-2.dll' | Out-Null
 

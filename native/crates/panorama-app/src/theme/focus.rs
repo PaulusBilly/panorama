@@ -1,7 +1,7 @@
 use super::Theme;
 use gpui::{Div, FocusHandle, Stateful, Window, div, prelude::*, px};
 
-/// Apply Electron's inset outline and outer keyboard focus ring to a control.
+/// Apply the inset outline and outer keyboard focus ring to a control.
 pub fn focus_ring(
     element: Stateful<Div>,
     focus: &FocusHandle,

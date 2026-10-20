@@ -1,5 +1,4 @@
-//! Subtitle appearance preferences: defaults, limits and normalisation of
-//! `runtime/subtitle-preferences.ts` and `runtime/subtitle-appearance.ts`.
+//! Subtitle appearance preferences: defaults, limits and normalisation.
 use serde_json::{Value, json};
 
 /// Store key (under `pref:`) of the persisted preferences.
@@ -234,7 +233,7 @@ pub struct SubtitlePreferences {
     pub box_opacity: f64,
     /// Box corner radius in pixels.
     pub box_rounding: f64,
-    /// Delay in seconds. Session only, like the Electron runtime: it is not persisted.
+    /// Delay in seconds. Session only: it is not persisted.
     pub delay: f64,
     /// Percent of the video height between the bottom edge and the cue.
     pub vertical_position: f64,
@@ -340,7 +339,7 @@ impl SubtitlePreferences {
             .map_or_else(|_| Self::default(), |value| Self::normalise(&value))
     }
 
-    /// The persisted JSON: the Electron field names, without the session-only delay.
+    /// The persisted JSON, without the session-only delay.
     pub fn to_bytes(&self) -> Vec<u8> {
         let value = json!({
             "textColor": hex(self.text_color),

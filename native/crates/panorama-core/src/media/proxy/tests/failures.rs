@@ -1,4 +1,4 @@
-//! Retry and integrity regressions demonstrated against `desktop/main/media-proxy.ts` behavior.
+//! Retry and integrity regressions.
 use super::*;
 use crate::media::fetch::{FetchRequest, FetchResponse, MediaFetch};
 use futures::{StreamExt, future::BoxFuture};

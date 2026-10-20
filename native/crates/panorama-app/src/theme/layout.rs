@@ -16,7 +16,7 @@ pub fn dialog_inset(width: f32) -> f32 {
     if width <= 700.0 { 16.0 } else { 24.0 }
 }
 
-/// Width of the Electron content-container at the given viewport width.
+/// Width of the content container at the given viewport width.
 pub fn content_width(width: f32) -> f32 {
     let max = if width < 720.0 {
         335.0

@@ -1,4 +1,4 @@
-//! Audio and video output settings of `desktop/main/playback-settings.ts`, as mpv properties.
+//! Audio and video output settings, as mpv properties.
 use serde_json::{Value, json};
 
 /// Store key (under `pref:`) of the persisted settings.
@@ -84,7 +84,7 @@ impl Video {
     }
 }
 
-/// The persisted settings (`Preferences` of the Electron controller).
+/// The persisted playback settings.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlaybackSettings {
     /// The mpv `audio-device` name, or [`DEFAULT_DEVICE`].

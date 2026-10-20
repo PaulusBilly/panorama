@@ -1,4 +1,4 @@
-//! Bounded memory/disk chunk cache ported from `desktop/main/media-cache.ts`.
+//! Bounded memory/disk chunk cache.
 
 mod disk;
 use super::{MediaError, lock};

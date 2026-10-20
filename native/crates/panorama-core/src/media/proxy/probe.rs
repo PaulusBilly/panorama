@@ -1,4 +1,4 @@
-//! Probing and warm-up ported from `desktop/main/media-proxy.ts`.
+//! Probing and warm-up.
 
 use super::{
     CHUNK_BYTES, MediaWarmResult,

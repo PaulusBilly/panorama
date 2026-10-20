@@ -1,4 +1,4 @@
-//! Streaming retries and link refresh ported from `desktop/main/media-proxy.ts`.
+//! Streaming retries and link refresh.
 
 use super::MediaProxyEvent;
 use super::{

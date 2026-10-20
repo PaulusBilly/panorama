@@ -5,7 +5,7 @@ set -eu
 
 native=$(cd "$(dirname "$0")/.." && pwd)
 repo=$(dirname "$native")
-icon="$repo/public/favicon/favicon.icns"
+icon="$native/assets/panorama.icns"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$native/crates/panorama-app/Cargo.toml" | head -n 1)
 commit=$(git -C "$repo" rev-parse --short HEAD)
 

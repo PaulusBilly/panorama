@@ -1,4 +1,4 @@
-//! Loopback proxy and lifecycle ported from `desktop/main/media-proxy.ts` and `loopback-port.ts`.
+//! Loopback proxy and lifecycle.
 
 mod download;
 mod events;
@@ -24,7 +24,7 @@ use std::{
 };
 use tokio::{sync::watch, task::JoinHandle};
 
-/// Range size used by the Electron proxy: 2 MiB.
+/// Range size: 2 MiB.
 pub const CHUNK_BYTES: u64 = 2 * 1_048_576;
 
 /// Proxy cache, policy and timeout configuration.

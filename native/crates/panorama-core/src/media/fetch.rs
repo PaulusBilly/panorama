@@ -1,4 +1,4 @@
-//! Manual HTTP redirects ported from `desktop/main/media-fetch.ts`.
+//! Manual HTTP redirects.
 
 use super::MediaError;
 use bytes::Bytes;
@@ -47,7 +47,7 @@ impl fmt::Debug for MediaSource {
 /// Streaming body; all errors must be sanitized MediaError values.
 pub type MediaBody = Pin<Box<dyn Stream<Item = Result<Bytes, MediaError>> + Send>>;
 
-/// Injected upstream request, independent of Electron and reqwest.
+/// Injected upstream request, independent of reqwest.
 #[derive(Clone, Debug)]
 pub struct FetchRequest {
     /// GET or HEAD.

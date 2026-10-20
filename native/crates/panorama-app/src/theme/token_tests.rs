@@ -55,19 +55,14 @@ fn color(value: &str) -> gpui::Rgba {
     )
 }
 
+// Frozen copy of the retired web app's stylesheet: the design tokens the theme was built from.
 fn css() -> String {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    match fs::read_to_string(manifest.join("../../../app/globals.css")) {
-        Ok(css) => css,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::read_to_string(manifest.join("tests/fixtures/globals.css")).unwrap()
-        }
-        Err(error) => panic!("Cannot read repository tokens: {error}"),
-    }
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/globals.css"))
+        .unwrap()
 }
 
 #[test]
-fn color_tokens_match_css_and_fixture() {
+fn color_tokens_match_css() {
     let css = css();
     let light = declarations(block(&css, ":root {"));
     let dark = declarations(block(&css, "[data-theme=\"dark\"] {"));
@@ -99,16 +94,6 @@ fn color_tokens_match_css_and_fixture() {
                 assert!((actual - expected).abs() < 0.000001, "{role}");
             }
         }
-    }
-    let fixture = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/globals.css"),
-    )
-    .unwrap();
-    for selector in [":root {", "[data-theme=\"dark\"] {", "@theme {"] {
-        assert_eq!(
-            declarations(block(&css, selector)),
-            declarations(block(&fixture, selector))
-        );
     }
 }
 

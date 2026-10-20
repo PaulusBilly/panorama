@@ -1,142 +1,66 @@
 # Panorama
 
-An unofficial Stremio client for browsing and watching films, with a calm, editorial layout. It runs in the browser and as a desktop app for macOS (Apple Silicon) and Windows (x64).
+An unofficial Stremio client for browsing and watching films, with a calm, editorial layout. It is a native desktop app for macOS (Apple Silicon) and Windows (x64), written in Rust with GPUI, and plays video through mpv.
 
 Panorama is not affiliated with Stremio. It does not host or provide any content: films come from the addons already installed on your own Stremio account.
 
 ## What it does
 
-- **Browse.** A full-screen featured film, then TMDB Popular Movies in a landscape grid.
-- **Search.** Films and people, with shareable result pages at `/search/films` and `/search/people`.
-- **Sign in with Stremio.** Email and password go straight from your browser to Stremio. Panorama has no server-side login and never stores your password.
-- **Watch.** Open a film at `/films/[tmdbId]`, and Panorama prepares the first playable source from your addons. Switch sources from the player.
+- **Browse.** A featured film, then a grid from your addons' catalogs, with a switcher that remembers your choice. Signed out, it uses Cinemeta.
+- **Search.** Films across your search-capable addons.
+- **Sign in with Stremio.** Your password goes to Stremio only and is never stored.
+- **Watch.** Film details and playable sources from every installed stream addon. Torrent sources play through a built-in engine, so no Stremio Service is needed.
 - **Audio and subtitles.** Pick audio tracks, choose embedded or addon subtitles, and adjust how subtitles look.
-- **Resume.** Progress syncs through your Stremio account, so you can continue or start over.
-- **Desktop playback.** The desktop app plays through native MPV instead of the browser's video element, which covers far more codecs.
-- **Discord activity (desktop, optional).** Show what you're watching. Off by default.
+- **Resume.** Progress syncs through your Stremio account.
+- **Addons.** List, install by URL, configure, reorder, and remove addons, and choose the metadata source.
+- **Discord activity (optional).** Shows what you're watching. Off by default.
 
-Not included: series and episodes, an addon manager, or a custom backend.
+Not included: series and episodes, or an addon discovery catalog.
 
 ## Quick start
 
-You need:
+Install [rustup](https://rustup.rs); the workspace selects its own toolchain. Then:
 
-- Node.js 22 or newer (`.nvmrc`) and pnpm 11 or newer
-- A [TMDB API key](https://www.themoviedb.org/settings/api) for the catalog and search
-- [Stremio Service](https://www.stremio.com/) running locally for playback in the browser (default `http://127.0.0.1:11470`)
-
-```bash
-pnpm install
-cp .env.example .env.local   # then set NEXT_PUBLIC_TMDB_API_KEY
-pnpm dev
+```sh
+cd native
+cargo run -p panorama-app
 ```
 
-Open <http://127.0.0.1:3000>.
+Playback needs a libmpv runtime. On macOS, build it once and point the app at it:
 
-Browsing works without signing in and without Stremio Service. Sources need a signed-in account with addons; playback needs the service.
-
-To look around without an account, a TMDB key, or the service, run the app on fixture data:
-
-```bash
-pnpm dev:preview
+```sh
+python3 native/scripts/build-macos-libmpv.py
+native/scripts/stage-macos-libmpv.sh
+cd native && PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo run -p panorama-app
 ```
 
-## Desktop app
+On Windows, `pwsh native/scripts/stage-windows-libmpv.ps1` downloads and verifies the pinned build (it needs 7-Zip).
 
-The desktop app wraps the same interface in Electron and plays video through a native MPV surface. It bundles its own streaming server and only starts it when no Stremio Service is already running.
-
-```bash
-pnpm desktop:make
-```
-
-Run this on the OS you are building for. The result is a ZIP under `out/make/zip/<platform>/<arch>/`. The first build downloads and compiles native dependencies, so it needs network access and takes a while.
-
-Build prerequisites, validation steps, and release rules are in [CONTRIBUTING.md](CONTRIBUTING.md). There are no published releases yet.
-
-## Scripts
-
-| Command | What it does |
-| --- | --- |
-| `pnpm dev` | Development server |
-| `pnpm dev:preview` | Development server on fixture data, already signed in |
-| `pnpm build` | Production build |
-| `pnpm start` | Serve the production build |
-| `pnpm lint` | ESLint |
-| `pnpm typecheck` | Next.js type generation, then `tsc --noEmit` |
-| `pnpm test` | Unit and component tests (Vitest) |
-| `pnpm test:e2e` | End-to-end tests (Playwright) |
-| `pnpm desktop:make` | Build and package the desktop app |
-
-Development and builds use webpack (`--webpack`) because the Stremio core worker ships WASM that the webpack config handles as an asset.
-
-## Configuration
-
-| Variable | Purpose |
-| --- | --- |
-| `NEXT_PUBLIC_TMDB_API_KEY` | TMDB v3 key for the catalog, search, and film details. Bundled into the client, so it is visible in the browser. |
-| `NEXT_PUBLIC_PANORAMA_RUNTIME` | Unset for the live Stremio runtime. `fake` for test fixtures. `preview` for fixtures that start signed in. |
-| `PANORAMA_DIST_DIR` | Build output directory. Use `.next-validation` so a build does not overwrite a running dev server's `.next`. |
-
-## How it works
-
-```text
-Next.js pages (App Router)
-        |
-client runtime boundary
-        |
-StremioRuntime interface
-        |-- @stremio/stremio-core-web worker    account, addons, sources, progress
-        |-- TMDB                                catalog, search, film details
-        |-- Stremio Service (loopback only)     streaming
-        `-- @stremio/stremio-video              browser: HTML video
-                                                desktop: native MPV
-```
-
-- Components talk to the `StremioRuntime` interface and never import Stremio packages directly.
-- TMDB provides what you browse. Stremio provides who you are and what you can play.
-- Catalog, account, addons, and the streaming service fail independently, so the catalog stays usable when the others are down.
-- There is no database and no backend. The session lives in your browser's localStorage until you log out.
+To look around without an account, run on fixture data: `cargo run -p panorama-app -- --fixtures`.
 
 ## Project layout
 
 ```text
-app/            Routes: home, search, film details, watch
-components/     Interface components
-runtime/        StremioRuntime, the Stremio core adapter, TMDB, subtitles, fake runtime
-desktop/        Electron main process, preload, native MPV host, build scripts
-tests/          Vitest unit and component tests, Playwright end-to-end tests
-public/         Logo, icons, and fonts
-patches/        pnpm patches for dependencies
+native/crates/panorama-app    GPUI interface: routes, theme, motion, playback UI
+native/crates/panorama-core   UI-free logic: Stremio core, addons, store, images, media proxy, torrents, Discord
+native/crates/panorama-mpv    libmpv host, loaded at runtime
+native/libmpv                 Pinned libmpv sources, patches, and licence notices
+native/scripts                libmpv build and stage, macOS and Windows packaging
+native/spikes                 Phase 0 feasibility spikes
 ```
 
-## Testing
-
-```bash
-pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e
-```
-
-End-to-end tests build into `.next-playwright` and run against the fake runtime in Chromium, Firefox, and WebKit, so they need no account and do not disturb a running dev server.
-
-Passing tests do not prove real playback. A real account, installed addons, live TMDB, the streaming service, codecs, and subtitles are checked by hand; see [CONTRIBUTING.md](CONTRIBUTING.md#packaged-validation).
-
-In the browser, playback depends on what the browser and OS can decode. H.264 with AAC is the baseline; other codecs may fail, and should fail into a recoverable player state. The desktop app's MPV playback is the answer for everything else.
+Module-level detail, dependency rationale, and test coverage are in [native/README.md](native/README.md).
 
 ## Security and privacy
 
-- Your Stremio password is sent to Stremio only, and is not stored. The session key stays in localStorage until you log out.
-- Only loopback streaming-service addresses (`127.0.0.1`, `localhost`, `[::1]`) are accepted, and the address is never read from the URL.
-- Addon metadata, URLs, and stream fields are treated as untrusted and never rendered as HTML.
-- Source URLs, info hashes, and raw stream objects stay inside the runtime; the interface only sees opaque IDs and display fields.
-- The desktop app's bundled streaming server binds to `127.0.0.1`, keeps its data under Panorama's own user-data directory, and stops when the app quits.
-
-## Discord activity
-
-In the desktop app's playback settings, **Share watching activity on Discord** is off by default. When it is on and the Discord desktop client is running, your activity shows "Watching {film title}" with artwork and playback timing. Pausing or buffering stops the timer; stopping playback, turning the setting off, or quitting clears it. No token or extra service is needed, and it never blocks playback. Browser builds do not share activity.
+- Your Stremio password is sent to Stremio only. The session lives in Panorama's local SQLite store until you sign out.
+- Addon metadata, URLs, and stream fields are treated as untrusted, length-capped, and never rendered as markup.
+- Source URLs and loopback session tokens are never logged. The media proxy and torrent engine bind to `127.0.0.1` and require a per-session token.
 
 ## Fonts
 
-The interface and desktop subtitles use bundled DM Sans at weights 400, 500, and 700. Font files are distributed under the SIL Open Font License 1.1; the copyright notice and license are in [public/fonts/OFL.txt](public/fonts/OFL.txt).
+The interface uses bundled Aspekta at weights 400, 500, and 700, under the SIL Open Font License 1.1 ([licence](native/crates/panorama-app/assets/fonts/OFL.txt)).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for desktop setup, required checks, and packaged validation.
+See [CONTRIBUTING.md](CONTRIBUTING.md).

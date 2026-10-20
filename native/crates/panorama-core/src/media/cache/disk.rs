@@ -1,4 +1,4 @@
-//! Owner directories and disk accounting ported from `desktop/main/media-cache.ts`.
+//! Owner directories and disk accounting.
 
 use crate::media::{MediaError, token};
 use fs4::fs_std::FileExt;
