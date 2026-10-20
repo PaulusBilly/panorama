@@ -19,6 +19,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$native/target/release/panorama" "$app/Contents/MacOS/panorama"
 cp "$icon" "$app/Contents/Resources/panorama.icns"
 
+"$native/scripts/stage-macos-libmpv.sh" "$app/Contents/Frameworks" "$app/Contents/Resources/licenses/libmpv"
+
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -111,6 +111,8 @@ impl Playback for NativePlayback {
                                     | "dxva2-copy"
                                     | "nvdec"
                                     | "nvdec-copy"
+                                    | "videotoolbox"
+                                    | "videotoolbox-copy"
                                     | "auto"
                                     | "no"
                             )

@@ -5833,6 +5833,7 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "image",
+ "objc2-app-kit 0.3.2",
  "panorama-core",
  "panorama-mpv",
  "png 0.18.1",
