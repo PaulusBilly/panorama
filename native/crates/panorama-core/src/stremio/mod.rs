@@ -7,6 +7,7 @@
 //! Tests swapping Env state must hold `env::TEST_MUTEX` for their entire lifetime,
 //! including all sessions and runtime cleanup.
 
+mod continue_watching;
 pub mod env;
 mod error;
 mod events;
@@ -19,6 +20,7 @@ mod progress;
 mod session;
 mod types;
 
+pub use continue_watching::ContinueItem;
 pub use error::{CoreError, CoreErrorKind};
 pub use manage::{FetchedManifest, PreviewFetch};
 pub use progress::{FilmMeta, PlaybackSample, PlaybackTarget, ResumePoint};
