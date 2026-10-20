@@ -111,6 +111,7 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
     let mut saw_audio = false;
     let mut first_time = None;
     let mut advanced = false;
+    let mut last = 0.0;
     let deadline = Instant::now() + Duration::from_secs(15);
     while !(saw_video && saw_audio && advanced) {
         let event = events
@@ -124,6 +125,7 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
             PlayerEvent::TimePos(Some(time)) => {
                 let first = *first_time.get_or_insert(time);
                 advanced |= time - first >= 0.3;
+                last = time;
             }
             PlayerEvent::Error(error) => panic!("generated media failed: {error}"),
             PlayerEvent::EndFile { reason, .. } => panic!("ended before checks: {reason:?}"),
@@ -131,20 +133,36 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
         }
     }
     player.set_pause(true).unwrap();
-    wait(&events, |event| *event == PlayerEvent::Pause(true));
-    let paused_at = Instant::now();
-    let mut clock = Vec::new();
-    while let Some(left) = Duration::from_millis(500).checked_sub(paused_at.elapsed()) {
-        match events.recv_timeout(left) {
-            Ok(PlayerEvent::TimePos(Some(time))) => clock.push(time),
-            Ok(event) => assert!(!matches!(event, PlayerEvent::Error(_)), "{event:?}"),
-            Err(_) => break,
+    let next = || {
+        events
+            .recv_timeout(Duration::from_secs(15))
+            .map(|event| {
+                assert!(!matches!(event, PlayerEvent::Error(_)), "{event:?}");
+                event
+            })
+            .unwrap()
+    };
+    loop {
+        match next() {
+            PlayerEvent::TimePos(Some(time)) => last = time,
+            PlayerEvent::Pause(true) => break,
+            _ => {}
         }
     }
-    let spread = clock
-        .iter()
-        .fold(0.0_f64, |spread, time| spread.max((time - clock[0]).abs()));
-    assert!(spread < 0.01, "paused clock advanced: {clock:?}");
+    thread::sleep(Duration::from_millis(500));
+    player.set_pause(false).unwrap();
+    while next() != PlayerEvent::Pause(false) {}
+    let resumed = loop {
+        if let PlayerEvent::TimePos(Some(time)) = next() {
+            break time;
+        }
+    };
+    assert!(
+        resumed - last < 0.1,
+        "paused clock advanced: {last} -> {resumed}"
+    );
+    player.set_pause(true).unwrap();
+    wait(&events, |event| *event == PlayerEvent::Pause(true));
     player.seek(2.0, SeekMode::Absolute).unwrap();
     wait(
         &events,
