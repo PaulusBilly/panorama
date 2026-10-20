@@ -19,7 +19,6 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 objc2-quartz-core = { version = "=0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer", "objc2-core-foundation"] }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dev-dependencies]
-serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]

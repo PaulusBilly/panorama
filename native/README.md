@@ -49,8 +49,8 @@ mpv host (PR 3.1):
   window disabling, and WindowsAndMessaging features are enabled here.
 - `raw-window-handle` (=0.6.2): matches GPUI's `HasWindowHandle` contract.
 - `panorama-mpv` uses standard-library mpsc channels; no channel dependency.
-- `serde_json` (=1.0.151, Windows and macOS dev-dependency): parses explicit mpv IPC
-  clock readings in playback tests; reuses the version already in the lockfile.
+- `tempfile` (=3.27.0, Windows and macOS dev-dependency): a private directory for the
+  playback tests' generated media.
 - `objc2` (=0.6.5), `objc2-app-kit`, `objc2-foundation`, `objc2-quartz-core` (=0.3.2,
   defaults off, macOS only): the video `NSView` and `CAMetalLayer`. GPUI already
   resolves these versions.

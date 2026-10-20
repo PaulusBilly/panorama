@@ -3,7 +3,7 @@ use panorama_mpv::{
     EndReason, Mpv, MpvError, Player, PlayerEvent, PlayerOptions, SeekMode, TrackKind,
 };
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader},
     net::TcpListener,
     path::PathBuf,
     sync::mpsc::{self, Receiver},
@@ -100,72 +100,12 @@ fn media() -> (tempfile::TempDir, PathBuf, PathBuf) {
     (directory, video_path, audio_path)
 }
 
-#[cfg(windows)]
-fn ipc() -> (String, impl Fn() -> std::io::Result<std::fs::File>) {
-    let pipe = format!(r"\\.\pipe\panorama-mpv-clock-{}", std::process::id());
-    let path = pipe.clone();
-    (pipe, move || {
-        std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-    })
-}
-
-#[cfg(unix)]
-fn ipc() -> (
-    String,
-    impl Fn() -> std::io::Result<std::os::unix::net::UnixStream>,
-) {
-    let socket =
-        std::env::temp_dir().join(format!("panorama-mpv-clock-{}.sock", std::process::id()));
-    let path = socket.clone();
-    (socket.to_string_lossy().into_owned(), move || {
-        std::os::unix::net::UnixStream::connect(&path)
-    })
-}
-
 #[test]
 fn generated_media_clock_pause_seek_tracks_eof_and_close() {
     let (_media, video, audio) = media();
-    let (pipe, connect) = ipc();
-    let Some((player, events)) = player(&[
-        ("audio-files", audio.to_str().unwrap()),
-        ("input-ipc-server", &pipe),
-    ]) else {
+    let Some((player, events)) = player(&[("audio-files", audio.to_str().unwrap())]) else {
         return;
     };
-    let (requests, incoming) = mpsc::channel::<()>();
-    let (readings, clock) = mpsc::channel();
-    let clock_thread = thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let connection = loop {
-            match connect() {
-                Ok(connection) => break connection,
-                Err(error) => {
-                    assert!(Instant::now() < deadline, "IPC connection failed: {error}");
-                    thread::sleep(Duration::from_millis(10));
-                }
-            }
-        };
-        let mut connection = BufReader::new(connection);
-        while incoming.recv().is_ok() {
-            connection
-                .get_mut()
-                .write_all(b"{\"command\":[\"get_property\",\"time-pos\"],\"request_id\":1}\n")
-                .unwrap();
-            loop {
-                let mut line = String::new();
-                assert_ne!(connection.read_line(&mut line).unwrap(), 0);
-                let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
-                if reply["request_id"] == 1 {
-                    assert_eq!(reply["error"], "success");
-                    readings.send(reply["data"].as_f64().unwrap()).unwrap();
-                    break;
-                }
-            }
-        }
-    });
     player.load(video.to_str().unwrap()).unwrap();
     let mut saw_video = false;
     let mut saw_audio = false;
@@ -192,16 +132,19 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
     }
     player.set_pause(true).unwrap();
     wait(&events, |event| *event == PlayerEvent::Pause(true));
-    requests.send(()).unwrap();
-    let first = clock.recv_timeout(Duration::from_secs(3)).unwrap();
     let paused_at = Instant::now();
-    thread::sleep(Duration::from_millis(500));
-    requests.send(()).unwrap();
-    let last = clock.recv_timeout(Duration::from_secs(3)).unwrap();
-    assert!(paused_at.elapsed() >= Duration::from_millis(500));
-    assert!((last - first).abs() < 0.01, "paused clock advanced");
-    drop(requests);
-    clock_thread.join().unwrap();
+    let mut clock = Vec::new();
+    while let Some(left) = Duration::from_millis(500).checked_sub(paused_at.elapsed()) {
+        match events.recv_timeout(left) {
+            Ok(PlayerEvent::TimePos(Some(time))) => clock.push(time),
+            Ok(event) => assert!(!matches!(event, PlayerEvent::Error(_)), "{event:?}"),
+            Err(_) => break,
+        }
+    }
+    let spread = clock
+        .iter()
+        .fold(0.0_f64, |spread, time| spread.max((time - clock[0]).abs()));
+    assert!(spread < 0.01, "paused clock advanced: {clock:?}");
     player.seek(2.0, SeekMode::Absolute).unwrap();
     wait(
         &events,

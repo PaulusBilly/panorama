@@ -339,14 +339,13 @@ fn run(
 }
 
 /// Options `PlayerOptions::extra` accepts. On macOS mpv dereferences `wid` as the
-/// surface lease, and `include`, `profile` or `config-dir` can rewrite it, so callers
-/// get closed lists rather than mpv's option and command grammar.
+/// surface lease, and `include`, `profile`, `config-dir` or an IPC client can rewrite
+/// it, so callers get closed lists rather than mpv's option and command grammar.
 pub const EXTRA_OPTIONS: &[&str] = &[
     "ao",
     "audio-files",
     "cache-pause-wait",
     "http-proxy",
-    "input-ipc-server",
     "keep-open",
     "sub-font",
     "sub-fonts-dir",
