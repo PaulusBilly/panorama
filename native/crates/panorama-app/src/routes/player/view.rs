@@ -65,6 +65,7 @@ impl Render for Player {
             now,
         );
         let fade = self.chrome_fade.value(now, reduced);
+        crate::window_controls::set_opacity(window, fade);
         self.sync_emphasis(window, now);
         self.schedule_chrome_wake(now, cx);
         let animated = preparing || matches!(status, Status::Preparing(_) | Status::Buffering);

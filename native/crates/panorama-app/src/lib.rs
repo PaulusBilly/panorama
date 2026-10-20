@@ -30,5 +30,7 @@ pub mod services;
 pub mod theme;
 pub mod titlebar;
 pub mod transition;
+#[allow(unsafe_code)]
+pub mod window_controls;
 
 pub mod startup_error;

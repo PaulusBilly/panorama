@@ -5,6 +5,10 @@ impl Render for AppShell {
         let player = matches!(self.history.current(), Route::Player { .. });
         if player != self.player_transparent {
             self.player_transparent = player;
+            // The player fades the traffic lights with its chrome; other routes always show them.
+            if !player {
+                crate::window_controls::set_opacity(window, 1.0);
+            }
             window.set_background_appearance(if player {
                 gpui::WindowBackgroundAppearance::Transparent
             } else {

@@ -14,6 +14,14 @@ use gpui::{
     Context, Div, FontWeight, Window, div, linear_color_stop, linear_gradient, prelude::*, px,
 };
 
+/// The macOS title-bar row the video runs under; the top bar starts below it so the
+/// close button clears the traffic lights and the drag strip covers only the gradient.
+const TRAFFIC_LIGHTS_ROW: f32 = 28.0;
+
+fn traffic_lights(window: &Window) -> bool {
+    cfg!(target_os = "macos") && !window.is_fullscreen()
+}
+
 /// Below this window width the volume range hides (`max-[540px]:hidden`).
 const VOLUME_HIDDEN_AT: f32 = 540.0;
 
@@ -50,7 +58,9 @@ impl Player {
             .right_0()
             .top_0()
             .px(px(20.0))
-            .pt(px(16.0))
+            .pt(px(
+                16.0 + TRAFFIC_LIGHTS_ROW * f32::from(traffic_lights(window))
+            ))
             .pb(px(48.0))
             .opacity(fade)
             .bg(linear_gradient(
