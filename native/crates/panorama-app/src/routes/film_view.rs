@@ -58,10 +58,10 @@ impl Film {
             .gap(px(12.0))
             .text_size(px(13.0))
             .line_height(relative(1.5))
-            .text_color(theme.inverse.opacity(0.85));
+            .text_color(theme.ink);
         if !meta.director.is_empty() || meta.origin_country.is_some() || meta.release_info.is_some()
         {
-            left = left.child(hero::credits(meta, theme).text_color(theme.inverse));
+            left = left.child(hero::credits(meta, theme).text_color(theme.ink));
         }
         if !meta.genres.is_empty() {
             left = left.child(div().child(meta.genres.join(", ")));
@@ -75,7 +75,7 @@ impl Film {
             badges = badges.child(
                 div()
                     .border_1()
-                    .border_color(theme.inverse.opacity(0.65))
+                    .border_color(theme.ink_muted)
                     .px(px(6.0))
                     .py(px(2.0))
                     .text_size(px(11.0))
@@ -142,7 +142,7 @@ impl Film {
                     .mt(px(8.0))
                     .text_size(px(15.0))
                     .line_height(relative(1.48))
-                    .text_color(theme.inverse.opacity(0.95))
+                    .text_color(theme.ink)
                     .child(
                         meta.description
                             .clone()
@@ -201,7 +201,7 @@ impl Render for Film {
             } else {
                 theme.artwork_empty
             })
-            .text_color(theme.inverse);
+            .text_color(theme.ink);
         if let Some(art) = artwork {
             page = page.child(hero::cover(
                 art.image,
@@ -246,13 +246,13 @@ impl Render for Film {
                                 svg()
                                     .path("star-filled.svg")
                                     .size(px(19.0))
-                                    .text_color(theme.inverse),
+                                    .text_color(theme.ink),
                             )
                             .child(div().text_size(px(22.0)).child(score))
                             .child(
                                 div()
                                     .text_size(px(12.0))
-                                    .text_color(theme.inverse.opacity(0.8))
+                                    .text_color(theme.ink)
                                     .child("/10"),
                             ),
                     );
@@ -262,7 +262,7 @@ impl Render for Film {
                             .mt(px(4.0))
                             .text_size(px(12.0))
                             .line_height(relative(1.5))
-                            .text_color(theme.inverse.opacity(0.75))
+                            .text_color(theme.ink)
                             .font_features(gpui::FontFeatures(Arc::new(vec![
                                 ("tnum".into(), 1),
                                 ("kern".into(), 1),
@@ -316,21 +316,21 @@ impl Render for Film {
                         div()
                             .h(px(40.0))
                             .w(relative(2.0 / 3.0))
-                            .bg(theme.inverse.opacity(0.2)),
+                            .bg(theme.glass),
                     )
                     .child(
                         div()
                             .mt(px(16.0))
                             .h(px(16.0))
                             .w(relative(1.0 / 3.0))
-                            .bg(theme.inverse.opacity(0.15)),
+                            .bg(theme.glass),
                     )
                     .child(
                         div()
                             .mt(px(40.0))
                             .h(px(80.0))
                             .w_full()
-                            .bg(theme.inverse.opacity(0.1)),
+                            .bg(theme.rule),
                     ),
             );
         }

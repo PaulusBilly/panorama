@@ -18,8 +18,6 @@ pub struct Args {
     pub screenshot: Option<PathBuf>,
     /// Initial logical window size.
     pub size: (f32, f32),
-    /// Dark is available only in screenshot mode.
-    pub dark: bool,
     /// Disable route motion.
     pub reduced_motion: bool,
     /// Use the in-process preview data.
@@ -80,7 +78,6 @@ impl Args {
             route: Route::Home,
             screenshot: None,
             size: (1280.0, 800.0),
-            dark: false,
             reduced_motion: false,
             fixtures: false,
             scroll: vec![],
@@ -135,15 +132,6 @@ impl Args {
                         return Err("Window size must be between 480x400 and 16384x16384".into());
                     }
                     result.size = (w as f32, h as f32);
-                }
-                "--theme" => {
-                    screenshot_options = true;
-                    let theme = args.next().ok_or("--theme needs light or dark")?;
-                    result.dark = match theme.to_str() {
-                        Some("light") => false,
-                        Some("dark") => true,
-                        _ => return Err("--theme needs light or dark".into()),
-                    };
                 }
                 "--reduced-motion" => result.reduced_motion = true,
                 "--fixtures" => result.fixtures = true,
@@ -269,7 +257,7 @@ impl Args {
             }
         }
         if screenshot_options && result.screenshot.is_none() {
-            return Err("--theme and --size require --screenshot".into());
+            return Err("--size requires --screenshot".into());
         }
         if result.torrent_hash.is_some() && !result.play_torrent {
             return Err("--torrent-hash requires --play-torrent".into());
@@ -335,21 +323,18 @@ mod tests {
     }
     #[test]
     fn valid_arguments() {
-        assert!(!parse(&[]).unwrap().dark);
         let args = parse(&[
             "--screenshot",
             "film:a:b",
             "out.png",
             "--size",
             "1280x800",
-            "--theme",
-            "dark",
             "--reduced-motion",
         ])
         .unwrap();
         assert_eq!(args.route, Route::Film { id: "a:b".into() });
         assert_eq!(args.size, (1280.0, 800.0));
-        assert!(args.dark && args.reduced_motion);
+        assert!(args.reduced_motion);
         assert!(parse(&["--reduced-motion"]).unwrap().reduced_motion);
     }
     #[test]
@@ -357,12 +342,10 @@ mod tests {
         for args in [
             vec!["--screenshot"],
             vec!["--screenshot", "home"],
-            vec!["--screenshot", "home", "--theme"],
             vec!["--theme", "dark"],
             vec!["--size", "1280x800"],
             vec!["--unknown"],
             vec!["--screenshot", "film:", "out.png"],
-            vec!["--screenshot", "home", "out.png", "--theme", "blue"],
             vec!["--screenshot", "home", "out.png", "--size", "NaNx800"],
             vec!["--screenshot", "home", "out.png", "--size", "0x0"],
             vec!["--screenshot", "home", "out.png", "--size", "1280x800x1"],

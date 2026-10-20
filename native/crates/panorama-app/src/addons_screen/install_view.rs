@@ -337,7 +337,7 @@ impl Addons {
                         .w(px(width * press))
                         .h(px(44.0 * press))
                         .bg(theme.ink)
-                        .text_color(theme.inverse)
+                        .text_color(theme.canvas)
                         .text_size(px(14.0 * press))
                         .weight(FontWeight::MEDIUM)
                         .line_height(relative(1.0))
@@ -351,7 +351,7 @@ impl Addons {
                             face.hover(|style| style.bg(theme.ink.opacity(0.9)))
                         })
                         .when(installing, |face| {
-                            face.child(spinner(14.0, theme.inverse, view))
+                            face.child(spinner(14.0, theme.canvas, view))
                         })
                         .child(label),
                 ),

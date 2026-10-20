@@ -140,7 +140,7 @@ impl Render for Home {
             );
         }
         if view.active {
-            let hero_height = if self.search.is_some() {
+            let fold = if self.search.is_some() {
                 0.0
             } else {
                 self.content_start(view, cx)
@@ -149,7 +149,7 @@ impl Render for Home {
                 shell.update_home_header(
                     self.id,
                     -f32::from(self.scroll.offset().y),
-                    hero_height,
+                    fold,
                     ready,
                     cx,
                 )

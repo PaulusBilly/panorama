@@ -126,11 +126,11 @@ The production adapter bounds encoded request URIs before invoking the core's in
 ## App shell
 
 Run `cargo run -p panorama-app -- --reduced-motion` to disable route transitions.
-Light is the shipping default; dark is available only for debug captures:
+The app has one dark theme. Debug captures:
 
 ```sh
 target/release/panorama.exe --screenshot home home.png
-target/release/panorama.exe --screenshot search:arrival search.png --size 1280x800 --theme dark --reduced-motion
+target/release/panorama.exe --screenshot search:arrival search.png --size 1280x800 --reduced-motion
 ```
 
 Screenshot sizes use logical pixels and respect the 960x600 window minimum.
@@ -179,7 +179,6 @@ update those handles. Bound Tab actions bypass raw key handlers, so a keystroke
 observer updates focus visibility. GPUI clears keyboard modality on mouse movement;
 the shell keeps focus rings visible until pointer-down, matching Electron. Rings use
 border overlays because GPUI drop shadows fill transparent control interiors.
-The token tests read `tests/fixtures/globals.css`, a frozen copy of the retired web stylesheet.
 
 ## Images
 

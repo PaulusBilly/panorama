@@ -115,17 +115,9 @@ impl AppShell {
                     shell.search.query = input.read(cx).value().to_string();
                 }
             });
-        let theme = if args.dark {
-            Theme::dark()
-        } else {
-            Theme::light()
-        };
+        let theme = Theme::default();
         let mut shell = Self {
-            theme: if args.dark {
-                Theme::dark()
-            } else {
-                Theme::light()
-            },
+            theme,
             reduced_motion: args.reduced_motion,
             keyboard_navigation: false,
             state: state.clone(),

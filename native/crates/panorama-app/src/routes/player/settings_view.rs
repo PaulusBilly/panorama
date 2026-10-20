@@ -207,7 +207,7 @@ impl Player {
         theme: Theme,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let index = id.index();
         let trigger = self.measures.selects[index].get()?;
         let root = self.measures.root.get();
@@ -280,7 +280,7 @@ impl Player {
     }
 
     fn color_popover(&self, theme: Theme) -> Option<AnyElement> {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let row = self.measures.color_row.get()?;
         let root = self.measures.root.get();
         let edit = self.ui.edit.as_ref()?;

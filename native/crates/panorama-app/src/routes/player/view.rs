@@ -87,7 +87,7 @@ impl Render for Player {
         div()
             .relative()
             .size_full()
-            .text_color(theme.player_ink)
+            .text_color(theme.ink)
             .when(
                 fixture_canvas
                     || matches!(status, Status::Idle | Status::Error(_))

@@ -279,7 +279,7 @@ impl Player {
                 .caption()
                 .weight(FontWeight::MEDIUM)
                 .font_features(tabular())
-                .text_color(theme.player_ink.opacity(0.65))
+                .text_color(theme.ink.opacity(0.65))
                 .child(text)
         };
         let triggers = pill(theme)

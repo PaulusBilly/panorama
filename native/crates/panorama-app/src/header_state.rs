@@ -26,11 +26,7 @@ impl HeaderColor {
     }
     /// Foreground color and logo tint.
     pub fn foreground(self, theme: Theme) -> Rgba {
-        if matches!(self, Self::HeroReady | Self::SearchOpen) {
-            theme.inverse
-        } else {
-            theme.ink
-        }
+        theme.ink
     }
     /// Solid background appears only below the hero.
     pub fn background(self, theme: Theme) -> Rgba {
@@ -62,8 +58,8 @@ impl Sticky {
         }
     }
     /// Apply an actual scroll position after GPUI has updated its scroll handle.
-    pub fn scroll(&mut self, top: f32, header_height: f32, hero_height: f32) {
-        self.over_hero = hero_height - top > header_height;
+    pub fn scroll(&mut self, top: f32, header_height: f32, fold: f32) {
+        self.over_hero = fold - top > header_height;
         if top <= 0.0 || top < self.previous {
             self.hidden = false;
         } else if top > self.previous && top > header_height {

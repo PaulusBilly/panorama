@@ -22,7 +22,7 @@ pub fn show(message: String) -> ExitCode {
         .run(move |cx| {
             gpui_component::init(cx);
             let _ = assets::register_fonts(cx);
-            Theme::light().install(false, cx);
+            Theme::default().install(cx);
             let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
             let result = cx.open_window(
                 WindowOptions {
@@ -56,7 +56,7 @@ struct StartupErrorView {
 }
 impl Render for StartupErrorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::light();
+        let theme = Theme::default();
         let width = f32::from(window.viewport_size().width);
         let button = focus_ring(
             div()

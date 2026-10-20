@@ -38,7 +38,7 @@ pub(super) fn color(value: Rgb) -> gpui::Rgba {
 pub(super) fn note(text: impl Into<gpui::SharedString>, theme: Theme, alpha: f32) -> Div {
     div()
         .caption()
-        .text_color(theme.player_ink.opacity(alpha))
+        .text_color(theme.ink.opacity(alpha))
         .child(text.into())
 }
 
@@ -52,7 +52,7 @@ impl Player {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Div {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let current = self.ui.prefs.text_color;
         let swatches = SWATCHES.iter().enumerate().map(|(index, (label, value))| {
             let value = *value;
@@ -165,7 +165,7 @@ impl Player {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Div {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let current = self.ui.prefs.font_weight;
         let items = FontWeight::ALL.iter().enumerate().map(|(index, weight)| {
             let weight = *weight;
@@ -236,7 +236,7 @@ impl Player {
         on_toggle: impl Fn(&mut Player, &mut gpui::Context<Player>) + 'static,
         cx: &mut gpui::Context<Self>,
     ) -> Stateful<Div> {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let row = div()
             .id(id)
             .role(gpui::Role::CheckBox)
@@ -294,7 +294,7 @@ impl Player {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Div {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let index = select.index();
         let trigger = div()
             .id(("select", index))

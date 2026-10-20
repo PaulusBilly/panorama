@@ -131,7 +131,7 @@ impl Player {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Div {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let items = Tab::ALL.iter().enumerate().map(|(index, (tab, label))| {
             let tab = *tab;
             let active = self.ui.subs.tab == tab;
@@ -187,7 +187,7 @@ impl Player {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let languages = content.sections[0].rows.len();
         if is_wide(width) {
             let widths = column_widths(width);

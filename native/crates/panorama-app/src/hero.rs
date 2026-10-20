@@ -45,7 +45,7 @@ pub fn render(
         .flex_shrink_0()
         .overflow_hidden()
         .bg(theme.artwork_empty)
-        .text_color(theme.inverse)
+        .text_color(theme.ink)
         .aria_label("Featured film");
     if let Some(art) = props.artwork {
         hero = hero.child(cover(
@@ -122,7 +122,7 @@ pub fn render(
         }
         let shell = props.shell;
         let id = film.id.clone();
-        let foreground = mix(theme.ink, theme.inverse, props.hover);
+        let foreground = mix(theme.canvas, theme.ink, props.hover);
         let watch = focus_ring(
             div()
                 .id("hero-watch")
@@ -142,8 +142,8 @@ pub fn render(
                 .min_h(px(44.0))
                 .px(px(16.0))
                 .border_1()
-                .border_color(theme.inverse)
-                .bg(theme.inverse.opacity(1.0 - props.hover))
+                .border_color(theme.ink)
+                .bg(theme.ink.opacity(1.0 - props.hover))
                 .text_color(foreground)
                 .text_size(px(16.0))
                 .weight(FontWeight::MEDIUM)
@@ -193,7 +193,7 @@ pub fn render(
                         .max_w(px(650.0))
                         .text_size(px(14.0))
                         .line_height(relative(1.55))
-                        .text_color(theme.inverse.opacity(0.85))
+                        .text_color(theme.ink)
                         .child(description),
                 )
             });
@@ -251,7 +251,7 @@ pub fn credits(film: &FilmDetails, theme: Theme) -> Div {
     let mut credits = div()
         .text_size(px(14.0))
         .line_height(relative(1.0))
-        .text_color(theme.inverse.opacity(0.85))
+        .text_color(theme.ink)
         .flex()
         .flex_col();
     if !film.director.is_empty() {

@@ -105,9 +105,9 @@ impl Film {
                 .h(px(40.0 * press))
                 .rounded_full()
                 .bg(theme
-                    .inverse
+                    .ink
                     .opacity(1.0 - 0.1 * self.hover[0].value(now, view.reduced)))
-                .text_color(theme.ink)
+                .text_color(theme.canvas)
                 .text_size(px(17.0 * press))
                 .weight(FontWeight::MEDIUM)
                 .line_height(relative(1.0))
@@ -154,7 +154,7 @@ impl Film {
                         svg()
                             .path(icon)
                             .size(px(17.0 * press))
-                            .text_color(theme.ink)
+                            .text_color(theme.canvas)
                             .when(primary == Primary::Loading && !view.reduced, |icon| {
                                 icon.with_transformation(Transformation::rotate(gpui::radians(
                                     now.duration_since(self.launched).as_secs_f32()
@@ -174,7 +174,7 @@ impl Film {
                             .h(px(6.0 * press))
                             .rounded_full()
                             .overflow_hidden()
-                            .bg(theme.ink.opacity(0.2))
+                            .bg(theme.canvas.opacity(0.2))
                             .child(
                                 div()
                                     .absolute()
@@ -183,7 +183,7 @@ impl Film {
                                     .h_full()
                                     .w(px((64.0 * progress).max(6.0) * press))
                                     .rounded_full()
-                                    .bg(theme.ink),
+                                    .bg(theme.canvas),
                             ),
                     )
                 })
@@ -208,7 +208,7 @@ impl Film {
                 .size(px(40.0 * press))
                 .rounded_full()
                 .bg(theme
-                    .inverse
+                    .ink
                     .opacity(0.15 + 0.1 * self.hover[1].value(now, view.reduced)))
                 .cursor_pointer()
                 .on_hover(cx.listener(|film, over, _, cx| {
@@ -253,7 +253,7 @@ impl Film {
                                     "plus.svg"
                                 })
                                 .size(px(20.0 * (1.0 - 0.75 * progress) * press))
-                                .text_color(theme.inverse),
+                                .text_color(theme.ink),
                         ),
                 )
                 .child(
@@ -268,7 +268,7 @@ impl Film {
                             svg()
                                 .path(if self.saved { "check.svg" } else { "plus.svg" })
                                 .size(px(20.0 * (0.25 + 0.75 * progress) * press))
-                                .text_color(theme.inverse),
+                                .text_color(theme.ink),
                         ),
                 ),
             &self.watchlist,
@@ -321,7 +321,7 @@ impl Film {
                 .min_h(px(40.0))
                 .px(px(4.0))
                 .border_b_1()
-                .border_color(view.theme.inverse)
+                .border_color(view.theme.ink)
                 .cursor_pointer()
                 .flex()
                 .items_center()

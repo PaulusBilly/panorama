@@ -111,11 +111,7 @@ pub fn render(
             .opacity(fade),
         );
     }
-    let fade = if props.film.is_some() {
-        theme.artwork_fade
-    } else {
-        theme.skeleton_fade
-    };
+    let fade = theme.scrim.opacity(if props.film.is_some() { 0.58 } else { 0.28 });
     tile = tile.child(
         div()
             .absolute()
@@ -149,7 +145,7 @@ pub fn render(
                 row.child(
                     div()
                         .flex_shrink_0()
-                        .text_color(theme.inverse.opacity(0.9))
+                        .text_color(theme.ink)
                         .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
                             ("tnum".into(), 1),
                             ("kern".into(), 1),
@@ -161,7 +157,7 @@ pub fn render(
                 row.child(
                     div()
                         .flex_shrink_0()
-                        .text_color(theme.inverse.opacity(0.9))
+                        .text_color(theme.ink)
                         .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
                             ("tnum".into(), 1),
                             ("kern".into(), 1),
@@ -181,7 +177,7 @@ pub fn render(
                 .flex()
                 .flex_col()
                 .gap(px(2.0))
-                .text_color(theme.inverse)
+                .text_color(theme.ink)
                 .child(
                     div()
                         .text_size(px((view.width * 0.018).clamp(16.0, 24.0)))
@@ -243,14 +239,14 @@ pub fn render(
                     div()
                         .h(px(11.0))
                         .w(relative(0.58))
-                        .bg(theme.inverse.opacity(0.4)),
+                        .bg(theme.glass),
                 )
                 .child(
                     div()
                         .mt(px(8.0))
                         .h(px(11.0))
                         .w(relative(0.28))
-                        .bg(theme.inverse.opacity(0.4)),
+                        .bg(theme.glass),
                 ),
         );
     }

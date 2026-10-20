@@ -59,11 +59,7 @@ impl AppShell {
         cx.notify();
     }
     pub(super) fn search_caret(&self, cx: &mut Context<Self>) {
-        let caret = if self.search.open && self.login.is_none() {
-            self.theme.inverse
-        } else {
-            self.theme.ink
-        };
+        let caret = self.theme.ink;
         gpui_component::Theme::update(cx, |theme| theme.colors.caret = caret.into());
     }
     /// Current full header height, including the animated disclosure.
@@ -115,7 +111,7 @@ impl AppShell {
                             .relative()
                             .w_full()
                             .border_b_1()
-                            .border_color(theme.inverse)
+                            .border_color(theme.ink)
                             .pb(px(if small { 8.0 } else { 12.0 }))
                             .child(
                                 Input::new(&self.search_input)
@@ -131,7 +127,7 @@ impl AppShell {
                                     .text_size(px(size))
                                     .weight(gpui::FontWeight::MEDIUM)
                                     .line_height(relative(1.2))
-                                    .text_color(theme.inverse),
+                                    .text_color(theme.ink),
                             )
                             .child(
                                 focus_ring(
@@ -148,7 +144,7 @@ impl AppShell {
                                             svg()
                                                 .path("arrow-right.svg")
                                                 .size(px(52.0))
-                                                .text_color(theme.inverse),
+                                                .text_color(theme.ink),
                                         ),
                                     &self.search_submit,
                                     theme,

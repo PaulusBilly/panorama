@@ -171,7 +171,7 @@ impl Render for LoginDialog {
                 let shell = shell.read(cx);
                 (shell.theme, shell.reduced_motion, shell.keyboard_navigation)
             })
-            .unwrap_or((Theme::light(), false, true));
+            .unwrap_or((Theme::default(), false, true));
         let now = Instant::now();
         let progress = self.presence.value(now, reduced);
         let scrim = self.scrim.value(now, reduced);
@@ -323,7 +323,7 @@ impl Render for LoginDialog {
                     dialog.sign_in(window, cx);
                 }
             }))
-            .child(div().absolute().inset_0().bg(theme.scrim).opacity(scrim))
+            .child(div().absolute().inset_0().bg(theme.scrim.opacity(0.72)).opacity(scrim))
             .child(
                 div()
                     .relative()
