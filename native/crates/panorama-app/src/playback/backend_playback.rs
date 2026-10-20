@@ -59,7 +59,7 @@ impl Playback for NativePlayback {
         }
         match command {
             Command::SetPaused(paused) => player.set_pause(*paused),
-            Command::TogglePause => player.command(&["cycle", "pause"]),
+            Command::TogglePause => player.toggle_pause(),
             Command::Seek(seconds) => player.seek(*seconds, SeekMode::Absolute),
             Command::SeekRelative(seconds) => player.seek(*seconds, SeekMode::Relative),
             Command::SetVolume(volume) => player.set_volume(f64::from((*volume).min(100))),

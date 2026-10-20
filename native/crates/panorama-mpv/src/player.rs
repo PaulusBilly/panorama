@@ -160,20 +160,19 @@ impl Player {
         validate_name(name)?;
         self.send(Request::Property(name.to_owned(), value.into_mpv_value()?))
     }
-    /// Queues an argv command, copied before return. Empty argv and NUL are rejected.
-    /// Pass fixed argv only: commands such as `load-config-file` can reconfigure mpv.
-    pub fn command(&self, args: &[&str]) -> Result<(), MpvError> {
+    /// Queues pause toggling.
+    pub fn toggle_pause(&self) -> Result<(), MpvError> {
+        self.command(&["cycle", "pause"])
+    }
+    /// Queues an internal argv command, copied before return. Callers outside this
+    /// crate use typed methods: mpv's command grammar (prefixes, quoting, per-file
+    /// option lists) could otherwise reach `wid`.
+    fn command(&self, args: &[&str]) -> Result<(), MpvError> {
         if args.is_empty() {
             return Err(MpvError::InvalidArgument);
         }
         for arg in args {
-            validate_name(arg)?;
-        }
-        // loadfile's trailing argument is a per-file `key=value,...` option list.
-        if args[0] == "loadfile" {
-            for option in args.iter().skip(3).flat_map(|list| list.split(',')) {
-                validate_name(option.split('=').next().unwrap_or_default())?;
-            }
+            validate(arg)?;
         }
         self.send(Request::Command(
             args.iter().map(|s| (*s).to_owned()).collect(),

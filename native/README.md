@@ -302,7 +302,7 @@ its safety conditions. No DLL, import library, or generated media is tracked.
    from a background task, update player state, then call `cx.notify()`.
    The Result reflects std mpsc's single-consumer receiver (second call is
    `EventsTaken`). `load`, `stop`, `set_pause`, `seek` (Absolute/Relative exact),
-   `set_property<T: MpvValue>`, `command`, `set_audio_track`, `set_subtitle_track`,
+   `set_property<T: MpvValue>`, `toggle_pause`, `set_audio_track`, `set_subtitle_track`,
    `set_volume` (0..=100), and `set_subtitle_style` enqueue owned arguments.
    Track IDs are positive i64; `None` disables the stream. Property scalars
    support bool, i64, finite f64, String and &str. Queue acceptance is synchronous;
