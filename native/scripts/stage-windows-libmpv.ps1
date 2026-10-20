@@ -72,7 +72,7 @@ if (-not $cached) {
     & $sevenZip x -y "-o$extracted" $archive | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "7z extract failed ($LASTEXITCODE)" }
     Assert-Runtime
-    Set-Content -NoNewline $marker (@{ schemaVersion = 1; sha256 = $hash } | ConvertTo-Json)
+    [IO.File]::WriteAllText($marker, (@{ schemaVersion = 1; sha256 = $hash } | ConvertTo-Json))
 }
 
 Remove-Item -Recurse -Force $current -ErrorAction SilentlyContinue
