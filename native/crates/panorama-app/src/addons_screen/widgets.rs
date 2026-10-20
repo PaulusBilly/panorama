@@ -59,6 +59,7 @@ pub fn text_button(
         view.theme,
         view.active,
         view.keyboard,
+        0.0,
         window,
     )
 }
@@ -96,6 +97,7 @@ pub fn icon_button(
         theme,
         view.active && enabled,
         view.keyboard,
+        0.0,
         window,
     )
 }

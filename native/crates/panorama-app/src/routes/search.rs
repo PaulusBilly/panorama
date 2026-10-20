@@ -148,6 +148,7 @@ impl Home {
                     view.theme,
                     view.active,
                     view.keyboard,
+                    0.0,
                     window,
                 )),
         )

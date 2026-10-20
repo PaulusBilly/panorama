@@ -101,6 +101,7 @@ impl Render for StartupErrorView {
             theme,
             !self.pending,
             true,
+            0.0,
             window,
         );
         div()

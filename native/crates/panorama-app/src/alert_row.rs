@@ -59,6 +59,7 @@ impl AlertRow<'_> {
                 theme,
                 self.active,
                 self.keyboard,
+                0.0,
                 window,
             ))
     }

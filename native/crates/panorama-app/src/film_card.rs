@@ -111,7 +111,9 @@ pub fn render(
             .opacity(fade),
         );
     }
-    let fade = theme.scrim.opacity(if props.film.is_some() { 0.58 } else { 0.28 });
+    let fade = theme
+        .scrim
+        .opacity(if props.film.is_some() { 0.58 } else { 0.28 });
     tile = tile.child(
         div()
             .absolute()
@@ -216,6 +218,7 @@ pub fn render(
             theme,
             view.active,
             view.keyboard,
+            0.0,
             window,
         )
         .absolute();
@@ -235,12 +238,7 @@ pub fn render(
                 .left(px(18.0))
                 .right(px(18.0))
                 .bottom(px(14.0))
-                .child(
-                    div()
-                        .h(px(11.0))
-                        .w(relative(0.58))
-                        .bg(theme.glass),
-                )
+                .child(div().h(px(11.0)).w(relative(0.58)).bg(theme.glass))
                 .child(
                     div()
                         .mt(px(8.0))

@@ -162,6 +162,7 @@ impl Player {
                 super::widgets::focus_theme(theme),
                 true,
                 keyboard,
+                0.0,
                 window,
             )
         });

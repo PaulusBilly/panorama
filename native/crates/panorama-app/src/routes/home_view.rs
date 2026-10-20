@@ -275,6 +275,7 @@ impl Render for Home {
                         theme,
                         view.active && !fetching,
                         view.keyboard,
+                        0.0,
                         window,
                     )),
                 );

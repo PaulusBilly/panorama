@@ -165,6 +165,7 @@ impl Titlebar {
             theme,
             true,
             keyboard_navigation,
+            0.0,
             window,
         )
     }

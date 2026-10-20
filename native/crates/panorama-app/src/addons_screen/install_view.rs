@@ -359,6 +359,7 @@ impl Addons {
             theme,
             view.active && !installing,
             view.keyboard,
+            0.0,
             window,
         )
     }

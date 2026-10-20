@@ -256,6 +256,7 @@ impl Render for LoginDialog {
                         theme,
                         !self.closing,
                         keyboard,
+                        0.0,
                         window,
                     )),
             )
@@ -298,6 +299,7 @@ impl Render for LoginDialog {
                 theme,
                 !busy && !self.closing,
                 keyboard,
+                0.0,
                 window,
             ));
         div()
@@ -323,7 +325,13 @@ impl Render for LoginDialog {
                     dialog.sign_in(window, cx);
                 }
             }))
-            .child(div().absolute().inset_0().bg(theme.scrim.opacity(0.72)).opacity(scrim))
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .bg(theme.scrim.opacity(0.72))
+                    .opacity(scrim),
+            )
             .child(
                 div()
                     .relative()

@@ -152,6 +152,7 @@ impl Home {
             theme,
             view.active,
             view.keyboard,
+            0.0,
             window,
         )
         .key_context("PanoramaCard")

@@ -280,6 +280,7 @@ impl Player {
             focus_theme(theme),
             !spec.disabled,
             keyboard,
+            0.0,
             window,
         );
         div()

@@ -180,6 +180,7 @@ impl AccountMenu {
                             theme,
                             self.open,
                             keyboard,
+                            0.0,
                             window,
                         )
                     }),

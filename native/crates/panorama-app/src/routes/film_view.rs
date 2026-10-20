@@ -249,12 +249,7 @@ impl Render for Film {
                                     .text_color(theme.ink),
                             )
                             .child(div().text_size(px(22.0)).child(score))
-                            .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .text_color(theme.ink)
-                                    .child("/10"),
-                            ),
+                            .child(div().text_size(px(12.0)).text_color(theme.ink).child("/10")),
                     );
                 if let Some(votes) = votes {
                     rating = rating.child(
@@ -312,12 +307,7 @@ impl Render for Film {
                     .aria_label("Loading film metadata")
                     .w_full()
                     .max_w(px(576.0))
-                    .child(
-                        div()
-                            .h(px(40.0))
-                            .w(relative(2.0 / 3.0))
-                            .bg(theme.glass),
-                    )
+                    .child(div().h(px(40.0)).w(relative(2.0 / 3.0)).bg(theme.glass))
                     .child(
                         div()
                             .mt(px(16.0))
@@ -325,13 +315,7 @@ impl Render for Film {
                             .w(relative(1.0 / 3.0))
                             .bg(theme.glass),
                     )
-                    .child(
-                        div()
-                            .mt(px(40.0))
-                            .h(px(80.0))
-                            .w_full()
-                            .bg(theme.rule),
-                    ),
+                    .child(div().mt(px(40.0)).h(px(80.0)).w_full().bg(theme.rule)),
             );
         }
         page = page.child(content);

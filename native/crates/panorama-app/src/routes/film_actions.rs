@@ -192,6 +192,7 @@ impl Film {
             theme,
             view.active && enabled,
             view.keyboard,
+            0.0,
             window,
         );
         let press = self.press[1].value(now, view.reduced);
@@ -275,6 +276,7 @@ impl Film {
             theme,
             view.active && !self.saving,
             view.keyboard,
+            0.0,
             window,
         );
         div()
@@ -341,6 +343,7 @@ impl Film {
             view.theme,
             view.active,
             view.keyboard,
+            0.0,
             window,
         )
     }

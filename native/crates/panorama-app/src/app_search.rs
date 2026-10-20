@@ -150,6 +150,7 @@ impl AppShell {
                                     theme,
                                     enabled,
                                     self.keyboard_navigation,
+                                    0.0,
                                     window,
                                 )
                                 .absolute()

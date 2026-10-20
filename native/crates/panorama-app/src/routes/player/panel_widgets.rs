@@ -99,6 +99,7 @@ impl Player {
                 focus_theme(theme),
                 !disabled,
                 keyboard,
+                0.0,
                 window,
             )
         });
@@ -145,6 +146,7 @@ impl Player {
             focus_theme(theme),
             !disabled,
             keyboard,
+            0.0,
             window,
         );
         div()
@@ -202,6 +204,7 @@ impl Player {
                 focus_theme(theme),
                 !disabled,
                 keyboard,
+                0.0,
                 window,
             )
         });
@@ -278,6 +281,7 @@ impl Player {
             focus_theme(theme),
             !disabled,
             keyboard,
+            0.0,
             window,
         )
     }
@@ -344,6 +348,7 @@ impl Player {
                 focus_theme(theme),
                 !disabled,
                 keyboard,
+                0.0,
                 window,
             ))
     }

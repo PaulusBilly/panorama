@@ -156,6 +156,7 @@ impl Addons {
                 theme,
                 view.active && index == selected,
                 view.keyboard,
+                0.0,
                 window,
             );
             list = list.child(row);

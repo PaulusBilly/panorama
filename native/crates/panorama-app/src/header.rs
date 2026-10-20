@@ -127,6 +127,7 @@ impl Header {
                                 theme,
                                 active,
                                 keyboard,
+                                0.0,
                                 window,
                             )),
                     )
@@ -156,6 +157,7 @@ impl Header {
                         theme,
                         active && !search_open,
                         keyboard,
+                        0.0,
                         window,
                     ))
                     .child(
@@ -213,6 +215,7 @@ impl Header {
                                 theme,
                                 active && !search_open,
                                 keyboard,
+                                0.0,
                                 window,
                             )),
                     ),

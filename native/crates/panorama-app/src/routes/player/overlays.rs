@@ -142,6 +142,7 @@ impl Player {
             focus_theme(theme),
             true,
             keyboard,
+            0.0,
             window,
         )
     }

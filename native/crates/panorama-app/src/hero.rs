@@ -171,6 +171,7 @@ pub fn render(
             theme,
             view.active,
             view.keyboard,
+            0.0,
             window,
         );
         let row = div()

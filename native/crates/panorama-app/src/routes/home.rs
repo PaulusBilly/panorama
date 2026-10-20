@@ -9,8 +9,8 @@ use crate::{
     transition::Tween,
 };
 use gpui::{
-    Context, Entity, FocusHandle, ScrollHandle, Subscription, WeakEntity,
-    Window, point, prelude::*, px,
+    Context, Entity, FocusHandle, ScrollHandle, Subscription, WeakEntity, Window, point,
+    prelude::*, px,
 };
 use panorama_core::addons::FilmDetails;
 use std::{collections::HashMap, sync::Arc, time::Instant};
