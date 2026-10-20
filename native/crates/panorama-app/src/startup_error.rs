@@ -1,6 +1,7 @@
 use crate::{
     assets::{self, Assets},
-    theme::{Column, Theme, Typography, focus_ring},
+    button::Button,
+    theme::{Column, Theme, Typography},
 };
 use gpui::{
     Bounds, Context, FocusHandle, Render, Window, WindowBounds, WindowOptions, div, prelude::*, px,
@@ -58,52 +59,35 @@ impl Render for StartupErrorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::default();
         let width = f32::from(window.viewport_size().width);
-        let button = focus_ring(
-            div()
-                .id("reload-runtime")
-                .min_h(px(40.0))
-                .px(px(4.0))
-                .text_size(px(13.0))
-                .border_b_1()
-                .border_color(theme.ink)
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .role(gpui::Role::Button)
-                .aria_label("Reload Panorama")
-                .on_click(cx.listener(|view, _, _, cx| {
-                    if view.pending {
-                        return;
-                    }
-                    let Some(executable) = view.executable.clone() else {
-                        return;
-                    };
-                    view.pending = true;
-                    let args = view.arguments.clone();
-                    let work = cx
-                        .background_executor()
-                        .spawn(async move { Command::new(executable).args(args).spawn().is_ok() });
-                    cx.spawn(async move |entity, cx| {
-                        let started = work.await;
-                        let _ = entity.update(cx, |view, cx| {
-                            if started {
-                                cx.quit();
-                            } else {
-                                view.pending = false;
-                                cx.notify();
-                            }
-                        });
-                    })
-                    .detach();
-                }))
-                .child("Reload Panorama"),
-            &self.focus,
-            theme,
-            !self.pending,
-            true,
-            0.0,
-            window,
-        );
+        let button = Button::glass("reload-runtime", "Reload Panorama")
+            .compact()
+            .busy(self.pending)
+            .focus(&self.focus, true)
+            .on_click(cx.listener(|view, _, _, cx| {
+                if view.pending {
+                    return;
+                }
+                let Some(executable) = view.executable.clone() else {
+                    return;
+                };
+                view.pending = true;
+                let args = view.arguments.clone();
+                let work = cx
+                    .background_executor()
+                    .spawn(async move { Command::new(executable).args(args).spawn().is_ok() });
+                cx.spawn(async move |entity, cx| {
+                    let started = work.await;
+                    let _ = entity.update(cx, |view, cx| {
+                        if started {
+                            cx.quit();
+                        } else {
+                            view.pending = false;
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+            }));
         div()
             .size_full()
             .bg(theme.canvas)

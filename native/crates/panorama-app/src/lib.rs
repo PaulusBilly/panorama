@@ -7,6 +7,7 @@ pub mod app;
 pub mod app_state;
 pub mod args;
 pub mod assets;
+pub mod button;
 pub mod cascade_loader;
 pub mod catalog_switcher;
 pub mod debug;

@@ -45,7 +45,6 @@ pub struct Home {
     hovered: HashMap<usize, Tween>,
     surface: Tween,
     ready: bool,
-    watch_hover: Tween,
     last_top: f32,
     launched: Instant,
     debug_step: usize,
@@ -126,7 +125,6 @@ impl Home {
             hovered: HashMap::new(),
             surface: Tween::fixed(1.0),
             ready: false,
-            watch_hover: Tween::fixed(0.0),
             last_top: 0.0,
             launched: Instant::now(),
             debug_step: 0,
@@ -217,15 +215,6 @@ impl Home {
                 Some(EASE_EDITORIAL),
                 Instant::now(),
             );
-        cx.notify();
-    }
-    pub(crate) fn hover_watch(&mut self, over: bool, cx: &mut Context<Self>) {
-        self.watch_hover.retarget(
-            if over { 1.0 } else { 0.0 },
-            DURATION_FAST,
-            Some(EASE_DEFAULT),
-            Instant::now(),
-        );
         cx.notify();
     }
     /// Open the card's opaque film identifier in the existing router.

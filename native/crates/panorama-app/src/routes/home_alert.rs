@@ -8,7 +8,6 @@ impl Home {
         message: String,
         label: &'static str,
         view: ViewSettings,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let state = self.state.clone();
@@ -25,27 +24,24 @@ impl Home {
             active: view.active,
             keyboard: view.keyboard,
         }
-        .render(
-            window,
-            cx.listener(move |home, _, window, cx| {
-                if home.search.is_some() {
-                    if label == "Clear search" {
-                        let _ = home
-                            .shell
-                            .update(cx, |shell, cx| shell.clear_search(window, cx));
-                    } else {
-                        home.load_search(cx);
-                    }
+        .render(cx.listener(move |home, _, window, cx| {
+            if home.search.is_some() {
+                if label == "Clear search" {
+                    let _ = home
+                        .shell
+                        .update(cx, |shell, cx| shell.clear_search(window, cx));
                 } else {
-                    state.update(cx, |state, cx| {
-                        if label == "Reload Panorama" {
-                            state.reload(cx)
-                        } else {
-                            state.load(false, cx)
-                        }
-                    });
+                    home.load_search(cx);
                 }
-            }),
-        )
+            } else {
+                state.update(cx, |state, cx| {
+                    if label == "Reload Panorama" {
+                        state.reload(cx)
+                    } else {
+                        state.load(false, cx)
+                    }
+                });
+            }
+        }))
     }
 }

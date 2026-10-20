@@ -1,11 +1,11 @@
 use super::*;
 use crate::{
+    button::Button,
     film_card::{self, CardProps},
     hero::{self, HeroProps},
     home_layout::Grid,
-    theme::focus_ring,
 };
-use gpui::{Div, Render, div, relative};
+use gpui::{Div, Render, div};
 
 impl Home {
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -178,7 +178,6 @@ impl Render for Home {
                 surface: self.surface.value(Instant::now(), view.reduced),
                 focus: &self.watch,
                 shell: self.shell.clone(),
-                hover: self.watch_hover.value(Instant::now(), view.reduced),
             },
             view,
             window,
@@ -209,10 +208,10 @@ impl Render for Home {
             section = section.child(self.catalog_row(view, window, cx));
         }
         if let Some(message) = runtime_error {
-            section = section.child(self.alert(message, "Reload Panorama", view, window, cx));
+            section = section.child(self.alert(message, "Reload Panorama", view, cx));
         }
         if let Some(message) = error {
-            section = section.child(self.alert(message, "Try again", view, window, cx));
+            section = section.child(self.alert(message, "Try again", view, cx));
         }
         if empty {
             section = section.child(self.alert(
@@ -226,7 +225,6 @@ impl Render for Home {
                     "Refresh catalog"
                 },
                 view,
-                window,
                 cx,
             ));
         }
@@ -240,51 +238,39 @@ impl Render for Home {
         }
         if more {
             let state = self.state.clone();
-            section =
-                section.child(
-                    div().pt(px(64.0)).flex().justify_center().child(focus_ring(
-                        div()
-                            .id("catalog-more")
-                            .key_context("PanoramaCard")
-                            .on_action(cx.listener(|home, _: &NextCard, window, cx| {
-                                home.focus_top(window, cx)
-                            }))
-                            .on_action(cx.listener(|home, _: &PreviousCard, window, cx| {
-                                home.focus_card(home.cards.len(), false, window, cx)
-                            }))
-                            .min_w(px(82.0))
-                            .min_h(px(40.0))
-                            .px(px(4.0))
-                            .border_b_1()
-                            .border_color(if fetching { theme.disabled } else { theme.ink })
-                            .text_color(if fetching { theme.disabled } else { theme.ink })
-                            .text_size(px(13.0))
-                            .line_height(relative(1.4))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .cursor_pointer()
-                            .role(gpui::Role::Button)
-                            .aria_label("Load more")
-                            .on_click(move |_, _, cx| {
-                                state.update(cx, |state, cx| state.load(true, cx))
-                            })
-                            .child(if fetching { "Loading" } else { "Load more" }),
-                        &self.more,
-                        theme,
-                        view.active && !fetching,
-                        view.keyboard,
-                        0.0,
-                        window,
-                    )),
-                );
+            section = section.child(
+                div()
+                    .pt(px(64.0))
+                    .flex()
+                    .justify_center()
+                    .key_context("PanoramaCard")
+                    .on_action(
+                        cx.listener(|home, _: &NextCard, window, cx| home.focus_top(window, cx)),
+                    )
+                    .on_action(cx.listener(|home, _: &PreviousCard, window, cx| {
+                        home.focus_card(home.cards.len(), false, window, cx)
+                    }))
+                    .child(
+                        Button::glass(
+                            "catalog-more",
+                            if fetching { "Loading" } else { "Load more" },
+                        )
+                        .compact()
+                        .busy(fetching)
+                        .reduced_motion(view.reduced)
+                        .focus(&self.more, view.keyboard)
+                        .tab_stop(view.active)
+                        .on_click(move |_, _, cx| {
+                            state.update(cx, |state, cx| state.load(true, cx))
+                        }),
+                    ),
+            );
         }
         let footer = crate::footer::footer(theme, view.width);
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());
         }
-        let changing = self.watch_hover.moving(Instant::now(), view.reduced)
-            || self.switcher.moving(Instant::now(), view.reduced)
+        let changing = self.switcher.moving(Instant::now(), view.reduced)
             || (!view.reduced && self.images.read(cx).moving())
             || self.surface.moving(Instant::now(), view.reduced)
             || self

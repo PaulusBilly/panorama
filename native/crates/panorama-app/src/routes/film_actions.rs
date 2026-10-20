@@ -1,21 +1,11 @@
 use super::*;
-use crate::assets::Weighted;
 use crate::{
+    button::{Button, Icon},
     film_display::Primary,
-    theme::{focus_ring, motion::*},
 };
-use gpui::{Div, FontWeight, MouseButton, Transformation, div, prelude::*, px, relative, svg};
+use gpui::{Div, div, prelude::*, px};
 
 impl Film {
-    pub(super) fn action_motion(&mut self, index: usize, pressed: bool, cx: &mut Context<Self>) {
-        self.press[index].retarget(
-            if pressed { 0.96 } else { 1.0 },
-            DURATION_FAST,
-            Some(EASE_DEFAULT),
-            Instant::now(),
-        );
-        cx.notify();
-    }
     pub(super) fn primary_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !matches!(self.account, Account::SignedIn(_)) {
             self.sign_in(window, cx);
@@ -41,13 +31,7 @@ impl Film {
             });
         }
     }
-    pub(super) fn actions(
-        &mut self,
-        view: ViewSettings,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let theme = view.theme;
+    pub(super) fn actions(&mut self, view: ViewSettings, cx: &mut Context<Self>) -> Div {
         let primary = Primary::at(
             matches!(self.account, Account::SignedIn(_)),
             self.sources_loading,
@@ -59,292 +43,80 @@ impl Film {
             .and_then(|point| {
                 crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
             });
-        let visible_label = remaining.clone().unwrap_or_else(|| primary.label().into());
         let label = remaining.as_ref().map_or_else(
             || primary.label().to_owned(),
             |time| format!("Resume, {time} left"),
         );
-        let enabled = primary.enabled();
-        let now = Instant::now();
-        let press = self.press[0].value(now, view.reduced);
-        let mut font = window.text_style().font();
-        crate::assets::weighted(&mut font, FontWeight::MEDIUM);
-        let text_width = f32::from(
-            window
-                .text_system()
-                .shape_line(
-                    visible_label.clone().into(),
-                    px(17.0),
-                    &[gpui::TextRun {
-                        len: visible_label.len(),
-                        font,
-                        ..Default::default()
-                    }],
-                    None,
-                )
-                .width,
-        );
-        let icon = if primary == Primary::Loading {
-            Some("loader-2.svg")
-        } else if primary == Primary::Play {
-            Some("player-play-filled.svg")
-        } else {
-            None
-        };
-        let width = (60.0
-            + text_width
-            + if icon.is_some() { 27.0 } else { 0.0 }
-            + if remaining.is_some() { 74.0 } else { 0.0 })
-        .max(144.0);
-        let button = focus_ring(
-            div()
-                .id("film-primary")
-                .role(gpui::Role::Button)
-                .aria_label(label.clone())
-                .w(px(width * press))
-                .h(px(40.0 * press))
-                .rounded_full()
-                .bg(theme
-                    .ink
-                    .opacity(1.0 - 0.1 * self.hover[0].value(now, view.reduced)))
-                .text_color(theme.canvas)
-                .text_size(px(17.0 * press))
-                .weight(FontWeight::MEDIUM)
-                .line_height(relative(1.0))
-                .pl(px(28.0 * press))
-                .pr(px(32.0 * press))
-                .flex()
-                .items_center()
-                .justify_center()
-                .gap(px(10.0 * press))
-                .opacity(if enabled { 1.0 } else { 0.55 })
-                .when(enabled, |button| button.cursor_pointer())
-                .on_hover(cx.listener(|film, over, _, cx| {
-                    film.hover[0].retarget(
-                        if *over { 1.0 } else { 0.0 },
-                        DURATION_FAST,
-                        Some(EASE_DEFAULT),
-                        Instant::now(),
-                    );
-                    cx.notify();
-                }))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |film, _, _, cx| {
-                        if enabled {
-                            film.action_motion(0, true, cx);
-                        }
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|film, _, _, cx| film.action_motion(0, false, cx)),
-                )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(|film, _, _, cx| film.action_motion(0, false, cx)),
-                )
-                .on_click(cx.listener(move |film, _, window, cx| {
-                    if enabled {
-                        film.primary_action(window, cx);
-                    }
-                }))
-                .when_some(icon, |button, icon| {
-                    button.child(
-                        svg()
-                            .path(icon)
-                            .size(px(17.0 * press))
-                            .text_color(theme.canvas)
-                            .when(primary == Primary::Loading && !view.reduced, |icon| {
-                                icon.with_transformation(Transformation::rotate(gpui::radians(
-                                    now.duration_since(self.launched).as_secs_f32()
-                                        * std::f32::consts::TAU,
-                                )))
-                            }),
-                    )
-                })
-                .when_some(remaining, |button, _| {
-                    let progress = self.resume.map_or(0.0, |point| {
-                        (point.offset_secs / point.duration_secs).clamp(0.0, 1.0)
-                    }) as f32;
-                    button.child(
-                        div()
-                            .relative()
-                            .w(px(64.0 * press))
-                            .h(px(6.0 * press))
-                            .rounded_full()
-                            .overflow_hidden()
-                            .bg(theme.canvas.opacity(0.2))
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left_0()
-                                    .top_0()
-                                    .h_full()
-                                    .w(px((64.0 * progress).max(6.0) * press))
-                                    .rounded_full()
-                                    .bg(theme.canvas),
-                            ),
-                    )
-                })
-                .child(visible_label),
-            &self.primary,
-            theme,
-            view.active && enabled,
-            view.keyboard,
-            0.0,
-            window,
-        );
-        let press = self.press[1].value(now, view.reduced);
-        let progress = self.icon.value(now, view.reduced);
-        let watchlist = focus_ring(
-            div()
-                .id("film-watchlist")
-                .role(gpui::Role::Button)
-                .aria_label(if self.saved {
-                    "Remove from Watchlist"
-                } else {
-                    "Add to Watchlist"
-                })
-                .size(px(40.0 * press))
-                .rounded_full()
-                .bg(theme
-                    .ink
-                    .opacity(0.15 + 0.1 * self.hover[1].value(now, view.reduced)))
-                .cursor_pointer()
-                .on_hover(cx.listener(|film, over, _, cx| {
-                    film.hover[1].retarget(
-                        if *over { 1.0 } else { 0.0 },
-                        DURATION_FAST,
-                        Some(EASE_DEFAULT),
-                        Instant::now(),
-                    );
-                    cx.notify();
-                }))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|film, _, _, cx| {
-                        if !film.saving {
-                            film.action_motion(1, true, cx);
-                        }
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|film, _, _, cx| film.action_motion(1, false, cx)),
-                )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(|film, _, _, cx| film.action_motion(1, false, cx)),
-                )
-                .on_click(cx.listener(|film, _, window, cx| film.toggle_watchlist(window, cx)))
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .opacity(1.0 - progress)
-                        .child(
-                            svg()
-                                .path(if self.previous_saved {
-                                    "check.svg"
-                                } else {
-                                    "plus.svg"
-                                })
-                                .size(px(20.0 * (1.0 - 0.75 * progress) * press))
-                                .text_color(theme.ink),
-                        ),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .opacity(progress)
-                        .child(
-                            svg()
-                                .path(if self.saved { "check.svg" } else { "plus.svg" })
-                                .size(px(20.0 * (0.25 + 0.75 * progress) * press))
-                                .text_color(theme.ink),
-                        ),
-                ),
-            &self.watchlist,
-            theme,
-            view.active && !self.saving,
-            view.keyboard,
-            0.0,
-            window,
-        );
+        let mut button = Button::primary(
+            "film-primary",
+            remaining.clone().unwrap_or_else(|| primary.label().into()),
+        )
+        .aria_label(label.clone())
+        .busy(primary == Primary::Loading)
+        .disabled(!primary.enabled())
+        .reduced_motion(view.reduced)
+        .focus(&self.primary, view.keyboard)
+        .tab_stop(view.active)
+        .on_click(cx.listener(|film, _, window, cx| film.primary_action(window, cx)));
+        if primary == Primary::Play {
+            button = button.leading(Icon::Play);
+        }
+        if remaining.is_some()
+            && let Some(point) = self.resume
+        {
+            button = button.progress((point.offset_secs / point.duration_secs) as f32);
+        }
+        let watchlist = Button::round(
+            "film-watchlist",
+            if self.saved { Icon::Check } else { Icon::Plus },
+            if self.saved {
+                "Remove from Watchlist"
+            } else {
+                "Add to Watchlist"
+            },
+        )
+        .disabled(self.saving)
+        .focus(&self.watchlist, view.keyboard)
+        .tab_stop(view.active)
+        .on_click(cx.listener(|film, _, window, cx| film.toggle_watchlist(window, cx)));
         div()
             .mt(px(8.0))
             .flex()
             .items_center()
             .gap(px(12.0))
-            .child(
-                div()
-                    .w(px(width))
-                    .h(px(40.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(button),
-            )
-            .child(
-                div()
-                    .size(px(40.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(watchlist),
-            )
+            .child(button)
+            .child(watchlist)
             .child(crate::a11y::status("film-primary-status", label))
     }
     pub(super) fn retry(
         &self,
         details: bool,
         view: ViewSettings,
-        window: &Window,
         cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
+    ) -> Button {
         let label = if details {
             "Retry details"
         } else {
             "Retry sources"
         };
-        focus_ring(
-            div()
-                .id(label)
-                .role(gpui::Role::Button)
-                .aria_label(label)
-                .min_h(px(40.0))
-                .px(px(4.0))
-                .border_b_1()
-                .border_color(view.theme.ink)
-                .cursor_pointer()
-                .flex()
-                .items_center()
-                .on_click(cx.listener(move |film, _, _, cx| {
-                    if details {
-                        film.load_details(cx);
-                    } else {
-                        film.load_sources(cx);
-                    }
-                }))
-                .child(label),
-            if details {
-                &self.retry_details
-            } else {
-                &self.retry_sources
-            },
-            view.theme,
-            view.active,
-            view.keyboard,
-            0.0,
-            window,
-        )
+        Button::glass(label, label)
+            .compact()
+            .leading(Icon::Retry)
+            .focus(
+                if details {
+                    &self.retry_details
+                } else {
+                    &self.retry_sources
+                },
+                view.keyboard,
+            )
+            .tab_stop(view.active)
+            .on_click(cx.listener(move |film, _, _, cx| {
+                if details {
+                    film.load_details(cx);
+                } else {
+                    film.load_sources(cx);
+                }
+            }))
     }
 }

@@ -2,10 +2,11 @@
 use super::{
     Addons, Slot,
     model::{InstalledRow, RowPending, Screen, error_copy},
-    widgets::{View, icon_button, logo, section, spinner, text_button, tnum},
+    widgets::{View, logo, section, spinner, tnum},
 };
 use crate::{
     alert_row::AlertRow,
+    button::{Button, Icon},
     film_card,
     home_layout::ViewSettings,
     theme::{SHIMMER, Typography},
@@ -41,7 +42,7 @@ impl Addons {
                         active: view.active,
                         keyboard: view.keyboard,
                     }
-                    .render(window, cx.listener(|this, _, _, cx| this.reload(cx))),
+                    .render(cx.listener(|this, _, _, cx| this.reload(cx))),
                 )
             }
             _ => {
@@ -139,7 +140,7 @@ impl Addons {
                     .child(error_copy(&error)),
             );
         }
-        let controls = self.controls(index, last, row, view, window, cx);
+        let controls = self.controls(index, last, row, view, cx);
         div()
             .id(("addon-row", index))
             .relative()
@@ -169,7 +170,6 @@ impl Addons {
         last: usize,
         row: &InstalledRow,
         view: View,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = view.theme;
@@ -197,34 +197,23 @@ impl Addons {
                             .child(format!("Remove {name}?")),
                     )
                     .child(
-                        text_button(
-                            ("addon-confirm", index),
-                            "Remove",
-                            None,
-                            theme.danger,
-                            &confirm,
-                            view,
-                            window,
-                        )
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.remove(remove_key.clone(), cx)),
-                        ),
+                        Button::primary(("addon-confirm", index), "Remove")
+                            .compact()
+                            .aria_label(format!("Remove {name}"))
+                            .focus(&confirm, view.keyboard)
+                            .tab_stop(view.active)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.remove(remove_key.clone(), cx)
+                            })),
                     )
                     .child(
-                        text_button(
-                            ("addon-keep", index),
-                            "Keep",
-                            None,
-                            theme.ink,
-                            &keep,
-                            view,
-                            window,
-                        )
-                        .on_click(
-                            cx.listener(move |this, _, window, cx| {
+                        Button::glass(("addon-keep", index), "Keep")
+                            .compact()
+                            .focus(&keep, view.keyboard)
+                            .tab_stop(view.active)
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.keep(&keep_key, window, cx)
-                            }),
-                        ),
+                            })),
                     )
             }
             RowPending::Removing => strip
@@ -238,29 +227,29 @@ impl Addons {
                 let mut strip =
                     strip
                         .child(
-                            icon_button(
+                            Button::round(
                                 ("addon-up", index),
-                                "arrow-up.svg",
+                                Icon::ArrowUp,
                                 format!("Move {name} up"),
-                                index > 0 && idle,
-                                &up,
-                                view,
-                                window,
                             )
+                            .compact()
+                            .disabled(!(index > 0 && idle))
+                            .focus(&up, view.keyboard)
+                            .tab_stop(view.active)
                             .on_click(cx.listener(
                                 move |this, _, _, cx| this.move_by(up_key.clone(), -1, cx),
                             )),
                         )
                         .child(
-                            icon_button(
+                            Button::round(
                                 ("addon-down", index),
-                                "arrow-down.svg",
+                                Icon::ArrowDown,
                                 format!("Move {name} down"),
-                                index < last && idle,
-                                &down,
-                                view,
-                                window,
                             )
+                            .compact()
+                            .disabled(!(index < last && idle))
+                            .focus(&down, view.keyboard)
+                            .tab_stop(view.active)
                             .on_click(cx.listener(
                                 move |this, _, _, cx| this.move_by(down_key.clone(), 1, cx),
                             )),
@@ -269,18 +258,13 @@ impl Addons {
                     let focus = self.handle(Slot::Configure(key.clone()), cx);
                     let configure_key = key.clone();
                     strip = strip.child(
-                        text_button(
-                            ("addon-configure", index),
-                            "Configure",
-                            None,
-                            theme.ink,
-                            &focus,
-                            view,
-                            window,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.configure(configure_key.clone(), cx)
-                        })),
+                        Button::glass(("addon-configure", index), "Configure")
+                            .compact()
+                            .focus(&focus, view.keyboard)
+                            .tab_stop(view.active)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.configure(configure_key.clone(), cx)
+                            })),
                     );
                 }
                 if row.protected {
@@ -293,21 +277,14 @@ impl Addons {
                 } else {
                     let focus = self.handle(Slot::Remove(key.clone()), cx);
                     strip.child(
-                        text_button(
-                            ("addon-remove", index),
-                            "Remove",
-                            None,
-                            theme.ink,
-                            &focus,
-                            view,
-                            window,
-                        )
-                        .aria_label(format!("Remove {name}"))
-                        .on_click(
-                            cx.listener(move |this, _, window, cx| {
+                        Button::glass(("addon-remove", index), "Remove")
+                            .compact()
+                            .aria_label(format!("Remove {name}"))
+                            .focus(&focus, view.keyboard)
+                            .tab_stop(view.active)
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 this.ask_remove(&key, window, cx)
-                            }),
-                        ),
+                            })),
                     )
                 }
             }

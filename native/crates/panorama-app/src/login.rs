@@ -1,7 +1,7 @@
-use crate::assets::Weighted;
 use crate::{
     app::AppShell,
     app_state::{Account, AppState},
+    button::Button,
     theme::{Theme, Typography, focus_ring, motion::*},
     transition::Tween,
 };
@@ -272,36 +272,17 @@ impl Render for LoginDialog {
                         .child(error),
                 )
             })
-            .child(focus_ring(
-                div()
-                    .id("login-submit")
-                    .text_size(px(16.0))
-                    .line_height(relative(1.5))
-                    .w_full()
-                    .min_h(px(44.0))
-                    .px(px(18.0))
-                    .py(px(13.0))
-                    .border_1()
-                    .border_color(theme.ink)
-                    .bg(theme.ink)
-                    .text_color(theme.canvas)
-                    .weight(gpui::FontWeight::MEDIUM)
-                    .flex()
-                    .justify_center()
-                    .items_center()
-                    .cursor_pointer()
-                    .role(gpui::Role::Button)
-                    .aria_label("Sign in")
-                    .opacity(if busy { 0.6 } else { 1.0 })
-                    .on_click(cx.listener(|dialog, _, window, cx| dialog.sign_in(window, cx)))
-                    .child(if busy { "Signing in" } else { "Sign in" }),
-                &self.submit,
-                theme,
-                !busy && !self.closing,
-                keyboard,
-                0.0,
-                window,
-            ));
+            .child(
+                div().flex().justify_end().child(
+                    Button::primary("login-submit", if busy { "Signing in" } else { "Sign in" })
+                        .aria_label("Sign in")
+                        .busy(busy)
+                        .reduced_motion(reduced)
+                        .focus(&self.submit, keyboard)
+                        .tab_stop(!self.closing)
+                        .on_click(cx.listener(|dialog, _, window, cx| dialog.sign_in(window, cx))),
+                ),
+            );
         div()
             .id("login-dialog")
             .absolute()

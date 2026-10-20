@@ -182,15 +182,7 @@ impl Film {
     }
     pub(super) fn set_saved(&mut self, saved: bool) {
         if saved != self.saved {
-            self.previous_saved = self.saved;
             self.saved = saved;
-            self.icon = Tween::fixed(0.0);
-            self.icon.retarget(
-                1.0,
-                std::time::Duration::from_millis(300),
-                Some(crate::theme::EASE_EDITORIAL),
-                Instant::now(),
-            );
         }
     }
     pub(super) fn toggle_watchlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {

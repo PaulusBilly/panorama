@@ -14,7 +14,7 @@ use gpui::Rgba;
 pub use layout::{Column, SIDEBAR_WIDTH, dialog_inset};
 pub use motion::{DURATION_DELIBERATE, DURATION_FAST, DURATION_STANDARD, EASE_EDITORIAL, SHIMMER};
 use std::sync::OnceLock;
-pub use typography::Typography;
+pub use typography::{Typography, caps, credits};
 
 /// The one Panorama palette. Dark only; there is no light theme and no theme flag.
 #[derive(Clone, Copy, Debug)]

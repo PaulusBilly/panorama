@@ -61,7 +61,7 @@ impl Film {
             .text_color(theme.ink);
         if !meta.director.is_empty() || meta.origin_country.is_some() || meta.release_info.is_some()
         {
-            left = left.child(hero::credits(meta, theme).text_color(theme.ink));
+            left = left.child(crate::theme::credits(meta, theme));
         }
         if !meta.genres.is_empty() {
             left = left.child(div().child(meta.genres.join(", ")));
@@ -97,7 +97,7 @@ impl Film {
         if quality.video.is_some() || quality.surround || meta.runtime.is_some() {
             left = left.child(badges);
         }
-        left = left.child(self.actions(view, window, cx));
+        left = left.child(self.actions(view, cx));
         if matches!(self.account, Account::SignedIn(_))
             && !self.sources_loading
             && self.selected.is_none()
@@ -115,7 +115,7 @@ impl Film {
                     } else {
                         "No playable source is available from your addons."
                     })
-                    .child(self.retry(false, view, window, cx)),
+                    .child(self.retry(false, view, cx)),
             );
         }
         if self.watchlist_error {
@@ -294,7 +294,7 @@ impl Render for Film {
                         div()
                             .mt(px(16.0))
                             .text_size(px(14.0))
-                            .child(self.retry(true, view, window, cx)),
+                            .child(self.retry(true, view, cx)),
                     ),
             );
         } else if let Some(meta) = &metadata {
@@ -326,14 +326,7 @@ impl Render for Film {
                 shell.update_home_header(self.entry, top, view.height, metadata.is_some(), cx)
             });
         }
-        let now = Instant::now();
-        if self
-            .press
-            .iter()
-            .chain(&self.hover)
-            .any(|motion| motion.moving(now, view.reduced))
-            || self.icon.moving(now, view.reduced)
-            || self.sources_loading && !view.reduced
+        if self.sources_loading && !view.reduced
             || view.active && self.images.read(cx).moving()
             || self.debug_step < self.args.scroll.len()
         {
