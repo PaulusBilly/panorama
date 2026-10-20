@@ -49,8 +49,11 @@ mpv host (PR 3.1):
   window disabling, and WindowsAndMessaging features are enabled here.
 - `raw-window-handle` (=0.6.2): matches GPUI's `HasWindowHandle` contract.
 - `panorama-mpv` uses standard-library mpsc channels; no channel dependency.
-- `serde_json` (=1.0.151, Windows dev-dependency): parses explicit mpv IPC clock
-  readings in playback tests; reuses the version already in the lockfile.
+- `tempfile` (=3.27.0, Windows and macOS dev-dependency): a private directory for the
+  playback tests' generated media.
+- `objc2` (=0.6.5), `objc2-app-kit`, `objc2-foundation`, `objc2-quartz-core` (=0.3.2,
+  defaults off, macOS only): the video `NSView` and `CAMetalLayer`. GPUI already
+  resolves these versions.
 
 Media proxy (PR 3.2):
 
@@ -268,9 +271,10 @@ in the app crate.
 | `subtitle.rs` | mpv fallback subtitle preference batch |
 | `ffi.rs`, `ffi/{nodes,receive}.rs` | Dynamic C ABI and copying event payloads; unsafe confined here |
 | `win32.rs`, `win32/preview.rs` | Retained child HWND and standalone preview; unsafe confined here |
+| `macos.rs` | Metal-layer `NSView` below GPUI's view and the `panorama-macvk` surface descriptor; unsafe confined here |
 
-The crate inherits workspace lints, allows unsafe only in the FFI and Win32
-module trees, and denies `unsafe_op_in_unsafe_fn`. Every unsafe block explains
+The crate inherits workspace lints, allows unsafe only in the FFI, Win32 and
+macOS modules, and denies `unsafe_op_in_unsafe_fn`. Every unsafe block explains
 its safety conditions. No DLL, import library, or generated media is tracked.
 
 ### Public API and PR 3.3 integration
@@ -298,7 +302,7 @@ its safety conditions. No DLL, import library, or generated media is tracked.
    from a background task, update player state, then call `cx.notify()`.
    The Result reflects std mpsc's single-consumer receiver (second call is
    `EventsTaken`). `load`, `stop`, `set_pause`, `seek` (Absolute/Relative exact),
-   `set_property<T: MpvValue>`, `command`, `set_audio_track`, `set_subtitle_track`,
+   `set_property<T: MpvValue>` (names in `PROPERTIES`), `toggle_pause`, `set_audio_track`, `set_subtitle_track`,
    `set_volume` (0..=100), and `set_subtitle_style` enqueue owned arguments.
    Track IDs are positive i64; `None` disables the stream. Property scalars
    support bool, i64, finite f64, String and &str. Queue acceptance is synchronous;
@@ -429,16 +433,18 @@ cargo run -p panorama-mpv --example play -- <file-or-url>
 
 The example creates a plain Win32 window with no GPUI dependency, prints active
 hwdec and sanitized end/error kinds, and pumps messages throughout asynchronous
-close. No input path or URL is printed. Other platforms compile the library
-and report `UnsupportedPlatform` when loading; Windows surfaces are cfg-gated.
+close. No input path or URL is printed. macOS loads the runtime too (see
+"Playback on macOS"); other platforms compile the library and report
+`UnsupportedPlatform` when loading. Surfaces are cfg-gated per platform.
 
 Integration tests use the environment variable explicitly, with null audio/video
-outputs. They print a skip note if it is absent. Generated lavfi media requires
-no file or network ([mpv's av protocol documentation](https://mpv.io/manual/stable/#protocols)).
-Tests exercise clock, pause, absolute/relative seeks, typed video/audio tracks,
-EOF, redacted unreachable-URL errors, and close both after error and during load.
-Pause checks require prior clock advancement and two explicit IPC clock reads
-at least 500 ms apart. Pending-load shutdown waits for a local server to receive
+outputs, on Windows and macOS. They print a skip note if it is absent. Each run
+writes a short Y4M video and WAV tone into a private temporary directory, which
+every libmpv build demuxes without network access. Tests exercise clock, pause,
+absolute/relative seeks, typed video/audio tracks, EOF, redacted unreachable-URL
+errors, close both after error and during load, and rejected extra options.
+Pause checks require prior clock advancement, then a 500 ms pause after which
+the first resumed clock reading is within 0.1 s of the last paused one. Pending-load shutdown waits for a local server to receive
 mpv's HTTP request, then keeps the connection unanswered through close; completion
 must arrive within two seconds plus 250 ms scheduling tolerance, with `Shutdown`
 and no URL or session token in event/error text.

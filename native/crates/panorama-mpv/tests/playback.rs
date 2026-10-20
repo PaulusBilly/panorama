@@ -1,10 +1,9 @@
-#![cfg(windows)]
+#![cfg(any(windows, target_os = "macos"))]
 use panorama_mpv::{
     EndReason, Mpv, MpvError, Player, PlayerEvent, PlayerOptions, SeekMode, TrackKind,
 };
 use std::{
-    fs::OpenOptions,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader},
     net::TcpListener,
     path::PathBuf,
     sync::mpsc::{self, Receiver},
@@ -63,53 +62,56 @@ fn close(player: Player) {
     );
 }
 
+/// Five seconds of 30 fps Y4M video and an 8 kHz WAV tone; every libmpv build demuxes
+/// both, unlike `av://lavfi`, which needs libavdevice.
+fn media() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let directory = tempfile::tempdir().unwrap();
+    let (width, height, frames) = (64, 48, 150);
+    let mut video = format!("YUV4MPEG2 W{width} H{height} F30:1 Ip A1:1 C420jpeg\n").into_bytes();
+    for frame in 0..frames {
+        video.extend_from_slice(b"FRAME\n");
+        video.extend(std::iter::repeat_n(
+            (frame * 255 / frames) as u8,
+            width * height,
+        ));
+        video.extend(std::iter::repeat_n(128, width * height / 2));
+    }
+    let samples: Vec<u8> = (0..8000 * 5)
+        .flat_map(|i| {
+            (((i as f64 * 440.0 / 8000.0 * std::f64::consts::TAU).sin() * 8000.0) as i16)
+                .to_le_bytes()
+        })
+        .collect();
+    let mut audio = b"RIFF".to_vec();
+    audio.extend((36 + samples.len() as u32).to_le_bytes());
+    audio.extend(b"WAVEfmt ");
+    for field in [16u32, 1 | 1 << 16, 8000, 16000, 2 | 16 << 16] {
+        audio.extend(field.to_le_bytes());
+    }
+    audio.extend(b"data");
+    audio.extend((samples.len() as u32).to_le_bytes());
+    audio.extend(samples);
+    let (video_path, audio_path) = (
+        directory.path().join("clip.y4m"),
+        directory.path().join("tone.wav"),
+    );
+    std::fs::write(&video_path, video).unwrap();
+    std::fs::write(&audio_path, audio).unwrap();
+    (directory, video_path, audio_path)
+}
+
 #[test]
 fn generated_media_clock_pause_seek_tracks_eof_and_close() {
-    let pipe = format!(r"\\.\pipe\panorama-mpv-clock-{}", std::process::id());
-    let Some((player, events)) = player(&[
-        ("audio-files", "av://lavfi:sine=duration=5"),
-        ("input-ipc-server", &pipe),
-    ]) else {
+    let (_media, video, audio) = media();
+    let Some((player, events)) = player(&[("audio-files", audio.to_str().unwrap())]) else {
         return;
     };
-    let (requests, incoming) = mpsc::channel::<()>();
-    let (readings, clock) = mpsc::channel();
-    let clock_thread = thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let connection = loop {
-            match OpenOptions::new().read(true).write(true).open(&pipe) {
-                Ok(connection) => break connection,
-                Err(error) => {
-                    assert!(Instant::now() < deadline, "IPC connection failed: {error}");
-                    thread::sleep(Duration::from_millis(10));
-                }
-            }
-        };
-        let mut connection = BufReader::new(connection);
-        while incoming.recv().is_ok() {
-            connection
-                .get_mut()
-                .write_all(b"{\"command\":[\"get_property\",\"time-pos\"],\"request_id\":1}\n")
-                .unwrap();
-            loop {
-                let mut line = String::new();
-                assert_ne!(connection.read_line(&mut line).unwrap(), 0);
-                let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
-                if reply["request_id"] == 1 {
-                    assert_eq!(reply["error"], "success");
-                    readings.send(reply["data"].as_f64().unwrap()).unwrap();
-                    break;
-                }
-            }
-        }
-    });
-    player
-        .load("av://lavfi:testsrc=duration=5:size=320x240:rate=30")
-        .unwrap();
+    player.load(video.to_str().unwrap()).unwrap();
     let mut saw_video = false;
     let mut saw_audio = false;
     let mut first_time = None;
     let mut advanced = false;
+    let mut last = 0.0;
     let deadline = Instant::now() + Duration::from_secs(15);
     while !(saw_video && saw_audio && advanced) {
         let event = events
@@ -123,6 +125,7 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
             PlayerEvent::TimePos(Some(time)) => {
                 let first = *first_time.get_or_insert(time);
                 advanced |= time - first >= 0.3;
+                last = time;
             }
             PlayerEvent::Error(error) => panic!("generated media failed: {error}"),
             PlayerEvent::EndFile { reason, .. } => panic!("ended before checks: {reason:?}"),
@@ -130,17 +133,36 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
         }
     }
     player.set_pause(true).unwrap();
-    wait(&events, |event| *event == PlayerEvent::Pause(true));
-    requests.send(()).unwrap();
-    let first = clock.recv_timeout(Duration::from_secs(3)).unwrap();
-    let paused_at = Instant::now();
+    let next = || {
+        events
+            .recv_timeout(Duration::from_secs(15))
+            .map(|event| {
+                assert!(!matches!(event, PlayerEvent::Error(_)), "{event:?}");
+                event
+            })
+            .unwrap()
+    };
+    loop {
+        match next() {
+            PlayerEvent::TimePos(Some(time)) => last = time,
+            PlayerEvent::Pause(true) => break,
+            _ => {}
+        }
+    }
     thread::sleep(Duration::from_millis(500));
-    requests.send(()).unwrap();
-    let last = clock.recv_timeout(Duration::from_secs(3)).unwrap();
-    assert!(paused_at.elapsed() >= Duration::from_millis(500));
-    assert!((last - first).abs() < 0.01, "paused clock advanced");
-    drop(requests);
-    clock_thread.join().unwrap();
+    player.set_pause(false).unwrap();
+    while next() != PlayerEvent::Pause(false) {}
+    let resumed = loop {
+        if let PlayerEvent::TimePos(Some(time)) = next() {
+            break time;
+        }
+    };
+    assert!(
+        resumed - last < 0.1,
+        "paused clock advanced: {last} -> {resumed}"
+    );
+    player.set_pause(true).unwrap();
+    wait(&events, |event| *event == PlayerEvent::Pause(true));
     player.seek(2.0, SeekMode::Absolute).unwrap();
     wait(
         &events,
@@ -273,4 +295,24 @@ fn close_while_network_load_is_pending_is_bounded() {
     }
     drop(release);
     server_thread.join().unwrap();
+}
+
+#[test]
+fn extra_options_cannot_reach_wid_or_load_configuration() {
+    let Some(directory) = std::env::var_os("PANORAMA_LIBMPV_DIR") else {
+        eprintln!("SKIPPED libmpv integration test: PANORAMA_LIBMPV_DIR is unset");
+        return;
+    };
+    let library = Mpv::load_library(Some(&PathBuf::from(directory))).unwrap();
+    for name in ["wid", "include", "config", "config-dir", "profile"] {
+        let options = PlayerOptions {
+            wid: None,
+            extra: vec![(name.into(), "1".into())],
+        };
+        assert_eq!(
+            library.create(options).err(),
+            Some(MpvError::InvalidArgument),
+            "{name}"
+        );
+    }
 }

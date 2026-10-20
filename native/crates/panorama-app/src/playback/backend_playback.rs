@@ -34,10 +34,7 @@ impl Playback for NativePlayback {
             .library
             .create(PlayerOptions {
                 wid: window,
-                extra: subtitle_fonts(self.fonts.as_deref())
-                    .into_iter()
-                    .chain([("cache-pause-wait".into(), "5".into())])
-                    .collect(),
+                extra: init_options(self.fonts.as_deref()),
             })
             .map_err(PlaybackError::from)?;
         self.events = Some(player.events().map_err(PlaybackError::from)?);
@@ -62,7 +59,7 @@ impl Playback for NativePlayback {
         }
         match command {
             Command::SetPaused(paused) => player.set_pause(*paused),
-            Command::TogglePause => player.command(&["cycle", "pause"]),
+            Command::TogglePause => player.toggle_pause(),
             Command::Seek(seconds) => player.seek(*seconds, SeekMode::Absolute),
             Command::SeekRelative(seconds) => player.seek(*seconds, SeekMode::Relative),
             Command::SetVolume(volume) => player.set_volume(f64::from((*volume).min(100))),
@@ -216,9 +213,10 @@ impl Playback for NativePlayback {
     }
 }
 
-/// Init options that make libass load the bundled faces before any subtitle renders.
-fn subtitle_fonts(dir: Option<&std::path::Path>) -> Vec<(String, String)> {
-    dir.and_then(std::path::Path::to_str)
+/// Init options, including the bundled faces libass loads before any subtitle renders.
+fn init_options(fonts: Option<&std::path::Path>) -> Vec<(String, String)> {
+    fonts
+        .and_then(std::path::Path::to_str)
         .map(|dir| {
             vec![
                 ("sub-fonts-dir".into(), dir.into()),
@@ -226,6 +224,9 @@ fn subtitle_fonts(dir: Option<&std::path::Path>) -> Vec<(String, String)> {
             ]
         })
         .unwrap_or_default()
+        .into_iter()
+        .chain([("cache-pause-wait".into(), "5".into())])
+        .collect()
 }
 
 async fn wait_for_close(
@@ -269,6 +270,43 @@ mod tests {
                 .await
                 .is_ok()
             );
+        }
+    }
+
+    #[test]
+    fn init_options_are_all_accepted_by_the_mpv_host() {
+        let names: Vec<_> = init_options(Some(std::path::Path::new("/fonts")))
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, ["sub-fonts-dir", "sub-font", "cache-pause-wait"]);
+        for name in &names {
+            assert!(
+                panorama_mpv::EXTRA_OPTIONS.contains(&name.as_str()),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_properties_are_all_accepted_by_the_mpv_host() {
+        let settings = crate::playback::output::PlaybackSettings::default();
+        let output = crate::playback::output::properties(&settings, &[], true);
+        let names: Vec<_> = output.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            names,
+            [
+                "audio-spdif",
+                "audio-device",
+                "audio-channels",
+                "audio-spdif",
+                "target-colorspace-hint",
+                "target-prim",
+                "target-trc"
+            ]
+        );
+        for name in names.into_iter().chain(["mute", "sub-visibility"]) {
+            assert!(panorama_mpv::PROPERTIES.contains(&name), "{name}");
         }
     }
 }

@@ -21,8 +21,9 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub struct Mpv;
 
 impl Mpv {
-    /// Loads only the canonical full DLL path. `None` selects the executable's
-    /// directory; this does not search PATH or read `PANORAMA_LIBMPV_DIR` implicitly.
+    /// Loads only the canonical full library path. `None` selects the executable's
+    /// directory (on macOS, the bundle's `Frameworks` first); this does not search
+    /// PATH or read `PANORAMA_LIBMPV_DIR` implicitly.
     /// Filesystem access and the OS loader are synchronous startup operations.
     pub fn load_library(dir: Option<&Path>) -> Result<MpvLibrary, MpvError> {
         Api::load(dir).map(|api| MpvLibrary { api })
@@ -58,7 +59,9 @@ impl MpvLibrary {
     /// `Ready` confirms initialization. Commands may be queued before readiness.
     pub fn create(&self, options: PlayerOptions) -> Result<Player, MpvError> {
         for (name, value) in &options.extra {
-            validate(name)?;
+            if !EXTRA_OPTIONS.contains(&name.as_str()) {
+                return Err(MpvError::InvalidArgument);
+            }
             validate(value)?;
         }
         let (commands, incoming) = mpsc::channel();
@@ -136,7 +139,7 @@ impl Player {
     }
     /// Queues user pause state.
     pub fn set_pause(&self, paused: bool) -> Result<(), MpvError> {
-        self.set_property("pause", paused)
+        self.property("pause", paused)
     }
     /// Queues a finite, exact seek. Absolute positions must be non-negative.
     pub fn seek(&self, seconds: f64, mode: SeekMode) -> Result<(), MpvError> {
@@ -152,13 +155,22 @@ impl Player {
             },
         ])
     }
-    /// Queues a scalar property. Runtime failures arrive as sanitized `Error` events.
+    /// Queues a scalar property named in `PROPERTIES`; others are rejected as
+    /// `InvalidArgument`. Runtime failures arrive as sanitized `Error` events.
     pub fn set_property<T: MpvValue>(&self, name: &str, value: T) -> Result<(), MpvError> {
-        validate(name)?;
-        self.send(Request::Property(name.to_owned(), value.into_mpv_value()?))
+        if !PROPERTIES.contains(&name) {
+            return Err(MpvError::InvalidArgument);
+        }
+        self.property(name, value)
     }
-    /// Queues an argv command, copied before return. Empty argv and NUL are rejected.
-    pub fn command(&self, args: &[&str]) -> Result<(), MpvError> {
+    /// Queues pause toggling.
+    pub fn toggle_pause(&self) -> Result<(), MpvError> {
+        self.command(&["cycle", "pause"])
+    }
+    /// Queues an internal argv command, copied before return. Callers outside this
+    /// crate use typed methods: mpv's command grammar (prefixes, quoting, per-file
+    /// option lists) could otherwise reach `wid`.
+    fn command(&self, args: &[&str]) -> Result<(), MpvError> {
         if args.is_empty() {
             return Err(MpvError::InvalidArgument);
         }
@@ -182,7 +194,7 @@ impl Player {
         if !(0.0..=100.0).contains(&volume) {
             return Err(MpvError::InvalidArgument);
         }
-        self.set_property("volume", volume)
+        self.property("volume", volume)
     }
     /// Applies the Electron subtitle fallback style in one ordered batch.
     /// Text cue rendering in PR 3.3 may override mpv visibility explicitly.
@@ -201,10 +213,14 @@ impl Player {
         if id.is_some_and(|id| id <= 0) {
             return Err(MpvError::InvalidArgument);
         }
-        self.set_property(
+        self.property(
             name,
             id.map(|id| id.to_string()).unwrap_or_else(|| "no".into()),
         )
+    }
+
+    fn property<T: MpvValue>(&self, name: &str, value: T) -> Result<(), MpvError> {
+        self.send(Request::Property(name.to_owned(), value.into_mpv_value()?))
     }
 
     fn send(&self, request: Request) -> Result<(), MpvError> {
@@ -321,6 +337,32 @@ fn run(
     }
     Some(client)
 }
+
+/// Options `PlayerOptions::extra` accepts. On macOS mpv dereferences `wid` as the
+/// surface lease, and `include`, `profile`, `config-dir` or an IPC client can rewrite
+/// it, so callers get closed lists rather than mpv's option and command grammar.
+pub const EXTRA_OPTIONS: &[&str] = &[
+    "ao",
+    "audio-files",
+    "cache-pause-wait",
+    "http-proxy",
+    "keep-open",
+    "sub-font",
+    "sub-fonts-dir",
+    "vo",
+];
+
+/// Properties `Player::set_property` accepts; see `EXTRA_OPTIONS`.
+pub const PROPERTIES: &[&str] = &[
+    "audio-channels",
+    "audio-device",
+    "audio-spdif",
+    "mute",
+    "sub-visibility",
+    "target-colorspace-hint",
+    "target-prim",
+    "target-trc",
+];
 
 fn validate(value: &str) -> Result<(), MpvError> {
     if value.contains('\0') {
