@@ -59,6 +59,14 @@ impl<K: Eq, V> ByteLru<K, V> {
         self.entries.push_back(entry);
         self.entries.back().map(|entry| &entry.1)
     }
+    /// Newest entry matching `matches`, read without changing eviction order.
+    pub fn latest(&self, matches: impl Fn(&K) -> bool) -> Option<&V> {
+        self.entries
+            .iter()
+            .rev()
+            .find(|entry| matches(&entry.0))
+            .map(|entry| &entry.1)
+    }
     /// Insert while disposing replacements, oversized values and every eviction.
     pub fn insert(&mut self, key: K, value: V, bytes: usize, mut drop_image: impl FnMut(V)) {
         if let Some(index) = self.entries.iter().position(|entry| entry.0 == key)
@@ -190,9 +198,12 @@ impl ImageCache {
                 Instant::now().duration_since(entry.loaded) < crate::theme::DURATION_STANDARD;
             return Some(entry.clone());
         }
+        // A resize changes the size bucket every few pixels; show the same image at its last
+        // size until this one decodes, otherwise the artwork blanks for the whole drag.
+        let stale = self.lru.latest(|cached| cached.url == key.url).cloned();
         if self.failed.contains(&key) || self.pending.contains_key(&key) || self.pending.len() >= 6
         {
-            return None;
+            return stale;
         }
         let loader = services.images.clone()?;
         let request = ImageRequest {
@@ -222,12 +233,14 @@ impl ImageCache {
                         match result {
                             Ok(image) => {
                                 let bytes = image.as_bytes(0).map_or(0, |b| b.len());
+                                // A resized copy of an image already shown must not fade in again.
+                                let loaded = cache
+                                    .lru
+                                    .latest(|cached| cached.url == completed.url)
+                                    .map_or_else(Instant::now, |entry| entry.loaded);
                                 cache.lru.insert(
                                     completed,
-                                    CachedImage {
-                                        image,
-                                        loaded: Instant::now(),
-                                    },
+                                    CachedImage { image, loaded },
                                     bytes,
                                     |entry| {
                                         cx.drop_image(entry.image, Some(window));
@@ -244,7 +257,7 @@ impl ImageCache {
             }
         });
         self.pending.insert(key, task);
-        None
+        stale
     }
     /// Explicitly remove renderer atlas entries when a route is released.
     pub fn clear(&mut self, cx: &mut gpui::App) {
@@ -273,6 +286,15 @@ mod tests {
         ] {
             assert_eq!(bucket(logical, scale), expected);
         }
+    }
+    #[test]
+    fn latest_returns_newest_match_without_touching_order() {
+        let mut cache = ByteLru::new(100);
+        cache.insert(("a", 64), "a-small", 1, |_| {});
+        cache.insert(("b", 64), "b", 1, |_| {});
+        cache.insert(("a", 128), "a-large", 1, |_| {});
+        assert_eq!(cache.latest(|key| key.0 == "a"), Some(&"a-large"));
+        assert_eq!(cache.latest(|key| key.0 == "c"), None);
     }
     #[test]
     fn eviction_calls_disposer_and_accounts_every_byte() {

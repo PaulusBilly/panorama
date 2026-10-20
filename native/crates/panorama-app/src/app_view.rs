@@ -175,6 +175,7 @@ impl Render for AppShell {
         }
         div()
             .id("panorama-shell")
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -295,13 +296,26 @@ impl Render for AppShell {
                     cx.stop_propagation();
                 }),
             )
-            .when(!window.is_fullscreen(), |shell| {
-                shell.child(
-                    self.titlebar
-                        .render(self.theme, self.keyboard_navigation, window),
-                )
-            })
+            // Windows stacks its caption above the page; macOS overlays a drag strip on top of it.
+            .when(
+                !cfg!(target_os = "macos") && !window.is_fullscreen(),
+                |shell| {
+                    shell.child(
+                        self.titlebar
+                            .render(self.theme, self.keyboard_navigation, window),
+                    )
+                },
+            )
             .child(body)
+            .when(
+                cfg!(target_os = "macos") && !window.is_fullscreen(),
+                |shell| {
+                    shell.child(
+                        self.titlebar
+                            .render(self.theme, self.keyboard_navigation, window),
+                    )
+                },
+            )
             .when_some(self.login.clone(), |shell, login| shell.child(login))
     }
 }

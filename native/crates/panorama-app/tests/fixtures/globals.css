@@ -24,7 +24,7 @@
   --theme-hero-bottom: oklch(0.05 0 0 / 0.82);
   --theme-hero-copy-fade: oklch(0.03 0 0 / 0.4);
   --theme-artwork-fade: oklch(0.12 0 0 / 0.58);
-  --theme-artwork-empty: #FECD00;
+  --theme-artwork-empty: oklch(0.16 0 0);
   --theme-skeleton-fade: oklch(0.2 0 0 / 0.28);
   --theme-player-canvas: oklch(0.08 0 0);
   --theme-player-ink: oklch(0.985 0 0);

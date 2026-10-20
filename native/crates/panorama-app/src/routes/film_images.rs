@@ -1,48 +1,29 @@
 use super::*;
 use crate::image_cache::render_image;
-use futures::{StreamExt, channel::mpsc};
 
 impl Film {
+    /// The overlay is a smooth gradient, so it is rasterized at 1/8 logical size and stretched;
+    /// that is cheap enough to draw on the first frame instead of arriving after the page.
     pub(super) fn ensure_overlay(
         &mut self,
         view: ViewSettings,
-        window: &Window,
-        cx: &mut Context<Self>,
+        window: &mut Window,
+        cx: &mut gpui::App,
     ) {
-        let scale = window.scale_factor();
         let size = (
-            (view.width * scale).ceil().min(4096.0) as u32,
-            (view.height * scale).ceil().min(4096.0) as u32,
+            (view.width / 8.0).ceil().clamp(8.0, 512.0) as u32,
+            (view.height / 8.0).ceil().clamp(8.0, 512.0) as u32,
         );
-        if size == self.overlay_size {
+        if size == self.overlay_size && self.overlay.is_some() {
             return;
         }
-        let Some(services) = self.state.read(cx).services.clone() else {
+        let Ok(image) = render_image(crate::film_overlay::overlay(size.0, size.1)) else {
             return;
         };
         self.overlay_size = size;
-        let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                render_image(crate::film_overlay::overlay(size.0, size.1))
-            })
-            .await;
-            let _ = sender.unbounded_send(result.ok().and_then(Result::ok));
-        }));
-        self.overlay_task = Some(cx.spawn_in(window, async move |entity, cx| {
-            let _job = job;
-            if let Some(image) = receiver.next().await {
-                let _ = cx.update(|window, cx| {
-                    entity.update(cx, |film, cx| {
-                        if let Some(old) = film.overlay.take() {
-                            cx.drop_image(old, Some(window));
-                        }
-                        film.overlay = image;
-                        cx.notify();
-                    })
-                });
-            }
-        }));
+        if let Some(old) = self.overlay.replace(image) {
+            cx.drop_image(old, Some(window));
+        }
     }
     pub(super) fn image(
         &self,

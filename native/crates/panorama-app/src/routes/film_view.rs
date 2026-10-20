@@ -211,7 +211,13 @@ impl Render for Film {
             ));
         }
         if let Some(overlay) = &self.overlay {
-            page = page.child(img(overlay.clone()).absolute().inset_0().size_full());
+            page = page.child(
+                img(overlay.clone())
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(gpui::ObjectFit::Fill),
+            );
         }
         let metadata = self.metadata.clone();
         if let Some(meta) = &metadata {

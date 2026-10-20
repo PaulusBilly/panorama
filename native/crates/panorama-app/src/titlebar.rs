@@ -1,11 +1,12 @@
 //! Platform caption chrome with native Windows hit testing.
+#[cfg(not(target_os = "macos"))]
 use crate::assets::Weighted;
 use crate::theme::Theme;
 #[cfg(not(target_os = "macos"))]
 use crate::theme::focus_ring;
 #[cfg(not(target_os = "macos"))]
-use gpui::{App, FocusHandle, MouseButton, WindowControlArea, svg};
-use gpui::{Context, Div, Window, div, prelude::*, px, rgb};
+use gpui::{App, FocusHandle, MouseButton, WindowControlArea, rgb, svg};
+use gpui::{Context, Div, Window, div, prelude::*, px};
 
 /// Retained keyboard focus for native caption controls.
 pub struct Titlebar {
@@ -171,30 +172,21 @@ impl Titlebar {
     /// macOS keeps system traffic lights and native dragging.
     #[cfg(target_os = "macos")]
     pub fn render(&self, _: Theme, _: bool, _: &Window) -> Div {
+        // Content runs under the transparent native titlebar; this strip only restores dragging
+        // and the system double-click action, since the window owns titlebar drags.
         div()
-            .h(px(38.0))
+            .absolute()
+            .top_0()
+            .left_0()
             .w_full()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(gpui::Rgba {
-                a: 0.96,
-                ..rgb(0x19191b)
+            .h(px(28.0))
+            .on_mouse_down(gpui::MouseButton::Left, |event, window, _| {
+                if event.click_count == 2 {
+                    window.titlebar_double_click();
+                } else {
+                    window.start_window_move();
+                }
             })
-            .text_color(gpui::Rgba {
-                a: 0.88,
-                ..rgb(0xffffff)
-            })
-            .border_b_1()
-            .border_color(gpui::Rgba {
-                a: 0.1,
-                ..rgb(0xffffff)
-            })
-            .text_size(px(13.0))
-            .weight(gpui::FontWeight::MEDIUM)
-            .line_height(px(13.0))
-            .child("Panorama")
     }
 }
 

@@ -43,10 +43,10 @@ cap-std = "=4.0.3"
 cap-primitives = "=4.0.3"
 same-file = "=1.0.6"
 anyhow = "=1.0.104"
-gpui = { package = "gpui-pre", version = "=0.3.8" }
-gpui-component = "=0.7.1"
+gpui = { package = "gpui-pre", version = "=0.3.9" }
+gpui-component = "=0.7.3"
 # font-kit: without it macOS falls back to a no-op text system and renders no text.
-gpui-platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit"] }
+gpui-platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["font-kit"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -57,3 +57,7 @@ all = "warn"
 # stremio-core's bitfield crate pins flate2 to 1.0.x, which conflicts with GPUI. See vendor/README.md.
 [patch."https://github.com/Stremio/stremio-core"]
 stremio-watched-bitfield = { path = "vendor/stremio-watched-bitfield" }
+
+# Optimize dependencies (image decoding, JSON, GPUI) in dev builds; workspace crates stay fast to rebuild.
+[profile.dev.package."*"]
+opt-level = 3

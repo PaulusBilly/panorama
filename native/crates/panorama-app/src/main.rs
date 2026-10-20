@@ -78,12 +78,19 @@ fn main() -> ExitCode {
             let bounds = Bounds::centered(None, size(px(args.size.0), px(args.size.1)), cx);
             let result = cx.open_window(
                 WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    // Screenshots need the exact --size; a normal launch fills the screen without entering full screen.
+                    window_bounds: Some(if args.screenshot.is_some() {
+                        WindowBounds::Windowed(bounds)
+                    } else {
+                        WindowBounds::Maximized(bounds)
+                    }),
                     window_min_size: Some(if capture_requested {
                         size(px(320.0), px(320.0))
                     } else {
                         size(px(960.0), px(600.0))
                     }),
+                    // macOS drags come from the titlebar strip, so AppKit adds no double-click delay.
+                    app_owns_titlebar_drag: true,
                     titlebar: Some(TitlebarOptions {
                         title: Some("Panorama".into()),
                         appears_transparent: true,

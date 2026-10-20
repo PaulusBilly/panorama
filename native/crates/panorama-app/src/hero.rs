@@ -100,7 +100,14 @@ pub fn render(
         ));
     }
     if let Some(overlay) = props.overlay {
-        hero = hero.child(img(overlay).absolute().inset_0().size_full());
+        // Stretch, not contain: a bucketed or still-rendering overlay must always cover the hero.
+        hero = hero.child(
+            img(overlay)
+                .absolute()
+                .inset_0()
+                .size_full()
+                .object_fit(gpui::ObjectFit::Fill),
+        );
     }
     if let Some(film) = props.film {
         let measure = |text: &str, size: f32, weight: FontWeight| {

@@ -170,10 +170,9 @@ impl Home {
         ViewSettings {
             width: f32::from(window.viewport_size().width),
             height: f32::from(window.viewport_size().height)
-                - if window.is_fullscreen() {
+                // The macOS titlebar is transparent and overlays the page.
+                - if window.is_fullscreen() || cfg!(target_os = "macos") {
                     0.0
-                } else if cfg!(target_os = "macos") {
-                    38.0
                 } else {
                     32.0
                 },
@@ -185,9 +184,10 @@ impl Home {
     }
     fn ensure_overlay(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) {
         let scale = window.scale_factor();
+        // The overlay is stretched to the hero, so redraw it per 64px bucket rather than per pixel of a resize.
         let size = (
-            (view.width * scale).ceil().min(4096.0) as u32,
-            (view.height * scale).ceil().min(4096.0) as u32,
+            crate::image_cache::bucket(view.width, scale),
+            crate::image_cache::bucket(view.height, scale),
         );
         if size == self.overlay_size {
             return;

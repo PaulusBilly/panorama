@@ -104,7 +104,7 @@ impl Theme {
             hero_bottom: oklch(0.05, 0.0, 0.0, 0.82),
             hero_copy_fade: oklch(0.03, 0.0, 0.0, 0.4),
             artwork_fade: oklch(0.12, 0.0, 0.0, 0.58),
-            artwork_empty: hex(0xfecd00),
+            artwork_empty: oklch(0.16, 0.0, 0.0, 1.0),
             skeleton_fade: oklch(0.2, 0.0, 0.0, 0.28),
             player_canvas: oklch(0.08, 0.0, 0.0, 1.0),
             player_ink: oklch(0.985, 0.0, 0.0, 1.0),

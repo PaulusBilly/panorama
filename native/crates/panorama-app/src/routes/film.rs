@@ -57,7 +57,6 @@ pub struct Film {
     images: Entity<ImageCache>,
     overlay: Option<Arc<RenderImage>>,
     overlay_size: (u32, u32),
-    overlay_task: Option<Task<()>>,
     details_task: Option<Task<()>>,
     sources_task: Option<Task<()>>,
     library_task: Option<Task<()>>,
@@ -150,7 +149,6 @@ impl Film {
             images,
             overlay: None,
             overlay_size: (0, 0),
-            overlay_task: None,
             details_task: None,
             sources_task: None,
             library_task: None,
@@ -182,10 +180,9 @@ impl Film {
         ViewSettings {
             width: f32::from(window.viewport_size().width),
             height: f32::from(window.viewport_size().height)
-                - if window.is_fullscreen() {
+                // The macOS titlebar is transparent and overlays the page.
+                - if window.is_fullscreen() || cfg!(target_os = "macos") {
                     0.0
-                } else if cfg!(target_os = "macos") {
-                    38.0
                 } else {
                     32.0
                 },
