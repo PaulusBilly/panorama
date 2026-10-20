@@ -35,3 +35,4 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build -p panorama-app --release --locked
+      - run: pwsh scripts/stage-windows-libmpv.ps1

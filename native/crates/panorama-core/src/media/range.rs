@@ -1,4 +1,4 @@
-//! Representation validation ported from `desktop/main/media-range.ts`.
+//! Representation validation.
 
 use super::MediaError;
 use http::HeaderMap;

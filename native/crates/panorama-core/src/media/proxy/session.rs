@@ -1,4 +1,4 @@
-//! Session state and probing ported from `desktop/main/media-proxy.ts`.
+//! Session state and probing.
 
 use super::{CHUNK_BYTES, MediaProxyStats, ProxyOptions};
 use super::{EventSink, MediaProxyEvent};

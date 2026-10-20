@@ -1,8 +1,6 @@
 //! Watch progress, resume points and the watchlist, driven through the core.
 //!
-//! Progress goes through the core's `Player` model exactly as the Electron
-//! runtime drives it (`runtime/stremio-core-runtime.ts`: `dispatchPlayerAction`,
-//! `flushPlaybackProgress`, `PROGRESS_SYNC_INTERVAL_SECONDS`). The core owns
+//! Progress goes through the core's `Player` model. The core owns
 //! library-item creation, the watched threshold, local persistence through the
 //! Env storage and the network sync. Like the TS runtime, every progress call is
 //! a no-op while signed out: nothing is recorded locally or remotely, and

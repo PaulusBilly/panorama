@@ -40,7 +40,7 @@ pub struct PhysicalRect {
     pub height: i32,
 }
 
-/// Initialization options; overrides are applied after the Electron defaults.
+/// Initialization options; overrides are applied after the defaults.
 #[derive(Default)]
 pub struct PlayerOptions {
     /// Owned child-window lease; `None` is suitable for null-output tests.

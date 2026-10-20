@@ -112,7 +112,7 @@ pub fn rating(score: Option<&str>, votes: Option<u64>) -> Option<String> {
     (score.is_finite() && score > 0.0 && votes != Some(0)).then(|| format!("{score:.1}"))
 }
 
-/// Electron's locale-independent English vote-count display.
+/// Locale-independent English vote-count display.
 pub fn rating_count(count: u64) -> String {
     let text = count.to_string();
     let mut grouped = String::new();
@@ -208,7 +208,7 @@ pub fn format_time_left(offset: f64, duration: Option<f64>) -> Option<String> {
 #[cfg(test)]
 mod time_left_tests {
     #[test]
-    fn electron_time_left_rounding_and_bounds() {
+    fn time_left_rounding_and_bounds() {
         for (offset, duration, expected) in [
             (0.0, None, None),
             (0.0, Some(0.0), None),

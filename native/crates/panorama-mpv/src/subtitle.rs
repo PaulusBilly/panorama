@@ -1,8 +1,7 @@
 use crate::{MpvError, MpvValue, PropertyValue};
 use std::path::PathBuf;
 
-/// mpv fallback subtitle preferences from `desktop/main/main.ts` and the shared
-/// writable-property contract. Renderer-only CSS geometry belongs to PR 3.3.
+/// mpv fallback subtitle preferences and the writable-property contract. Renderer-only CSS geometry belongs to PR 3.3.
 #[derive(Clone, Debug)]
 pub struct SubtitleStyle {
     /// Font family name as libass matches it (name ID 1 of the bundled Aspekta faces).
@@ -23,7 +22,7 @@ pub struct SubtitleStyle {
     pub border_color: String,
     /// Bold fallback text.
     pub bold: bool,
-    /// Non-negative shadow offset; Electron uses 10.
+    /// Non-negative shadow offset; the default is 10.
     pub shadow_offset: f64,
 }
 
@@ -82,7 +81,7 @@ impl SubtitleStyle {
 mod tests {
     use super::*;
     #[test]
-    fn fallback_matches_electron_and_rejects_nonfinite_values() {
+    fn fallback_defaults_and_rejects_nonfinite_values() {
         let values = SubtitleStyle::default().properties().unwrap();
         assert!(
             values.iter().any(|(n, v)| n == "sub-font"

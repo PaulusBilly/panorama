@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn shortcuts_match_the_electron_player() {
+    fn shortcuts() {
         let mut model = PlaybackModel::new("Film".into(), SourceRef::default());
         model.volume = 95;
         for (key, expected) in [

@@ -135,7 +135,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wait_estimate_matches_the_electron_cases() {
+    fn wait_estimate_cases() {
         let close = |value: Option<f64>, expected: f64| {
             assert!((value.unwrap() - expected).abs() < 0.05, "{value:?}");
         };

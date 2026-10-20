@@ -1,4 +1,4 @@
-//! Retry-After parsing ported from `desktop/main/media-retry.ts`.
+//! Retry-After parsing.
 
 use super::range::MAX_SAFE_INTEGER;
 use std::time::UNIX_EPOCH;

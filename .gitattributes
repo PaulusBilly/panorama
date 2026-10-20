@@ -1,1 +1,1 @@
-patches/*.patch whitespace=-blank-at-eol
+native/libmpv/patches/*.patch whitespace=-blank-at-eol

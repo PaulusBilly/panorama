@@ -196,7 +196,7 @@ impl Player {
         }
         self.property("volume", volume)
     }
-    /// Applies the Electron subtitle fallback style in one ordered batch.
+    /// Applies the subtitle fallback style in one ordered batch.
     /// Text cue rendering in PR 3.3 may override mpv visibility explicitly.
     pub fn set_subtitle_style(&self, style: crate::SubtitleStyle) -> Result<(), MpvError> {
         self.send(Request::Properties(style.properties()?))

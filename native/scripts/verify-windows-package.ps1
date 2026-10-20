@@ -9,7 +9,7 @@ $appDir = Join-Path $native 'crates/panorama-app'
 $pkgDir = Join-Path $native 'target/package'
 $version = (Select-String -Path (Join-Path $appDir 'Cargo.toml') -Pattern '^\s*version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
 $zip = Join-Path $pkgDir "panorama-$version-windows-x64.zip"
-$noticesDir = Join-Path $repo ((Get-Content -Raw (Join-Path $repo 'desktop/native/mpv-host/windows-libmpv.json') | ConvertFrom-Json).noticesDirectory)
+$noticesDir = Join-Path $repo ((Get-Content -Raw (Join-Path $repo 'native/libmpv/windows.json') | ConvertFrom-Json).noticesDirectory)
 
 # Same stage lookup as package-windows.ps1 (this checkout, else the main checkout of a worktree).
 $stageRel = '.cache/panorama/windows-libmpv/current/libmpv-2.dll'

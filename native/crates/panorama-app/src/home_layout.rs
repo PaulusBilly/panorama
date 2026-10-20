@@ -7,7 +7,7 @@ pub struct Grid {
     pub width: f32,
 }
 impl Grid {
-    /// Compute the exact Electron grid at each breakpoint.
+    /// Compute the grid at each breakpoint.
     pub fn at(viewport: f32) -> Self {
         let (columns, width): (usize, f32) = if viewport >= 1640.0 {
             (4, 372.0)

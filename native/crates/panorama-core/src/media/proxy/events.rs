@@ -1,4 +1,4 @@
-//! Sanitized diagnostics ported from `desktop/main/media-proxy.ts`.
+//! Sanitized diagnostics.
 use crate::media::MediaError;
 use std::sync::Arc;
 

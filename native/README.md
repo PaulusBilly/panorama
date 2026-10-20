@@ -15,7 +15,7 @@ cargo run -p panorama-app
 cargo test --workspace
 ```
 
-The Electron app remains the shipping app.
+The Electron and Next.js app it replaced has been removed; this is the only app.
 
 ## Dependencies
 
@@ -179,7 +179,7 @@ update those handles. Bound Tab actions bypass raw key handlers, so a keystroke
 observer updates focus visibility. GPUI clears keyboard modality on mouse movement;
 the shell keeps focus rings visible until pointer-down, matching Electron. Rings use
 border overlays because GPUI drop shadows fill transparent control interiors.
-The CSS drift tests fall back to the fixture when the Electron stylesheet is absent.
+The token tests read `tests/fixtures/globals.css`, a frozen copy of the retired web stylesheet.
 
 ## Images
 
@@ -267,7 +267,7 @@ in the app crate.
 | --- | --- |
 | `player.rs` | Safe command API, event worker, asynchronous close and teardown deadline |
 | `types.rs`, `error.rs` | Copied public values and static sanitized errors |
-| `options.rs` | Electron defaults and source-drift test |
+| `options.rs` | mpv initialization options per platform |
 | `events.rs` | Owned node parsing, track/device lists and buffering snapshots |
 | `subtitle.rs` | mpv fallback subtitle preference batch |
 | `ffi.rs`, `ffi/{nodes,receive}.rs` | Dynamic C ABI and copying event payloads; unsafe confined here |
@@ -329,41 +329,14 @@ Never log load URLs, especially debrid URLs and loopback session tokens.
 Error and end-file diagnostics contain only static kinds, never raw mpv error
 strings or log messages. The crate does not subscribe to mpv logs.
 
-### Exact Electron options
+### mpv options
 
-Source: `desktop/native/mpv-host/src/addon_win.cc`; applied in this exact order
-before initialization. `extra` overrides follow `wid`. The unit test extracts
-every literal `SetOption`/`TrySetOption` pair from the C++ file and checks the
-entire ordered Rust list, including which options are best effort.
-
-| C++ line | Option | Value | Requirement |
-| --- | --- | --- | --- |
-| 173 | terminal | no | required |
-| 174 | msg-level | all=warn | required |
-| 175 | keep-open | yes | required |
-| 176 | hr-seek | default | required |
-| 177 | vo | gpu-next | required |
-| 178 | gpu-api | d3d11 | required |
-| 179 | gpu-context | d3d11 | required |
-| 180 | target-colorspace-hint | auto | required |
-| 181 | hwdec | d3d11va,auto-safe | required |
-| 182 | cache | yes | required |
-| 183 | demuxer-max-bytes | 512MiB | required |
-| 184 | demuxer-max-back-bytes | 64MiB | required |
-| 185 | cache-pause | yes | required |
-| 186 | cache-pause-wait | 2 | required |
-| 187 | cache-on-disk | no | required |
-| 188 | demuxer-cache-wait | no | required |
-| 191 | cache-pause-initial | yes | best effort |
-| 192 | network-timeout | 60 | best effort |
-| 193 | osc | no | required |
-| 194 | input-default-bindings | no | required |
-| 195 | input-vo-keyboard | no | required |
-| 196 | audio-client-name | Panorama | required |
-| 197 | wid | retained child HWND decimal value, if present | required |
+`OPTIONS` in `panorama-mpv/src/options.rs` is applied in order before
+initialization, one list per platform; `extra` overrides follow `wid` (the child
+HWND on Windows, the video view on macOS).
 
 The best-effort options tolerate older compatible runtimes. Defaults deliberately
-retain Electron's `keep-open=yes`; EOF integration tests override it to `no`.
+keep `keep-open=yes`; EOF integration tests override it to `no`.
 
 ### Threads and shutdown
 
@@ -400,8 +373,8 @@ and discards the completion receiver. No GPUI thread joins or waits.
 
 ### Subtitles
 
-`PanoramaSubtitleBridge` (`desktop/native/mpv-host/src/subtitle-cue.h`) extracts
-cues; `runtime/subtitle-renderer.ts` draws ordinary text with renderer preferences.
+The retired Electron host's `PanoramaSubtitleBridge` extracted cues and its web
+renderer drew ordinary text with renderer preferences.
 Bitmap and authored ASS subtitles fall back to mpv. Renderer CSS padding, radius,
 line height, font size and opacity have no direct mpv preference port. PR 3.3
 owns custom cue styling and must explicitly choose `sub-visibility`; this host
@@ -411,8 +384,8 @@ for a future bridge. This is not a port of the Electron bridge's authored-ASS
 classification or playback/selection/seek generation filtering; PR 3.3 must retain
 mpv rendering until it can handle those cases safely.
 
-`set_subtitle_style(SubtitleStyle)` supplies the mpv fallback options from
-`desktop/main/main.ts:123-126`, with the font now `sub-font=Aspekta 400` (name ID 1 of the bundled face),
+`set_subtitle_style(SubtitleStyle)` supplies the mpv fallback options of the
+retired Electron app, with the font now `sub-font=Aspekta 400` (name ID 1 of the bundled face),
 `sub-border-style=background-box`, `sub-border-size=0`,
 `sub-shadow-offset=10`; optional `sub-fonts-dir` comes from line 122. It also
 accepts the shared protocol's scale, position, delay, text/background/outline
@@ -694,7 +667,7 @@ the player can distinguish `Disk(Full)` from `NoPeers` while both are stalled.
 - `finish(film_id)` pushes the final position at the duration and sends `Ended`; the core's 70 % watched threshold then marks the film watched. `stop_playback(film_id)` flushes the last position and unloads the player (`stopPlayback`), which pushes the library item.
 - `set_in_library(&FilmMeta, saved)` / `in_library(film_id)`: `AddToLibrary` / `RemoveFromLibrary`; saved means neither removed nor temporary (`normalizeWatchlisted`). The change lands asynchronously; observe `CoreChange::LibraryChanged`.
 
-`panorama_core::discord` ports `desktop/main/discord-presence.ts` and `desktop/shared/discord-presence.ts`. `DiscordPresence::new(&runtime_handle, settings_file, discord_paths(Platform::current(), env), SystemConnector)` starts a task; `update`/`update_value`/`clear`/`set_enabled` only queue work. The transport is a `Connector` trait: `SystemConnector` uses `tokio::net::windows::named_pipe` on `\\?\pipe\discord-ipc-0..9` and Unix sockets in `$XDG_RUNTIME_DIR`/`$TMPDIR`/`$TMP`/`$TEMP`/`/tmp` elsewhere; tests use in-process duplex streams. Presence is opt-in (default off, persisted atomically with owner-only permissions), coalesced to one `SET_ACTIVITY` per 5 s, walks the ten paths on failure then retries every 15 s, drops oversized (over 64 KiB) or error frames, answers PING and fails silently when Discord is not running. Text limits count Unicode scalar values where the TS counted UTF-16 units. Tokio gained the `net` and `io-util` features (no new crate).
+`panorama_core::discord` ports the Electron app's Discord presence. `DiscordPresence::new(&runtime_handle, settings_file, discord_paths(Platform::current(), env), SystemConnector)` starts a task; `update`/`update_value`/`clear`/`set_enabled` only queue work. The transport is a `Connector` trait: `SystemConnector` uses `tokio::net::windows::named_pipe` on `\\?\pipe\discord-ipc-0..9` and Unix sockets in `$XDG_RUNTIME_DIR`/`$TMPDIR`/`$TMP`/`$TEMP`/`/tmp` elsewhere; tests use in-process duplex streams. Presence is opt-in (default off, persisted atomically with owner-only permissions), coalesced to one `SET_ACTIVITY` per 5 s, walks the ten paths on failure then retries every 15 s, drops oversized (over 64 KiB) or error frames, answers PING and fails silently when Discord is not running. Text limits count Unicode scalar values where the TS counted UTF-16 units. Tokio gained the `net` and `io-util` features (no new crate).
 
 | TS test (`tests/unit/discord-presence.test.ts`) | Rust test (`discord::tests`) |
 | --- | --- |
@@ -1013,18 +986,17 @@ logged; manifest text is shown as plain text and length-capped. Fixture flags:
 
 ## Playback on macOS
 
-macOS uses the Electron app's patched libmpv: `gpu-next` renders through MoltenVK
+macOS uses a patched libmpv (`native/libmpv/`): `gpu-next` renders through MoltenVK
 into a `CAMetalLayer` that mpv reaches through `wid` and the `panorama-macvk` GPU
 context, and VideoToolbox decodes with zero-copy interop. The layer's view sits
 below GPUI's view in the window's content view, so the player route's transparent
-frame shows video beneath the controls. `options.rs` matches `addon.mm` and a test
-fails if the two drift.
+frame shows video beneath the controls.
 
 Build the runtime once (Apple Silicon; needs `cmake`, `ninja`,
 `nasm` and `pkg-config` from Homebrew), then stage it for development:
 
 ```sh
-python3 desktop/scripts/build-macos-libmpv.py
+python3 native/scripts/build-macos-libmpv.py
 native/scripts/stage-macos-libmpv.sh
 cd native
 PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo test -p panorama-mpv
@@ -1045,14 +1017,14 @@ then signs it ad hoc. Build the runtime first, as above.
 
 ## Packaging (Windows)
 
-Run from the repository root with PowerShell 7 (packaging runs locally; there is no CI workflow):
+Run from the repository root with PowerShell 7 (packaging runs locally; CI only checks the libmpv stage):
 
 ```powershell
 pwsh native/scripts/package-windows.ps1
 pwsh native/scripts/verify-windows-package.ps1
 ```
 
-`package-windows.ps1` builds `panorama-app` in release mode with `--locked`, reuses the staged libmpv from `.cache/panorama/windows-libmpv/` (running `desktop/scripts/stage-windows-libmpv.mjs` only if it is missing), and writes `native/target/package/panorama-<version>-windows-x64.zip` plus a `.sha256` file.
+`package-windows.ps1` builds `panorama-app` in release mode with `--locked`, reuses the staged libmpv from `.cache/panorama/windows-libmpv/` (running `native/scripts/stage-windows-libmpv.ps1`, which needs 7-Zip, only if it is missing), and writes `native/target/package/panorama-<version>-windows-x64.zip` plus a `.sha256` file.
 
 The zip contains `panorama.exe`, `libmpv-2.dll`, `BUILD.txt` (git commit, cargo version, libmpv manifest sha256) and `licenses/` (libmpv notices, plus `OFL.txt`, the Tabler icons licence and the repository `LICENSE` once those files exist in the repository; the script warns when one is absent).
 

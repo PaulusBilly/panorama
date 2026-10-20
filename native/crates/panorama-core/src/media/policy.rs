@@ -1,4 +1,4 @@
-//! Measured buffering policy ported from `desktop/main/buffering-policy.ts`.
+//! Measured buffering policy.
 
 /// Player and transport measurements for one policy update.
 #[derive(Clone, Debug)]

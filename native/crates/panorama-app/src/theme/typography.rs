@@ -1,4 +1,4 @@
-//! Atomic type styles matching Electron's utilities.
+//! Atomic type styles.
 use crate::assets::Weighted;
 use gpui::{FontWeight, Styled, px, relative};
 
