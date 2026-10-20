@@ -1,6 +1,6 @@
 use super::*;
 use crate::assets::Weighted;
-use crate::theme::{content_width, focus_ring};
+use crate::theme::{Column, focus_ring};
 use gpui::{Div, Focusable, relative, svg};
 use gpui_component::input::Input;
 
@@ -103,8 +103,8 @@ impl AppShell {
             .overflow_hidden()
             .child(
                 div()
-                    .w(px(content_width(width)))
-                    .mx_auto()
+                    .w(px(Column::at(width).width))
+                    .ml(px(Column::at(width).left))
                     .py(px(if small { 32.0 } else { 40.0 }))
                     .child(
                         div()

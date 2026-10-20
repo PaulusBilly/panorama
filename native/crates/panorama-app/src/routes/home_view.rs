@@ -3,13 +3,13 @@ use crate::{
     film_card::{self, CardProps},
     hero::{self, HeroProps},
     home_layout::Grid,
-    theme::{content_width, focus_ring},
+    theme::focus_ring,
 };
 use gpui::{Div, Render, div, relative};
 
 impl Home {
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {
-        let grid = Grid::at(view.width);
+        let grid = Grid::fit(view.column().width);
         let skeletons = self.films.is_empty()
             && self
                 .search
@@ -35,7 +35,6 @@ impl Home {
             .relative()
             .w(px(grid.total_width()))
             .h(px(height))
-            .mx_auto()
             .mt(px(if self.switcher_visible(cx) { 0.0 } else { 32.0 }))
             .opacity(opacity);
         let films = self.films.clone();
@@ -200,8 +199,8 @@ impl Render for Home {
         let more = self.search.is_none() && state.catalog.as_ref().is_some_and(|p| p.has_more);
         let fetching = state.loading_more;
         let mut section = div()
-            .w(px(content_width(view.width)))
-            .mx_auto()
+            .ml(px(view.column().left))
+            .w(px(view.column().width))
             .pb(px(112.0));
         if self.search.is_some() {
             section = section.child(self.tabs(view, window));

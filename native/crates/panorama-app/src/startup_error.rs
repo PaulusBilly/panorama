@@ -1,6 +1,6 @@
 use crate::{
     assets::{self, Assets},
-    theme::{Theme, Typography, content_width, focus_ring},
+    theme::{Column, Theme, Typography, focus_ring},
 };
 use gpui::{
     Bounds, Context, FocusHandle, Render, Window, WindowBounds, WindowOptions, div, prelude::*, px,
@@ -111,8 +111,8 @@ impl Render for StartupErrorView {
             .font(assets::font())
             .child(
                 div()
-                    .w(px(content_width(width)))
-                    .mx_auto()
+                    .w(px(Column::at(width).width))
+                    .ml(px(Column::at(width).left))
                     .mt(px(32.0))
                     .py(px(22.0))
                     .border_y_1()

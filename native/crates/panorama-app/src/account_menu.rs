@@ -1,7 +1,7 @@
 use crate::{
     app::AppShell,
     router::Route,
-    theme::{content_width, focus_ring, motion::*},
+    theme::{Column, focus_ring, motion::*},
     transition::Tween,
 };
 use gpui::{BoxShadow, Context, Div, FocusHandle, Window, div, point, prelude::*, px, rgba};
@@ -132,7 +132,7 @@ impl AccountMenu {
         } else {
             -6.0 * (1.0 - progress)
         };
-        let inset = ((width - content_width(width)) * 0.5).max(16.0);
+        let inset = Column::at(width).right_inset(width).max(16.0);
         div()
             .absolute()
             .top(px(68.0 + offset))

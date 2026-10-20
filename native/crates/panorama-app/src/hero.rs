@@ -5,7 +5,7 @@ use crate::{
     image_cache::CachedImage,
     router::Route,
     theme::{
-        Theme, content_width, focus_ring,
+        Theme, focus_ring,
         scrim::{Edge, scrim},
     },
 };
@@ -101,7 +101,7 @@ pub fn render(
         } else {
             measure(&film.name.to_uppercase(), 32.0, FontWeight::MEDIUM)
         };
-        let title_width = title_width.min(content_width(view.width));
+        let title_width = title_width.min(view.column().width);
         let mut title = div().flex().flex_col().w(px(title_width));
         if let Some(logo) = props.logo {
             let bounds = logo_bounds.unwrap_or((0.0, 0.0));
@@ -202,8 +202,8 @@ pub fn render(
             div()
                 .relative()
                 .h_full()
-                .w(px(content_width(view.width)))
-                .mx_auto()
+                .w(px(view.column().width))
+                .ml(px(view.column().left))
                 .pt(px((view.height * 0.12).clamp(112.0, 144.0)))
                 .pb(px(40.0))
                 .flex()

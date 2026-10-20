@@ -21,7 +21,7 @@ use crate::{
     args::Args,
     footer::footer,
     image_cache::ImageCache,
-    theme::{Typography, content_width},
+    theme::{Column, Typography},
     transition::Tween,
 };
 use backend::{Backend, Token};
@@ -267,10 +267,11 @@ impl Render for Addons {
             (signed_in(state), state.runtime_error.clone())
         };
         let current = screen(is_signed_in, self.loading, self.load_failed);
-        let container = content_width(view.width);
+        let col = Column::at(view.width);
+        let container = col.width;
         let mut page = div()
             .w(px(container))
-            .mx_auto()
+            .ml(px(col.left))
             .pt(px(56.0))
             .pb(px(112.0))
             .child(

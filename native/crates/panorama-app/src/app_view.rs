@@ -269,7 +269,7 @@ impl Render for AppShell {
                     shell.keyboard_navigation = false;
                     if shell.menu.open {
                         let width = f32::from(window.viewport_size().width);
-                        let inset = (width - crate::theme::content_width(width)) * 0.5;
+                        let inset = crate::theme::Column::at(width).right_inset(width);
                         let x = f32::from(event.position.x);
                         let y = f32::from(event.position.y)
                             - if window.is_fullscreen() { 0.0 } else { 32.0 };

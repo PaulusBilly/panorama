@@ -3,7 +3,7 @@ use crate::assets::Weighted;
 use crate::{
     film_display::{Quality, rating, rating_count},
     hero,
-    theme::{Typography, content_width},
+    theme::Typography,
 };
 use gpui::{Div, FontWeight, Render, div, img, point, prelude::*, px, relative, svg};
 
@@ -230,8 +230,8 @@ impl Render for Film {
                 let mut rating = div()
                     .absolute()
                     .top(px(if view.width <= 700.0 { 80.0 } else { 96.0 }))
-                    .left(px((view.width - content_width(view.width)) * 0.5))
-                    .w(px(content_width(view.width)))
+                    .left(px(view.column().left))
+                    .w(px(view.column().width))
                     .flex()
                     .flex_col()
                     .items_end()
@@ -270,8 +270,8 @@ impl Render for Film {
         }
         let mut content = div()
             .relative()
-            .w(px(content_width(view.width)))
-            .mx_auto()
+            .w(px(view.column().width))
+            .ml(px(view.column().left))
             .min_h(px(view.height))
             .pt(px(if view.width <= 700.0 {
                 176.0

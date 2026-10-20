@@ -1,7 +1,7 @@
 use crate::{
     app::AppShell,
     router::Route,
-    theme::{Theme, content_width, focus_ring},
+    theme::{Column, Theme, focus_ring},
 };
 use gpui::{Context, Div, FocusHandle, Window, div, prelude::*, px, svg};
 
@@ -71,8 +71,8 @@ impl Header {
             .text_color(foreground)
             .child(
                 div()
-                    .w(px(content_width(width)))
-                    .mx_auto()
+                    .w(px(Column::at(width).width))
+                    .ml(px(Column::at(width).left))
                     .pt(px(20.0))
                     .h(px(60.0))
                     .flex()

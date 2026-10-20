@@ -1,4 +1,4 @@
-/// Fixed tile dimensions matching catalogGridClass's strict width queries.
+/// Fixed-size tiles packed into the content column.
 #[derive(Clone, Copy, Debug)]
 pub struct Grid {
     /// Columns in each virtualized row.
@@ -7,26 +7,14 @@ pub struct Grid {
     pub width: f32,
 }
 impl Grid {
-    /// Compute the grid at each breakpoint.
-    pub fn at(viewport: f32) -> Self {
-        let (columns, width): (usize, f32) = if viewport >= 1640.0 {
-            (4, 372.0)
-        } else if viewport >= 1220.0 {
-            (3, 372.0)
-        } else if viewport >= 850.0 {
-            (2, 372.0)
-        } else if viewport >= 720.0 {
-            (2, 335.0)
-        } else {
-            (1, 335.0)
-        };
+    /// Columns that fit: tile 372 (335 when the column is under 760), gap 4, 1..=4 columns.
+    pub fn fit(column_width: f32) -> Self {
+        let tile: f32 = if column_width < 760.0 { 335.0 } else { 372.0 };
+        let columns = (((column_width + 4.0) / (tile + 4.0)).floor() as usize).clamp(1, 4);
         Self {
             columns,
-            width: if viewport < 480.0 {
-                width.min(crate::theme::content_width(viewport))
-            } else {
-                width
-            },
+            // A single column narrower than a tile shrinks the tile rather than overflowing.
+            width: tile.min(column_width.max(0.0)),
         }
     }
     /// FilmCard's 404:245 aspect ratio.
@@ -53,33 +41,31 @@ pub struct ViewSettings {
     pub(crate) keyboard: bool,
     pub(crate) reduced: bool,
 }
+impl ViewSettings {
+    /// The content column for this viewport; derived, never stored.
+    pub fn column(&self) -> crate::theme::Column {
+        crate::theme::Column::at(self.width)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn every_grid_boundary() {
-        for (viewport, columns, width) in [
-            (479.99, 1, 335.0),
-            (480.0, 1, 335.0),
-            (480.01, 1, 335.0),
-            (719.99, 1, 335.0),
-            (720.0, 2, 335.0),
-            (720.01, 2, 335.0),
-            (849.99, 2, 335.0),
-            (850.0, 2, 372.0),
-            (850.01, 2, 372.0),
-            (1219.99, 2, 372.0),
-            (1220.0, 3, 372.0),
-            (1220.01, 3, 372.0),
-            (1639.99, 3, 372.0),
-            (1640.0, 4, 372.0),
-            (1640.01, 4, 372.0),
-            (320.0, 1, 280.0),
+    fn grid_fits_the_column() {
+        for (column, columns, width) in [
+            (280.0, 1, 280.0),
+            (673.0, 1, 335.0),
+            (674.0, 2, 335.0),
+            (759.0, 2, 335.0),
+            (760.0, 2, 372.0),
+            (1123.0, 2, 372.0),
+            (1124.0, 3, 372.0),
+            (1500.0, 4, 372.0),
+            (3000.0, 4, 372.0),
         ] {
-            let grid = Grid::at(viewport);
-            assert_eq!(grid.columns, columns);
-            assert!((grid.width - width).abs() < 0.01, "{viewport}");
+            let grid = Grid::fit(column);
+            assert_eq!((grid.columns, grid.width), (columns, width), "{column}");
         }
     }
 }

@@ -1,14 +1,15 @@
 //! The wordmark band that closes Home and Addons.
-use crate::theme::{Theme, content_width};
+use crate::theme::{Column, Theme};
 use gpui::{Div, div, prelude::*, px, svg};
 
-/// Render the footer for a viewport width.
+/// Render the footer for a viewport width, in its content column.
 pub fn footer(theme: Theme, viewport: f32) -> Div {
-    let container = content_width(viewport);
+    let col = Column::at(viewport);
+    let container = col.width;
     div().w_full().bg(theme.surface).child(
         div()
             .w(px(container))
-            .mx_auto()
+            .ml(px(col.left))
             .pt(px(200.0 + (viewport * 0.12).clamp(72.0, 128.0)))
             .child(
                 svg()
