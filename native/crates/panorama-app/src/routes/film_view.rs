@@ -197,6 +197,12 @@ impl Film {
 impl Render for Film {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.settings(window, cx);
+        if self.autoplay
+            && (self.selected.is_some() || !matches!(self.account, Account::SignedIn(_)))
+        {
+            self.autoplay = false;
+            cx.defer_in(window, |film, window, cx| film.primary_action(false, window, cx));
+        }
         let theme = view.theme;
         let col = view.column();
         if view.active {

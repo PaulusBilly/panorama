@@ -186,11 +186,19 @@ impl Home {
     fn signed_in(&self, cx: &Context<Self>) -> bool {
         matches!(self.state.read(cx).account, Account::SignedIn(_))
     }
-    /// Play `id` in the existing player, which resumes from the library on its own.
-    pub(crate) fn play(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        let _ = self.shell.update(cx, |shell, cx| {
-            shell.navigate(Route::Player { id }, window, cx)
+    /// Open the film and let it start playback, since only Film resolves a playable source.
+    pub(crate) fn play(
+        &mut self,
+        film: FilmDetails,
+        resume: Option<panorama_core::stremio::ResumePoint>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = film.id.clone();
+        self.state.update(cx, |state, _| {
+            state.play_intent = Some(crate::app_state::PlayIntent { id, resume })
         });
+        self.open_film(film, window, cx);
     }
     /// Follow the hero film's watchlist state; a new hero drops the old subscription.
     fn track_saved(&mut self, id: Option<&str>, cx: &mut Context<Self>) {

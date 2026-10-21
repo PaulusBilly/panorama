@@ -158,14 +158,15 @@ pub fn render(
     let compact = compact(view.width);
     let size = |button: Button| if compact { button.compact() } else { button };
     let open = film.clone();
-    let play = film.id.clone();
+    let play = film.clone();
+    let resume = featured.resume();
     let primary = size(
         Button::primary("hero-primary", featured.action_label())
             .leading(Icon::Play)
             .aria_label(format!("{} {}", featured.action_label(), film.name))
             .focus(&focus.primary, view.keyboard)
             .tab_stop(view.active)
-            .on_click(cx.listener(move |home, _, window, cx| home.play(play.clone(), window, cx))),
+            .on_click(cx.listener(move |home, _, window, cx| home.play(play.clone(), resume, window, cx))),
     );
     let info = size(
         Button::glass("hero-info", "More info")

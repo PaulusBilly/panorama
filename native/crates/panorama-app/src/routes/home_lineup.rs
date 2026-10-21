@@ -16,6 +16,12 @@ impl<'a> Featured<'a> {
             Self::Pick(film) => film,
         }
     }
+    pub fn resume(&self) -> Option<panorama_core::stremio::ResumePoint> {
+        match self {
+            Self::Resume(card) => Some(card.resume),
+            Self::Pick(_) => None,
+        }
+    }
     /// The primary action's label, in sentence case.
     pub fn action_label(&self) -> &'static str {
         match self {

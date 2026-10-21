@@ -49,6 +49,8 @@ pub struct Film {
     watchlist: FocusHandle,
     retry_details: FocusHandle,
     retry_sources: FocusHandle,
+    /// Opened from Home's play button: play once a source is ready.
+    autoplay: bool,
     launched: Instant,
     debug_step: usize,
     images: Entity<ImageCache>,
@@ -70,6 +72,9 @@ impl Film {
         args: Args,
         cx: &mut Context<Self>,
     ) -> Self {
+        let intent = state.update(cx, |state, _| {
+            state.play_intent.take_if(|intent| intent.id == id)
+        });
         let current = state.read(cx);
         let metadata = current
             .film_preview
@@ -116,7 +121,7 @@ impl Film {
             details_error: false,
             groups: vec![],
             selected: None,
-            resume: None,
+            resume: intent.as_ref().and_then(|intent| intent.resume),
             meta_base: None,
             sources_loading: true,
             sources_error: false,
@@ -131,6 +136,7 @@ impl Film {
             watchlist: cx.focus_handle(),
             retry_details: cx.focus_handle(),
             retry_sources: cx.focus_handle(),
+            autoplay: intent.is_some(),
             launched: Instant::now(),
             debug_step: 0,
             images,
