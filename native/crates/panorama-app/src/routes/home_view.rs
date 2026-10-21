@@ -195,7 +195,6 @@ impl Render for Home {
                     ),
             );
         }
-        let footer = crate::footer::footer(view.theme, view.width);
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());
         }
@@ -225,6 +224,5 @@ impl Render for Home {
             }))
             .child(first)
             .child(section)
-            .child(footer)
     }
 }

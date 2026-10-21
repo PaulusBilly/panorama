@@ -17,7 +17,6 @@ pub mod film_card;
 pub mod film_display;
 pub mod film_grid;
 pub mod fixtures;
-pub mod footer;
 pub mod hero;
 pub mod home_layout;
 pub mod image_cache;
