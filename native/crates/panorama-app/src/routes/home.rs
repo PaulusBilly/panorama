@@ -39,7 +39,7 @@ pub struct Home {
     scroll: ScrollHandle,
     pub(crate) grid: FilmGrid,
     hero: HeroFocus,
-    row: ContinueRow,
+    pub(crate) row: ContinueRow,
     fold: f32,
     flags: Option<(String, Task<()>)>,
     saved: bool,

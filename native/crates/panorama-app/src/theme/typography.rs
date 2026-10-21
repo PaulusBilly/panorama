@@ -78,7 +78,7 @@ pub const CREDIT: TypeStyle = TypeStyle {
 /// Pill button labels.
 pub const BUTTON: TypeStyle = TypeStyle {
     size: 14.0,
-    weight: 700.0,
+    weight: 500.0,
     line_height: 1.0,
 };
 

@@ -42,6 +42,13 @@ impl Grid {
     }
 }
 
+/// The page footer, empty for now. Its height is the room a card preview on the last row
+/// needs to open fully, since the preview hangs below its tile and the page clips there.
+pub fn footer() -> gpui::Div {
+    use gpui::{Styled, div, px};
+    div().w_full().h(px(240.0)).flex_shrink_0()
+}
+
 /// Shared logical viewport and interaction settings for Home elements.
 #[derive(Clone, Copy)]
 pub struct ViewSettings {

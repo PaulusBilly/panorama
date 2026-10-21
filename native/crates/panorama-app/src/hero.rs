@@ -1,7 +1,7 @@
 use crate::{
-    button::{Button, Icon},
+    button::{Button, Icon, Size},
     film_card::fade_in,
-    film_grid::{GridHost, NextCard, PreviousCard},
+    film_grid::{NextCard, PreviousCard},
     home_layout::ViewSettings,
     image_cache::CachedImage,
     routes::home::{Home, lineup::Featured},
@@ -24,7 +24,6 @@ pub const LOGO: (f32, f32) = (310.0, 128.0);
 
 pub struct HeroFocus {
     pub primary: FocusHandle,
-    pub info: FocusHandle,
     pub save: FocusHandle,
 }
 
@@ -32,13 +31,12 @@ impl HeroFocus {
     pub fn new(cx: &mut gpui::App) -> Self {
         Self {
             primary: cx.focus_handle(),
-            info: cx.focus_handle(),
             save: cx.focus_handle(),
         }
     }
     /// The last action in Tab order: the watchlist toggle when it is shown.
     pub fn last(&self, signed_in: bool) -> &FocusHandle {
-        if signed_in { &self.save } else { &self.info }
+        if signed_in { &self.save } else { &self.primary }
     }
 }
 
@@ -59,7 +57,7 @@ fn title_style(width: f32) -> TypeStyle {
     }
 }
 
-/// Pill height for the window: compact under 700 px so three actions fit the column.
+/// Pill height for the window: compact under 700 px so the actions fit the column.
 fn compact(width: f32) -> bool {
     width <= 700.0
 }
@@ -73,7 +71,12 @@ pub fn fold(view: ViewSettings, row_height: Option<f32>) -> f32 {
         + CREDITS_GAP
         + HEADING.size * HEADING.line_height
         + ACTIONS_GAP
-        + if compact(view.width) { 40.0 } else { 52.0 };
+        + if compact(view.width) {
+            Size::Compact
+        } else {
+            Size::Regular
+        }
+        .height();
     view.height.max(TOP + block + below(row_height))
 }
 
@@ -145,7 +148,6 @@ pub fn render(
 
     let compact = compact(view.width);
     let size = |button: Button| if compact { button.compact() } else { button };
-    let open = film.clone();
     let play = film.clone();
     let resume = featured.resume();
     let primary = size(
@@ -154,15 +156,8 @@ pub fn render(
             .aria_label(format!("{} {}", featured.action_label(), film.name))
             .focus(&focus.primary, view.keyboard)
             .tab_stop(view.active)
-            .on_click(cx.listener(move |home, _, window, cx| home.play(play.clone(), resume, window, cx))),
-    );
-    let info = size(
-        Button::glass("hero-info", "More info")
-            .aria_label(format!("More info about {}", film.name))
-            .focus(&focus.info, view.keyboard)
-            .tab_stop(view.active)
             .on_click(
-                cx.listener(move |home, _, window, cx| home.open_film(open.clone(), window, cx)),
+                cx.listener(move |home, _, window, cx| home.play(play.clone(), resume, window, cx)),
             ),
     );
     let save = state.signed_in.then(|| {
@@ -200,11 +195,10 @@ pub fn render(
         .mt(px(ACTIONS_GAP))
         .flex()
         .items_center()
-        .gap(px(12.0))
-        .child(primary);
+        .gap(px(12.0));
     let actions = match save {
-        Some(save) => actions.child(info).child(last(save)),
-        None => actions.child(last(info)),
+        Some(save) => actions.child(primary).child(last(save)),
+        None => actions.child(last(primary)),
     };
     div()
         .text_color(theme.ink)
