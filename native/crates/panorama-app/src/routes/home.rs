@@ -23,6 +23,8 @@ mod alert;
 mod catalog;
 #[path = "home_keyboard.rs"]
 mod keyboard;
+#[path = "home_lineup.rs"]
+pub(crate) mod lineup;
 #[path = "home_view.rs"]
 mod view;
 
