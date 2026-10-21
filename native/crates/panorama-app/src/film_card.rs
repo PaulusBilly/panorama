@@ -135,7 +135,7 @@ pub fn render<V: GridHost>(
             .flex()
             .min_w_0()
             .gap(px(4.0))
-            .text_size(px((grid.width * 0.032).clamp(10.0, 12.0)))
+            .text_size(px((grid.width * 0.029).clamp(10.0, 14.0)))
             .line_height(relative(1.25))
             .when(!film.director.is_empty(), |row| {
                 row.child(
@@ -176,8 +176,8 @@ pub fn render<V: GridHost>(
                 .bottom_0()
                 .left_0()
                 .w_full()
-                .px(px(18.0))
-                .pb(px(16.0))
+                .px(px((grid.width * 0.055).clamp(16.0, 28.0)))
+                .pb(px((grid.width * 0.05).clamp(14.0, 26.0)))
                 .pt(px(28.0))
                 .flex()
                 .flex_col()
@@ -185,7 +185,7 @@ pub fn render<V: GridHost>(
                 .text_color(theme.ink)
                 .child(
                     div()
-                        .text_size(px((grid.width * 0.06).clamp(16.0, 24.0)))
+                        .text_size(px((grid.width * 0.062).clamp(16.0, 30.0)))
                         .weight(FontWeight::MEDIUM)
                         .line_height(relative(1.18))
                         .line_clamp(2)

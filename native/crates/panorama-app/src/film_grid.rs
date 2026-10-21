@@ -1,6 +1,6 @@
 use crate::{
     film_card::{self, CardProps},
-    home_layout::{GAP, Grid, ROW_GAP, ViewSettings},
+    home_layout::{GAP, Grid, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
     theme::{Column, motion::*},
@@ -107,7 +107,7 @@ impl FilmGrid {
             self.films.len()
         };
         let rows = count.div_ceil(grid.columns);
-        let height = (rows as f32 * grid.stride() - if rows > 0 { ROW_GAP } else { 0.0 }).max(0.0);
+        let height = (rows as f32 * grid.stride() - if rows > 0 { grid.row_gap() } else { 0.0 }).max(0.0);
         let start = (-offset / grid.stride()).floor().max(0.0) as usize;
         let start = start.saturating_sub(1).min(rows);
         let end = (((view.height - offset) / grid.stride()).ceil().max(0.0) as usize + 2).min(rows);
