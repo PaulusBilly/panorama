@@ -155,6 +155,16 @@ impl History {
         self.next_id += 1;
         true
     }
+    /// Leave the active entry for `route`: step back when the entry before it is already
+    /// `route`, dropping the one left, or else replace the active entry with it.
+    pub fn leave_for(&mut self, route: Route) -> bool {
+        if self.cursor > 0 && self.entries[self.cursor - 1].1 == route {
+            self.entries.truncate(self.cursor);
+            self.cursor -= 1;
+            return true;
+        }
+        self.replace(route)
+    }
     /// Rewrite entry `id`'s route without changing its identity, so its view is kept.
     pub fn retitle(&mut self, id: u64, route: Route) {
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.0 == id) {
@@ -206,6 +216,30 @@ mod tests {
         assert_eq!(history.current(), &Route::Home);
         assert!(history.forward());
         assert_eq!(history.current(), &Route::Film { id: "a:b".into() });
+    }
+
+    #[test]
+    fn leaving_the_player_never_stacks_two_film_pages() {
+        let film = Route::Film { id: "a:b".into() };
+        let player = Route::Player { id: "a:b".into() };
+        // Played from the film page: closing returns to that same entry, one back from Home.
+        let mut history = History::new(Route::Home);
+        history.push(film.clone());
+        let id = history.current_id();
+        history.push(player.clone());
+        assert!(history.leave_for(film.clone()));
+        assert_eq!(history.current_id(), id);
+        assert!(!history.can_forward());
+        assert!(history.back());
+        assert_eq!(history.current(), &Route::Home);
+        // Played straight from Home: the player took the film page's place, so closing
+        // shows the film once and one back reaches Home.
+        let mut history = History::new(Route::Home);
+        history.push(player);
+        assert!(history.leave_for(film.clone()));
+        assert_eq!(history.current(), &film);
+        assert!(history.back());
+        assert_eq!(history.current(), &Route::Home);
     }
 
     #[test]

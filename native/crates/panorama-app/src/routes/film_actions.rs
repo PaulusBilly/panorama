@@ -6,9 +6,13 @@ use crate::{
 use gpui::{Div, div, prelude::*, px};
 
 impl Film {
+    /// Start playback, or sign in first. `redirect` swaps this page for the player rather
+    /// than stacking it, for plays started elsewhere (Home's hero, a card preview) that
+    /// only passed through here to pick a source.
     pub(super) fn primary_action(
         &mut self,
         from_start: bool,
+        redirect: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -32,8 +36,13 @@ impl Film {
             };
             self.state
                 .update(cx, |state, _| state.playback = Some(selection));
+            let route = crate::router::Route::Player { id };
             let _ = self.shell.update(cx, |shell, cx| {
-                shell.navigate(crate::router::Route::Player { id }, window, cx)
+                if redirect {
+                    shell.redirect(route, window, cx)
+                } else {
+                    shell.navigate(route, window, cx)
+                }
             });
         }
     }
@@ -68,7 +77,7 @@ impl Film {
         .reduced_motion(view.reduced)
         .focus(&self.primary, view.keyboard)
         .tab_stop(view.active)
-        .on_click(cx.listener(|film, _, window, cx| film.primary_action(false, window, cx)));
+        .on_click(cx.listener(|film, _, window, cx| film.primary_action(false, false, window, cx)));
         if primary == Primary::Play {
             button = button.leading(Icon::Play);
         }
@@ -94,7 +103,9 @@ impl Film {
             Button::glass("film-restart", "Start over")
                 .focus(&self.restart, view.keyboard)
                 .tab_stop(view.active)
-                .on_click(cx.listener(|film, _, window, cx| film.primary_action(true, window, cx)))
+                .on_click(
+                    cx.listener(|film, _, window, cx| film.primary_action(true, false, window, cx)),
+                )
         });
         div()
             .flex()

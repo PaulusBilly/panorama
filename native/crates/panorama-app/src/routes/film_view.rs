@@ -202,7 +202,9 @@ impl Render for Film {
             && (self.selected.is_some() || !matches!(self.account, Account::SignedIn(_)))
         {
             self.autoplay = false;
-            cx.defer_in(window, |film, window, cx| film.primary_action(false, window, cx));
+            cx.defer_in(window, |film, window, cx| {
+                film.primary_action(false, true, window, cx)
+            });
         }
         let theme = view.theme;
         let col = view.column();
