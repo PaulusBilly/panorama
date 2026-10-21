@@ -2,8 +2,9 @@ use super::*;
 use crate::{
     account_menu::popover_shadow,
     addons_screen::model::{CatalogGroup, NAME_CAP, display_text},
+    assets::Weighted,
     catalog_switcher::{BLOCK_HEIGHT, current, flatten, offers_choice, step},
-    theme::{Typography, focus_ring},
+    theme::{Typography, caps, focus_ring},
 };
 use gpui::{Div, KeyDownEvent, Transformation, deferred, div, svg};
 use panorama_core::addons::CatalogRef;
@@ -119,13 +120,14 @@ impl Home {
                                 .min_w_0()
                                 .truncate()
                                 .title()
+                                .weight(gpui::FontWeight::BOLD)
                                 .text_color(theme.ink)
                                 .border_b_1()
                                 .border_color(theme.canvas.opacity(0.0))
                                 .group_hover("catalog-trigger", |style| {
                                     style.border_color(theme.ink)
                                 })
-                                .child(name),
+                                .child(caps(&name)),
                         )
                         .child(
                             svg()

@@ -187,7 +187,7 @@ pub fn render<V: GridHost>(
                 .child(
                     div()
                         .text_size(px((view.width * 0.018).clamp(16.0, 24.0)))
-                        .weight(FontWeight::MEDIUM)
+                        .weight(FontWeight::BOLD)
                         .line_height(relative(1.18))
                         .line_clamp(2)
                         .child(film.name.to_uppercase()),
