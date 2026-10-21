@@ -1,20 +1,76 @@
 use crate::{
+    button::{Button, Icon},
     film_card::{self, CardProps},
     home_layout::{GAP, Grid, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
-    theme::{Column, motion::*},
+    theme::{Column, Typography, motion::*},
     transition::Tween,
 };
 use gpui::{
-    App, Context, Div, Entity, FocusHandle, ScrollHandle, Window, div, point, prelude::*, px,
+    App, Context, Div, Entity, FocusHandle, ScrollHandle, Window, div, linear_color_stop,
+    linear_gradient, point, prelude::*, px, relative,
 };
 use panorama_core::addons::FilmDetails;
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 
 const SKELETONS: usize = 9;
+/// How long the pointer rests on a card before its preview opens.
+const DWELL: Duration = Duration::from_millis(500);
+/// The preview's artwork grows by this fraction of the tile.
+const LIFT: f32 = 0.08;
+
+/// The hover preview: resting on a card for `DWELL` opens a larger card with its details.
+#[derive(Clone, Copy)]
+enum Preview {
+    Closed,
+    Dwelling { index: usize, since: Instant },
+    Open { index: usize, tween: Tween },
+}
+
+impl Preview {
+    fn hover(self, index: usize, over: bool, now: Instant) -> Self {
+        match (over, self) {
+            (true, Self::Open { index: open, .. }) if open == index => self,
+            (true, _) => Self::Dwelling { index, since: now },
+            (
+                false,
+                Self::Dwelling {
+                    index: dwelling, ..
+                },
+            ) if dwelling == index => Self::Closed,
+            (false, _) => self,
+        }
+    }
+    fn leave(self, index: usize) -> Self {
+        match self {
+            Self::Open { index: open, .. } if open == index => Self::Closed,
+            _ => self,
+        }
+    }
+    fn tick(self, now: Instant) -> Self {
+        match self {
+            Self::Dwelling { index, since } if now.duration_since(since) >= DWELL => {
+                let mut tween = Tween::fixed(0.0);
+                tween.retarget(1.0, DURATION_STANDARD, Some(EASE_EDITORIAL), now);
+                Self::Open { index, tween }
+            }
+            _ => self,
+        }
+    }
+    #[cfg(test)]
+    fn open(self) -> Option<usize> {
+        match self {
+            Self::Open { index, .. } => Some(index),
+            _ => None,
+        }
+    }
+}
 
 /// A view that owns a `FilmGrid`; card listeners call back into it.
 pub trait GridHost: Sized + 'static {
@@ -28,27 +84,42 @@ pub trait GridHost: Sized + 'static {
         cx: &mut Context<Self>,
     );
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
+    /// Open the film and let it start playback.
+    fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
 }
 
-/// Virtualised film-card grid with focus handles and hover tweens. Owned per entity; no sharing.
+/// Virtualised film-card grid with focus handles and the hover preview. Owned per entity.
 pub struct FilmGrid {
     pub films: Arc<[FilmDetails]>,
     cards: Vec<FocusHandle>,
     spare: FocusHandle,
-    hovered: HashMap<usize, Tween>,
-    hover_first: bool,
+    watch: FocusHandle,
+    preview: Preview,
+    /// A preview that was left, settling back onto its card.
+    fading: Option<(usize, Tween)>,
+    /// Captures pin the first card's preview; the real pointer must not move it.
+    pinned: bool,
     launched: Instant,
 }
 
 impl FilmGrid {
-    /// An empty grid; `hover_first` pins the first card's hover look for captures.
+    /// An empty grid; `hover_first` opens the first card's preview at once, for captures.
     pub fn new(hover_first: bool, cx: &mut App) -> Self {
         Self {
             films: Arc::from([]),
             cards: Vec::new(),
             spare: cx.focus_handle(),
-            hovered: HashMap::new(),
-            hover_first,
+            watch: cx.focus_handle(),
+            preview: if hover_first {
+                Preview::Open {
+                    index: 0,
+                    tween: Tween::fixed(1.0),
+                }
+            } else {
+                Preview::Closed
+            },
+            fading: None,
+            pinned: hover_first,
             launched: Instant::now(),
         }
     }
@@ -71,21 +142,41 @@ impl FilmGrid {
         let grid = Grid::fit(col.width);
         (index / grid.columns) as f32 * grid.stride()
     }
-    /// Retarget a card's image expansion without changing tile layout.
+    /// The pointer entered or left card `index`. Entering starts the dwell; leaving a card only
+    /// cancels its own dwell, since an open preview covers the card and closes on its own leave.
     pub fn hover(&mut self, index: usize, over: bool) {
-        self.hovered
-            .entry(index)
-            .or_insert_with(|| Tween::fixed(0.0))
-            .retarget(
-                if over { 1.0 } else { 0.0 },
-                DURATION_STANDARD,
-                Some(EASE_EDITORIAL),
-                Instant::now(),
-            );
+        if self.pinned {
+            return;
+        }
+        self.preview = self.preview.hover(index, over, Instant::now());
     }
+    fn leave_preview(&mut self, index: usize) {
+        if self.pinned {
+            return;
+        }
+        if let Preview::Open {
+            index: open,
+            mut tween,
+        } = self.preview
+            && open == index
+        {
+            tween.retarget(0.0, DURATION_STANDARD, Some(EASE_EDITORIAL), Instant::now());
+            self.fading = Some((index, tween));
+        }
+        self.preview = self.preview.leave(index);
+    }
+    /// Frames are needed while a dwell counts down or a preview opens or settles.
     pub fn moving(&self, reduced: bool) -> bool {
         let now = Instant::now();
-        self.hovered.values().any(|t| t.moving(now, reduced))
+        let fading = self
+            .fading
+            .is_some_and(|(_, tween)| tween.moving(now, reduced));
+        fading
+            || match self.preview {
+                Preview::Closed => false,
+                Preview::Dwelling { .. } => true,
+                Preview::Open { tween, .. } => tween.moving(now, reduced),
+            }
     }
     /// Render the rows that intersect the viewport. `offset` is the grid's top edge relative to
     /// the viewport's; `skeletons` draws placeholder tiles while there are no films yet.
@@ -107,7 +198,8 @@ impl FilmGrid {
             self.films.len()
         };
         let rows = count.div_ceil(grid.columns);
-        let height = (rows as f32 * grid.stride() - if rows > 0 { GAP } else { 0.0 }).max(0.0);
+        let height =
+            (rows as f32 * grid.stride() - if rows > 0 { grid.row_gap() } else { 0.0 }).max(0.0);
         let start = (-offset / grid.stride()).floor().max(0.0) as usize;
         let start = start.saturating_sub(1).min(rows);
         let end = (((view.height - offset) / grid.stride()).ceil().max(0.0) as usize + 2).min(rows);
@@ -144,13 +236,6 @@ impl FilmGrid {
                         cx,
                     )
                 });
-                let hover = if self.hover_first && index == 0 {
-                    1.0
-                } else {
-                    self.hovered
-                        .get(&index)
-                        .map_or(0.0, |t| t.value(Instant::now(), view.reduced))
-                };
                 tiles = tiles.child(film_card::render(
                     CardProps {
                         film,
@@ -158,7 +243,6 @@ impl FilmGrid {
                         poster,
                         unavailable,
                         focus: self.cards.get(index).unwrap_or(&self.spare),
-                        hover,
                         index,
                         shimmer: phase,
                     },
@@ -170,9 +254,177 @@ impl FilmGrid {
             }
             result = result.child(tiles);
         }
-        self.hovered
-            .retain(|index, _| *index >= start * grid.columns && *index < end * grid.columns);
+        let now = Instant::now();
+        self.preview = self.preview.tick(now);
+        if self
+            .fading
+            .is_some_and(|(_, tween)| !tween.moving(now, view.reduced))
+        {
+            self.fading = None;
+        }
+        let rendered = start * grid.columns..end * grid.columns;
+        let open = match self.preview {
+            Preview::Open { index, tween } => Some((index, tween, true)),
+            _ => None,
+        };
+        for (index, tween, live) in self
+            .fading
+            .map(|(i, t)| (i, t, false))
+            .into_iter()
+            .chain(open)
+        {
+            if let Some(film) = films.get(index)
+                && rendered.contains(&index)
+            {
+                let lift = tween.value(now, view.reduced);
+                result = result.child(self.preview(
+                    film, index, lift, live, grid, view, images, services, window, cx,
+                ));
+            }
+        }
         result
+    }
+
+    /// The opened card: artwork lifted over its neighbours, then Watch, synopsis and facts.
+    #[allow(clippy::too_many_arguments)]
+    fn preview<V: GridHost>(
+        &self,
+        film: &FilmDetails,
+        index: usize,
+        lift: f32,
+        live: bool,
+        grid: Grid,
+        view: ViewSettings,
+        images: &Entity<ImageCache>,
+        services: Option<&Arc<Services>>,
+        window: &Window,
+        cx: &mut Context<V>,
+    ) -> gpui::Stateful<Div> {
+        let theme = view.theme;
+        let width = grid.width * (1.0 + LIFT * lift);
+        let height = width * 9.0 / 16.0;
+        let x = (index % grid.columns) as f32 * (grid.width + GAP) - (width - grid.width) / 2.0;
+        let y = (index / grid.columns) as f32 * grid.stride() - (height - grid.height()) / 2.0;
+        let inset = (width * 0.055).clamp(16.0, 28.0);
+        let (image, poster, _) = artwork(images, services, film, (width, height), true, window, cx);
+
+        let mut art = div()
+            .id(("film-preview-art", index))
+            .relative()
+            .w(px(width))
+            .h(px(height))
+            .overflow_hidden()
+            .bg(theme.surface)
+            .cursor_pointer();
+        if let Some(image) = image {
+            art = art.child(crate::hero::cover(
+                image.image,
+                (width, height),
+                poster,
+                1.0,
+            ));
+        }
+        let open = film.clone();
+        let art = art
+            .child(
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .w_full()
+                    .h(relative(0.5))
+                    .bg(linear_gradient(
+                        180.0,
+                        linear_color_stop(theme.scrim.opacity(0.0), 0.0),
+                        linear_color_stop(theme.scrim.opacity(0.7), 1.0),
+                    )),
+            )
+            .child(film_card::caption(film, width, theme))
+            .on_click(cx.listener(move |host: &mut V, _, window, cx| {
+                host.open_film(open.clone(), window, cx)
+            }));
+
+        let play = film.clone();
+        let facts = [
+            film.runtime.clone(),
+            film.genres.first().cloned(),
+            crate::film_display::rating(film.imdb_rating.as_deref(), None)
+                .map(|score| format!("IMDb {score}")),
+        ];
+        let details = div()
+            .px(px(inset))
+            .pt(px(inset))
+            .pb(px(inset))
+            .flex()
+            .flex_col()
+            .gap(px(16.0))
+            .opacity(lift)
+            .child(
+                div().flex().child(
+                    Button::primary(("preview-watch", index), "Watch")
+                        .leading(Icon::Play)
+                        .compact()
+                        .aria_label(format!("Watch {}", film.name))
+                        .focus(&self.watch, view.keyboard)
+                        .on_click(cx.listener(move |host: &mut V, _, window, cx| {
+                            host.play_film(play.clone(), window, cx)
+                        })),
+                ),
+            )
+            .when_some(film.description.clone(), |details, text| {
+                details.child(
+                    div()
+                        .body()
+                        .text_color(theme.ink_muted)
+                        .line_clamp(4)
+                        .child(text),
+                )
+            })
+            .when(facts.iter().any(Option::is_some), |details| {
+                details.child(
+                    div()
+                        .label()
+                        .text_color(theme.ink_muted)
+                        .flex()
+                        .gap(px(16.0))
+                        .children(facts.into_iter().flatten()),
+                )
+            });
+
+        div()
+            .id((
+                if live {
+                    "film-preview"
+                } else {
+                    "film-preview-fading"
+                },
+                index,
+            ))
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(width))
+            .bg(theme.surface)
+            .shadow(vec![gpui::BoxShadow {
+                color: gpui::black().opacity(0.7 * lift),
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(40.0),
+                spread_radius: px(4.0),
+                inset: false,
+            }])
+            .when(live, |preview| {
+                // Clicks stop here so the cards beneath stay quiet; the wheel still scrolls the page.
+                preview.block_mouse_except_scroll().on_hover(cx.listener(
+                    move |host: &mut V, over: &bool, _, cx| {
+                        if !*over {
+                            host.film_grid().leave_preview(index);
+                            cx.notify();
+                        }
+                    },
+                ))
+            })
+            .child(art)
+            .child(details)
     }
 }
 
@@ -225,5 +477,37 @@ pub fn reveal(scroll: &ScrollHandle, y: f32, height: f32, viewport: f32) {
         scroll.set_offset(point(px(0.0), px(-y)));
     } else if y + height > top + viewport {
         scroll.set_offset(point(px(0.0), px(-(y + height - viewport))));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_opens_only_after_resting_on_one_card() {
+        let start = Instant::now();
+        let ms = |n| start + Duration::from_millis(n);
+
+        let resting = Preview::Closed.hover(2, true, start);
+        assert_eq!(resting.tick(ms(499)).open(), None);
+        assert_eq!(resting.tick(ms(500)).open(), Some(2));
+
+        let passed_over = resting.hover(2, false, ms(300)).tick(ms(2000));
+        assert_eq!(passed_over.open(), None);
+
+        let moved_on = resting.hover(3, true, ms(300));
+        assert_eq!(moved_on.tick(ms(700)).open(), None);
+        assert_eq!(moved_on.tick(ms(800)).open(), Some(3));
+
+        let open = resting.tick(ms(500));
+        assert_eq!(
+            open.hover(2, false, ms(600)).open(),
+            Some(2),
+            "card under preview"
+        );
+        assert_eq!(open.hover(2, true, ms(700)).open(), Some(2));
+        assert_eq!(open.leave(3).open(), Some(2));
+        assert_eq!(open.leave(2).open(), None);
     }
 }

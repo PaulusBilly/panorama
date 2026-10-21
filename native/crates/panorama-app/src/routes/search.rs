@@ -281,6 +281,9 @@ impl GridHost for Search {
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         super::home::open_film(&self.state, &self.shell, film, window, cx);
     }
+    fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
+        super::home::play_film(&self.state, &self.shell, film, None, window, cx);
+    }
 }
 
 impl Render for Search {

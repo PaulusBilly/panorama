@@ -17,6 +17,20 @@ pub(super) fn text(value: &str, limit: usize) -> String {
     value.chars().take(limit).collect()
 }
 
+/// One origin country per film: addons send lists ("France, Belgium") and long official names.
+pub(super) fn country(value: &str) -> Option<String> {
+    let first = value
+        .split([',', '/', '&', ';', '|'])
+        .map(str::trim)
+        .find(|part| !part.is_empty())?;
+    let name = match first {
+        "United States of America" | "USA" | "U.S.A." | "US" | "U.S." => "United States",
+        "United Kingdom of Great Britain and Northern Ireland" | "UK" | "U.K." => "United Kingdom",
+        other => other,
+    };
+    Some(text(name, 300))
+}
+
 fn optional(value: Option<String>, limit: usize) -> Option<String> {
     value.map(|value| text(&value, limit))
 }
@@ -76,7 +90,7 @@ pub(super) fn credits(value: &serde_json::Value) -> Credits {
                     .get("country")
                     .or_else(|| item.get("originCountry"))
                     .and_then(|v| v.as_str())
-                    .map(|v| text(v, 300));
+                    .and_then(country);
                 Some(super::PreviewCredits {
                     id: id.into(),
                     director,
@@ -128,7 +142,7 @@ pub(super) fn parse(response: TransportResponse) -> Result<Response, FailureKind
                     .map(|p| super::PreviewCredits {
                         id: p.id,
                         director: p.director.iter().take(100).map(|v| text(v, 300)).collect(),
-                        country: optional(p.country, 300),
+                        country: p.country.as_deref().and_then(country),
                     })
                     .collect(),
             };
@@ -223,7 +237,7 @@ fn category_country(links: &[stremio_core::types::resource::Link]) -> Option<Str
     links
         .iter()
         .find(|link| link.category.eq_ignore_ascii_case("country"))
-        .map(|link| link.name.clone())
+        .and_then(|link| country(&link.name))
 }
 
 pub(super) fn sources(response: Response) -> Result<Vec<StreamSource>, FailureKind> {

@@ -310,3 +310,19 @@ async fn full_resource_declarations_inherit_manifest_constraints_and_preferred_m
         [StreamsEvent::NoSources]
     );
 }
+
+#[test]
+fn origin_is_one_country_with_a_short_name() {
+    let country = super::sanitize::country;
+    assert_eq!(country("United States of America").as_deref(), Some("United States"));
+    assert_eq!(country("USA").as_deref(), Some("United States"));
+    assert_eq!(country("France, Belgium").as_deref(), Some("France"));
+    assert_eq!(
+        country("United States of America / United Kingdom").as_deref(),
+        Some("United States")
+    );
+    assert_eq!(country(" Japan ").as_deref(), Some("Japan"));
+    assert_eq!(country("  ,France").as_deref(), Some("France"));
+    assert_eq!(country(" , "), None);
+    assert_eq!(country(""), None);
+}

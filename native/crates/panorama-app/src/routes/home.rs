@@ -192,11 +192,7 @@ impl Home {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let id = film.id.clone();
-        self.state.update(cx, |state, _| {
-            state.play_intent = Some(crate::app_state::PlayIntent { id, resume })
-        });
-        self.open_film(film, window, cx);
+        play_film(&self.state, &self.shell, film, resume, window, cx);
     }
     fn track_saved(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
         if self.flags.as_ref().map(|(tracked, _)| tracked.as_str()) == id {
@@ -336,6 +332,25 @@ impl GridHost for Home {
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         open_film(&self.state, &self.shell, film, window, cx);
     }
+    fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
+        self.play(film, None, window, cx);
+    }
+}
+
+/// Open the film with a play intent; Film starts playback through its own source selection.
+pub(crate) fn play_film<V: 'static>(
+    state: &Entity<AppState>,
+    shell: &WeakEntity<AppShell>,
+    film: FilmDetails,
+    resume: Option<panorama_core::stremio::ResumePoint>,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) {
+    let id = film.id.clone();
+    state.update(cx, |state, _| {
+        state.play_intent = Some(crate::app_state::PlayIntent { id, resume })
+    });
+    open_film(state, shell, film, window, cx);
 }
 
 pub(crate) fn open_film<V: 'static>(
