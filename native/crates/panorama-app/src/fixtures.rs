@@ -26,15 +26,15 @@ pub fn films() -> Vec<FilmDetails> {
             release_info: Some((2022 + index % 3).to_string()),
             director: vec![["Charlotte Wells", "Wim Wenders", "Celine Song"][index % 3].into()],
             origin_country: (index % 3 == 1).then(|| "Japan".into()),
-            runtime: None,
-            genres: vec![],
-            description: None,
+            runtime: Some("102 min".into()),
+            genres: vec!["Drama".into()],
+            description: Some("A quiet, observant portrait shaped by memory and time.".into()),
             cast: vec![],
             poster: None,
             background: url::Url::parse(&format!("fixture://{}", STILLS[FILM_STILLS[index]].0))
                 .ok(),
             logo: None,
-            imdb_rating: None,
+            imdb_rating: Some(["7.6", "7.9", "7.8"][index % 3].into()),
             links: vec![],
         })
         .collect()
@@ -57,20 +57,7 @@ pub fn search(query: &str) -> Vec<FilmDetails> {
 
 /// The film-details fixture, with the selected card's opaque identifier.
 pub fn details(id: &str) -> Option<FilmDetails> {
-    let mut film = films().into_iter().find(|film| film.id == id)?;
-    film.runtime = Some("102 min".into());
-    film.genres = vec!["Drama".into()];
-    film.description = Some("A quiet, observant portrait shaped by memory and time.".into());
-    film.imdb_rating = Some(
-        ["7.6", "7.9", "7.8"][id
-            .strip_prefix("tmdb:")?
-            .parse::<usize>()
-            .ok()?
-            .checked_sub(100)?
-            % 3]
-        .into(),
-    );
-    Some(film)
+    films().into_iter().find(|film| film.id == id)
 }
 
 pub fn continue_items() -> Vec<ContinueItem> {
@@ -177,7 +164,13 @@ mod tests {
                 film.origin_country.as_deref(),
                 (index % 3 == 1).then_some("Japan")
             );
-            assert!(film.poster.is_none() && film.logo.is_none() && film.description.is_none());
+            assert!(film.poster.is_none() && film.logo.is_none());
+            assert_eq!(
+                film.description.as_deref(),
+                Some("A quiet, observant portrait shaped by memory and time.")
+            );
+            assert_eq!(film.runtime.as_deref(), Some("102 min"));
+            assert_eq!(film.imdb_rating.as_deref(), Some(["7.6", "7.9", "7.8"][index % 3]));
             assert!(film.background.is_some());
         }
     }
