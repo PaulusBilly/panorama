@@ -2,7 +2,7 @@
 use super::{
     Addons, Slot,
     model::{InstalledRow, RowPending, Screen, error_copy},
-    widgets::{View, logo, section, spinner, tnum},
+    widgets::{View, logo, panel, section, spinner, tnum},
 };
 use crate::{
     alert_row::AlertRow,
@@ -49,13 +49,10 @@ impl Addons {
                 let now = Instant::now();
                 let rows = self.rows.clone();
                 let last = rows.len().saturating_sub(1);
-                let mut list = div()
+                let mut list = panel(theme)
                     .id("addon-list")
                     .role(gpui::Role::List)
-                    .aria_label("Installed addons")
-                    .mt(px(16.0))
-                    .border_t_1()
-                    .border_color(theme.rule);
+                    .aria_label("Installed addons");
                 for (index, row) in rows.iter().enumerate() {
                     list = list.child(self.render_row(index, last, row, now, view, window, cx));
                 }
@@ -153,8 +150,7 @@ impl Addons {
                 div()
                     .min_h(px(76.0))
                     .py(px(16.0))
-                    .border_b_1()
-                    .border_color(theme.rule)
+                    .when(index != last, |row| row.border_b_1().border_color(theme.rule))
                     .flex()
                     .items_center()
                     .gap(px(16.0))
@@ -333,22 +329,18 @@ fn skeletons(view: View) -> gpui::Stateful<Div> {
             .w(px(width))
             .h(px(height))
             .overflow_hidden()
-            .bg(theme.surface)
+            .bg(theme.surface_strong)
             .child(film_card::shimmer(settings, phase))
     };
-    let mut list = div()
+    let mut list = panel(theme)
         .id("addon-skeleton")
-        .mt(px(16.0))
-        .border_t_1()
-        .border_color(theme.rule)
         .role(gpui::Role::Status);
-    for _ in 0..3 {
+    for index in 0..3 {
         list = list.child(
             div()
                 .min_h(px(76.0))
                 .py(px(16.0))
-                .border_b_1()
-                .border_color(theme.rule)
+                .when(index != 2, |row| row.border_b_1().border_color(theme.rule))
                 .flex()
                 .items_center()
                 .gap(px(16.0))

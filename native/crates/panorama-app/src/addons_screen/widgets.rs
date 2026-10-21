@@ -60,7 +60,12 @@ pub fn section(view: View, heading: &str, trailing: Option<String>) -> Div {
         )
 }
 
-/// A square logo, or the name's first letter on `surface`.
+/// The `surface` panel a section's rows sit in; rows divide themselves with `rule`.
+pub fn panel(theme: Theme) -> Div {
+    div().mt(px(16.0)).px(px(20.0)).bg(theme.surface)
+}
+
+/// A square logo, or the name's first letter on `surface_strong`.
 pub fn logo(size: f32, name: &str, image: Option<CachedImage>, large: bool, theme: Theme) -> Div {
     let letter = name
         .chars()
@@ -72,7 +77,7 @@ pub fn logo(size: f32, name: &str, image: Option<CachedImage>, large: bool, them
         .size(px(size))
         .flex_shrink_0()
         .overflow_hidden()
-        .bg(theme.surface);
+        .bg(theme.surface_strong);
     let tile = match image {
         Some(image) => tile.child(hero::cover(image.image, (size, size), false, 1.0)),
         None => tile

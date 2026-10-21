@@ -199,10 +199,9 @@ impl Addons {
                     .children(types),
             );
         let block = div()
-            .p(px(24.0))
-            .border_1()
-            .border_color(theme.rule)
-            .bg(theme.canvas)
+            .px(px(24.0))
+            .py(px(20.0))
+            .bg(theme.surface)
             .flex()
             .flex_col()
             .child(
@@ -223,6 +222,7 @@ impl Addons {
                         let focus = self.handle(Slot::Cancel, cx);
                         row.child(
                             Button::glass("addon-cancel", "Cancel")
+                                .compact()
                                 .focus(&focus, view.keyboard)
                                 .tab_stop(view.active)
                                 .on_click(cx.listener(|this, _, _, cx| this.cancel_preview(cx))),
@@ -264,6 +264,7 @@ impl Addons {
                 "Install addon"
             },
         )
+        .compact()
         .busy(installing)
         .reduced_motion(view.reduced)
         .focus(&focus, view.keyboard)
