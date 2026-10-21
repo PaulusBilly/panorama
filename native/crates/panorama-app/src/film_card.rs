@@ -4,7 +4,7 @@ use crate::{
     hero,
     home_layout::{Grid, ViewSettings},
     image_cache::CachedImage,
-    theme::{focus_ring, motion::SHIMMER},
+    theme::{Theme, focus_ring, motion::SHIMMER},
     transition::bezier,
 };
 use gpui::{
@@ -21,7 +21,6 @@ pub struct CardProps<'a> {
     pub(crate) poster: bool,
     pub(crate) unavailable: bool,
     pub(crate) focus: &'a FocusHandle,
-    pub(crate) hover: f32,
     pub(crate) index: usize,
     pub(crate) shimmer: f32,
 }
@@ -104,15 +103,8 @@ pub fn render<V: GridHost>(
     }
     if let Some(image) = props.image {
         let fade = fade_in(&image, view.reduced);
-        tile = tile.child(
-            hero::cover(
-                image.image,
-                (grid.width, height),
-                props.poster,
-                1.0 + 0.012 * props.hover,
-            )
-            .opacity(fade),
-        );
+        tile = tile
+            .child(hero::cover(image.image, (grid.width, height), props.poster, 1.0).opacity(fade));
     }
     let fade = theme
         .scrim
@@ -131,68 +123,7 @@ pub fn render<V: GridHost>(
             )),
     );
     if let Some(film) = props.film {
-        let credits = div()
-            .flex()
-            .min_w_0()
-            .gap(px(4.0))
-            .text_size(px((grid.width * 0.029).clamp(10.0, 14.0)))
-            .line_height(relative(1.25))
-            .when(!film.director.is_empty(), |row| {
-                row.child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .weight(FontWeight::BOLD)
-                        .child(film.director.join(", ").to_uppercase()),
-                )
-            })
-            .when_some(film.origin_country.clone(), |row, country| {
-                row.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(theme.ink)
-                        .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
-                            ("tnum".into(), 1),
-                            ("kern".into(), 1),
-                        ])))
-                        .child(country.to_uppercase()),
-                )
-            })
-            .when_some(film.release_info.clone(), |row, year| {
-                row.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(theme.ink)
-                        .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
-                            ("tnum".into(), 1),
-                            ("kern".into(), 1),
-                        ])))
-                        .child(year),
-                )
-            });
-        tile = tile.child(
-            div()
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .w_full()
-                .px(px((grid.width * 0.055).clamp(16.0, 28.0)))
-                .pb(px((grid.width * 0.05).clamp(14.0, 26.0)))
-                .pt(px(28.0))
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .text_color(theme.ink)
-                .child(
-                    div()
-                        .text_size(px((grid.width * 0.062).clamp(16.0, 30.0)))
-                        .weight(FontWeight::MEDIUM)
-                        .line_height(relative(1.18))
-                        .line_clamp(2)
-                        .child(film.name.to_uppercase()),
-                )
-                .child(credits),
-        );
+        tile = tile.child(caption(film, grid.width, theme));
         let target = film.clone();
         let button = focus_ring(
             div()
@@ -253,4 +184,68 @@ pub fn render<V: GridHost>(
         );
     }
     tile
+}
+
+/// Title and credits pinned to the bottom of a tile, sized to its `width`.
+pub fn caption(film: &FilmDetails, width: f32, theme: Theme) -> Div {
+    let credits = div()
+        .flex()
+        .min_w_0()
+        .gap(px(4.0))
+        .text_size(px((width * 0.029).clamp(10.0, 14.0)))
+        .line_height(relative(1.25))
+        .when(!film.director.is_empty(), |row| {
+            row.child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .weight(FontWeight::BOLD)
+                    .child(film.director.join(", ").to_uppercase()),
+            )
+        })
+        .when_some(film.origin_country.clone(), |row, country| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(theme.ink)
+                    .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
+                        ("tnum".into(), 1),
+                        ("kern".into(), 1),
+                    ])))
+                    .child(country.to_uppercase()),
+            )
+        })
+        .when_some(film.release_info.clone(), |row, year| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(theme.ink)
+                    .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
+                        ("tnum".into(), 1),
+                        ("kern".into(), 1),
+                    ])))
+                    .child(year),
+            )
+        });
+    div()
+        .absolute()
+        .bottom_0()
+        .left_0()
+        .w_full()
+        .px(px((width * 0.055).clamp(16.0, 28.0)))
+        .pb(px((width * 0.05).clamp(14.0, 26.0)))
+        .pt(px(28.0))
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .text_color(theme.ink)
+        .child(
+            div()
+                .text_size(px((width * 0.062).clamp(16.0, 30.0)))
+                .weight(FontWeight::MEDIUM)
+                .line_height(relative(1.18))
+                .line_clamp(2)
+                .child(film.name.to_uppercase()),
+        )
+        .child(credits)
 }
