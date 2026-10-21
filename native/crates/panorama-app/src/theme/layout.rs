@@ -33,10 +33,6 @@ impl Column {
             width: (window_width - left - gutter).clamp(0.0, 1500.0),
         }
     }
-    /// Distance from the column's right edge to the window's right edge.
-    pub fn right_inset(self, window_width: f32) -> f32 {
-        (window_width - self.left - self.width).max(0.0)
-    }
 }
 
 #[cfg(test)]
@@ -63,7 +59,6 @@ mod tests {
                 "{width}"
             );
         }
-        assert_eq!(Column::at(2400.0).right_inset(2400.0), 760.0);
     }
     #[test]
     fn dialog_insets() {
