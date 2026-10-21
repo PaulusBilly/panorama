@@ -150,9 +150,8 @@ pub trait Typography: Styled + Sized {
     /// Apply responsive display typography.
     fn display(self, width: f32) -> Self {
         TypeStyle {
-            size: (width * 0.05).clamp(36.0, 52.0),
-            weight: 500.0,
-            line_height: 1.05,
+            size: (width * 0.05).clamp(36.0, DISPLAY.size),
+            ..DISPLAY
         }
         .apply(self)
     }

@@ -21,7 +21,7 @@ use crate::{
     args::Args,
     footer::footer,
     image_cache::ImageCache,
-    theme::{Column, Typography},
+    theme::{Column, Typography, typography::caps},
     transition::Tween,
 };
 use backend::{Backend, Token};
@@ -277,7 +277,8 @@ impl Render for Addons {
                     .display(view.width)
                     .text_color(theme.ink)
                     .role(gpui::Role::Heading)
-                    .child("Addons"),
+                    .aria_label("Addons")
+                    .child(caps("Addons")),
             )
             .child(
                 div()
