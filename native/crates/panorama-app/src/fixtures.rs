@@ -13,7 +13,11 @@ pub const STILLS: [(&str, &[u8]); 3] = [
     ),
 ];
 
-/// The nine preview film records.
+/// Which still each preview film uses. The catalog pick (tmdb:100) gets the bright one so the
+/// signed-out hero exercises the scrims on it; the Continue films (101, 104, 107) differ.
+const FILM_STILLS: [usize; 9] = [2, 0, 1, 0, 1, 2, 1, 2, 0];
+
+/// The nine preview film records, each with a landscape still.
 pub fn films() -> Vec<FilmDetails> {
     (0..9)
         .map(|index| FilmDetails {
@@ -27,7 +31,8 @@ pub fn films() -> Vec<FilmDetails> {
             description: None,
             cast: vec![],
             poster: None,
-            background: None,
+            background: url::Url::parse(&format!("fixture://{}", STILLS[FILM_STILLS[index]].0))
+                .ok(),
             logo: None,
             imdb_rating: None,
             links: vec![],
@@ -53,15 +58,6 @@ pub fn search(query: &str) -> Vec<FilmDetails> {
 /// The film-details fixture, with the selected card's opaque identifier.
 pub fn details(id: &str) -> Option<FilmDetails> {
     let mut film = films().into_iter().find(|film| film.id == id)?;
-    let still = STILLS[id
-        .strip_prefix("tmdb:")?
-        .parse::<usize>()
-        .ok()?
-        .checked_sub(100)?
-        / 3
-        % 3]
-    .0;
-    film.background = url::Url::parse(&format!("fixture://{still}")).ok();
     film.runtime = Some("102 min".into());
     film.genres = vec!["Drama".into()];
     film.description = Some("A quiet, observant portrait shaped by memory and time.".into());
@@ -174,12 +170,8 @@ mod tests {
                 film.origin_country.as_deref(),
                 (index % 3 == 1).then_some("Japan")
             );
-            assert!(
-                film.poster.is_none()
-                    && film.background.is_none()
-                    && film.logo.is_none()
-                    && film.description.is_none()
-            );
+            assert!(film.poster.is_none() && film.logo.is_none() && film.description.is_none());
+            assert!(film.background.is_some());
         }
     }
 }
