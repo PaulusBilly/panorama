@@ -1,7 +1,9 @@
+pub(crate) use crate::film_grid::{NextCard, PreviousCard};
 use crate::{
     app::AppShell,
     app_state::AppState,
     args::Args,
+    film_grid::{FilmGrid, GridHost},
     home_layout::ViewSettings,
     image_cache::{CachedImage, ImageCache},
     router::Route,
@@ -13,9 +15,7 @@ use gpui::{
     prelude::*, px,
 };
 use panorama_core::addons::FilmDetails;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-
-gpui::actions!(panorama_card, [NextCard, PreviousCard]);
+use std::{sync::Arc, time::Instant};
 
 #[path = "home_alert.rs"]
 mod alert;
@@ -33,8 +33,7 @@ pub struct Home {
     args: Args,
     id: u64,
     scroll: ScrollHandle,
-    pub(crate) films: Arc<[FilmDetails]>,
-    pub(crate) cards: Vec<FocusHandle>,
+    pub(crate) grid: FilmGrid,
     pub(crate) search: Option<super::search::SearchData>,
     watch: FocusHandle,
     switcher: crate::catalog_switcher::CatalogSwitcher,
@@ -42,7 +41,6 @@ pub struct Home {
     reload: FocusHandle,
     more: FocusHandle,
     images: Entity<ImageCache>,
-    hovered: HashMap<usize, Tween>,
     surface: Tween,
     ready: bool,
     last_top: f32,
@@ -82,17 +80,14 @@ impl Home {
                 home.load_search(cx);
             }
             if !home.args.bench_scroll && home.search.is_none() {
-                home.films = state
+                let films = state
                     .read(cx)
                     .catalog
                     .as_ref()
                     .map(|p| p.films.clone())
                     .unwrap_or_default()
                     .into();
-            }
-            home.cards.truncate(home.films.len());
-            while home.cards.len() < home.films.len() {
-                home.cards.push(cx.focus_handle());
+                home.grid.set_films(films, cx);
             }
             cx.notify();
         });
@@ -107,14 +102,15 @@ impl Home {
         let mut switcher =
             crate::catalog_switcher::CatalogSwitcher::new(cx.focus_handle(), cx.focus_handle());
         switcher.set_open(args.open_catalog_menu);
+        let mut grid = FilmGrid::new(args.hover_first_card, cx);
+        grid.set_films(films, cx);
         Self {
             shell,
             state,
             args,
             id,
             scroll: ScrollHandle::new(),
-            cards: (0..films.len()).map(|_| cx.focus_handle()).collect(),
-            films,
+            grid,
             search: None,
             watch,
             switcher,
@@ -122,7 +118,6 @@ impl Home {
             reload: cx.focus_handle(),
             more: cx.focus_handle(),
             images,
-            hovered: HashMap::new(),
             surface: Tween::fixed(1.0),
             ready: false,
             last_top: 0.0,
@@ -173,58 +168,16 @@ impl Home {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> (Option<CachedImage>, bool, bool) {
-        let Some(services) = self.state.read(cx).services.clone() else {
-            return (None, false, true);
-        };
-        for (url, poster) in [(&film.background, false), (&film.poster, true)] {
-            if let Some(url) = url {
-                if !visible {
-                    return (
-                        self.images.update(cx, |images, _| {
-                            images.cached(url.as_str(), bounds, window.scale_factor())
-                        }),
-                        poster,
-                        false,
-                    );
-                }
-
-                if self.images.update(cx, |images, _| {
-                    images.failed(url.as_str(), bounds, window.scale_factor())
-                }) {
-                    continue;
-                }
-                return (
-                    self.images.update(cx, |images, cx| {
-                        images.request(url.as_str(), bounds, &services, window, cx)
-                    }),
-                    poster,
-                    false,
-                );
-            }
-        }
-        (None, false, true)
-    }
-    /// Retarget a card's image expansion without changing tile layout.
-    pub(crate) fn hover(&mut self, index: usize, over: bool, cx: &mut Context<Self>) {
-        self.hovered
-            .entry(index)
-            .or_insert_with(|| Tween::fixed(0.0))
-            .retarget(
-                if over { 1.0 } else { 0.0 },
-                DURATION_STANDARD,
-                Some(EASE_EDITORIAL),
-                Instant::now(),
-            );
-        cx.notify();
-    }
-    /// Open the card's opaque film identifier in the existing router.
-    pub(crate) fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| {
-            state.film_preview = self.films.iter().find(|film| film.id == id).cloned()
-        });
-        let _ = self.shell.update(cx, |shell, cx| {
-            shell.navigate(Route::Film { id }, window, cx)
-        });
+        let services = self.state.read(cx).services.clone();
+        crate::film_grid::artwork(
+            &self.images,
+            services.as_ref(),
+            film,
+            bounds,
+            visible,
+            window,
+            cx,
+        )
     }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.settings(window, cx);
@@ -243,10 +196,10 @@ impl Home {
         if view.active
             && self.args.focus_first_card
             && !self.debug_focus
-            && !self.cards.is_empty()
+            && let Some(first) = self.grid.focus(0)
             && self.debug_step == self.args.scroll.len()
         {
-            self.cards[0].focus(window, cx);
+            first.focus(window, cx);
             self.debug_focus = true;
             let _ = self.shell.update(cx, |shell, cx| {
                 shell.keyboard_navigation = true;
@@ -293,6 +246,42 @@ impl Home {
             }
         }
     }
+}
+
+impl GridHost for Home {
+    fn film_grid(&mut self) -> &mut FilmGrid {
+        &mut self.grid
+    }
+    fn focus_card(
+        &mut self,
+        index: usize,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.step_card(index, forward, window, cx);
+    }
+    /// Open the card's opaque film identifier in the existing router.
+    fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        open_film(&self.state, &self.shell, &self.grid, id, window, cx);
+    }
+}
+
+/// Hand the card's film to Film as its preview, then navigate there.
+pub(crate) fn open_film<V: 'static>(
+    state: &Entity<AppState>,
+    shell: &WeakEntity<AppShell>,
+    grid: &FilmGrid,
+    id: String,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) {
+    state.update(cx, |state, _| {
+        state.film_preview = grid.films.iter().find(|film| film.id == id).cloned()
+    });
+    let _ = shell.update(cx, |shell, cx| {
+        shell.navigate(Route::Film { id }, window, cx)
+    });
 }
 
 fn fixture_benchmark() -> Vec<FilmDetails> {

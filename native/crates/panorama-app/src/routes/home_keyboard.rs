@@ -12,7 +12,7 @@ impl Home {
     /// Focus the first card, scrolled into view.
     pub(crate) fn focus_first_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let lead = self.lead(cx);
-        if let Some(first) = self.cards.first() {
+        if let Some(first) = self.grid.focus(0) {
             let grid = crate::home_layout::Grid::fit(self.settings(window, cx).column().width);
             self.scroll
                 .set_offset(point(px(0.0), px(-(lead + grid.height()))));
@@ -33,18 +33,18 @@ impl Home {
         cx.notify();
     }
     /// Keep focused cards visible while navigating virtual rows.
-    pub(crate) fn focus_card(
+    pub(crate) fn step_card(
         &mut self,
         index: usize,
         forward: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.cards.is_empty() {
+        if self.grid.is_empty() {
             cx.stop_propagation();
             return;
         }
-        let index = index.min(self.cards.len());
+        let index = index.min(self.grid.len());
         let view = self.settings(window, cx);
         let grid = crate::home_layout::Grid::fit(view.column().width);
         if !forward && index == 0 {
@@ -54,7 +54,7 @@ impl Home {
             }
             self.watch.focus(window, cx);
             self.scroll.set_offset(point(px(0.0), px(0.0)));
-        } else if forward && index + 1 >= self.cards.len() {
+        } else if forward && index + 1 >= self.grid.len() {
             if !self
                 .state
                 .read(cx)
@@ -73,7 +73,7 @@ impl Home {
                     px(0.0),
                     px(-(view.height
                         + self.lead(cx)
-                        + self.films.len().div_ceil(grid.columns) as f32 * grid.stride()
+                        + self.grid.len().div_ceil(grid.columns) as f32 * grid.stride()
                         + 64.0
                         - view.height
                         + 40.0)),
@@ -84,15 +84,11 @@ impl Home {
             let y = self.content_start(view, cx)
                 + if self.search.is_some() { 72.0 } else { 0.0 }
                 + self.lead(cx)
-                + (next / grid.columns) as f32 * grid.stride();
-            let top = -f32::from(self.scroll.offset().y);
-            if y < top {
-                self.scroll.set_offset(point(px(0.0), px(-y)));
-            } else if y + grid.height() > top + view.height {
-                self.scroll
-                    .set_offset(point(px(0.0), px(-(y + grid.height() - view.height))));
+                + FilmGrid::row_top(next, view.column());
+            crate::film_grid::reveal(&self.scroll, y, grid.height(), view.height);
+            if let Some(card) = self.grid.focus(next) {
+                card.focus(window, cx);
             }
-            self.cards[next].focus(window, cx);
         }
         cx.stop_propagation();
         cx.notify();

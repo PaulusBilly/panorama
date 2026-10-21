@@ -1,9 +1,9 @@
 use crate::assets::Weighted;
 use crate::{
+    film_grid::{GridHost, NextCard, PreviousCard},
     hero,
     home_layout::{Grid, ViewSettings},
     image_cache::CachedImage,
-    routes::home::Home,
     theme::{focus_ring, motion::SHIMMER},
     transition::bezier,
 };
@@ -66,12 +66,12 @@ pub fn shimmer(view: ViewSettings, phase: f32) -> Div {
 }
 
 /// Render image, fades, credits and a full-tile focusable details button.
-pub fn render(
+pub fn render<V: GridHost>(
     props: CardProps<'_>,
     grid: Grid,
     view: ViewSettings,
     window: &Window,
-    cx: &mut Context<Home>,
+    cx: &mut Context<V>,
 ) -> Div {
     let theme = view.theme;
     let height = grid.height();
@@ -195,25 +195,26 @@ pub fn render(
             div()
                 .id(("film-card", index))
                 .key_context("PanoramaCard")
-                .on_action(cx.listener(
-                    move |home, _: &crate::routes::home::NextCard, window, cx| {
-                        home.focus_card(index, true, window, cx)
-                    },
-                ))
-                .on_action(cx.listener(
-                    move |home, _: &crate::routes::home::PreviousCard, window, cx| {
-                        home.focus_card(index, false, window, cx)
-                    },
-                ))
+                .on_action(cx.listener(move |host: &mut V, _: &NextCard, window, cx| {
+                    host.focus_card(index, true, window, cx)
+                }))
+                .on_action(
+                    cx.listener(move |host: &mut V, _: &PreviousCard, window, cx| {
+                        host.focus_card(index, false, window, cx)
+                    }),
+                )
                 .absolute()
                 .inset_0()
                 .cursor_pointer()
                 .role(gpui::Role::Button)
                 .aria_label(format!("Open details for {}", film.name))
-                .on_hover(cx.listener(move |home, over, _, cx| home.hover(index, *over, cx)))
-                .on_click(
-                    cx.listener(move |home, _, window, cx| home.open_film(id.clone(), window, cx)),
-                ),
+                .on_hover(cx.listener(move |host: &mut V, over, _, cx| {
+                    host.film_grid().hover(index, *over);
+                    cx.notify();
+                }))
+                .on_click(cx.listener(move |host: &mut V, _, window, cx| {
+                    host.open_film(id.clone(), window, cx)
+                })),
             props.focus,
             theme,
             view.active,

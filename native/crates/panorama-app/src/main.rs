@@ -43,12 +43,12 @@ fn main() -> ExitCode {
             cx.bind_keys([
                 gpui::KeyBinding::new(
                     "tab",
-                    panorama_app::routes::home::NextCard,
+                    panorama_app::film_grid::NextCard,
                     Some("PanoramaCard"),
                 ),
                 gpui::KeyBinding::new(
                     "shift-tab",
-                    panorama_app::routes::home::PreviousCard,
+                    panorama_app::film_grid::PreviousCard,
                     Some("PanoramaCard"),
                 ),
                 gpui::KeyBinding::new("tab", panorama_app::login::NextField, Some("PanoramaLogin")),

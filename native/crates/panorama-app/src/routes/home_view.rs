@@ -1,104 +1,37 @@
 use super::*;
 use crate::{
     button::Button,
-    film_card::{self, CardProps},
     hero::{self, HeroProps},
-    home_layout::Grid,
 };
 use gpui::{Div, Render, div};
 
 impl Home {
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {
-        let grid = Grid::fit(view.column().width);
-        let skeletons = self.films.is_empty()
-            && self
-                .search
-                .as_ref()
-                .map_or(self.state.read(cx).loading, |search| search.loading);
-        let count = if skeletons { 9 } else { self.films.len() };
-        let rows = count.div_ceil(grid.columns);
-        let height = (rows as f32 * grid.stride() - if rows > 0 { 36.0 } else { 0.0 }).max(0.0);
+        let skeletons = self
+            .search
+            .as_ref()
+            .map_or(self.state.read(cx).loading, |search| search.loading);
         let top = -f32::from(self.scroll.offset().y);
         let origin = self.content_start(view, cx) + if self.search.is_some() { 72.0 } else { 0.0 };
-        let lead = self.lead(cx);
         let opacity =
             self.switcher
-                .grid_opacity(self.films.is_empty(), Instant::now(), view.reduced);
-        let start = ((top - origin - lead) / grid.stride()).floor().max(0.0) as usize;
-        let start = start.saturating_sub(1).min(rows);
-        let end = ((top + view.height - origin - lead) / grid.stride())
-            .ceil()
-            .max(0.0) as usize
-            + 2;
-        let end = end.min(rows);
-        let mut result = div()
-            .relative()
-            .w(px(grid.total_width()))
-            .h(px(height))
-            .mt(px(if self.switcher_visible(cx) { 0.0 } else { 32.0 }))
-            .opacity(opacity);
-        let films = self.films.clone();
-        let phase = if view.reduced {
-            0.0
-        } else {
-            (Instant::now().duration_since(self.launched).as_secs_f32()
-                / SHIMMER.duration.as_secs_f32())
-                % 1.0
-        };
-        for row in start..end {
-            let mut tiles = div()
-                .absolute()
-                .top(px(row as f32 * grid.stride()))
-                .left_0()
-                .w_full()
-                .h(px(grid.height()))
-                .flex()
-                .gap(px(4.0));
-            for index in row * grid.columns..((row + 1) * grid.columns).min(count) {
-                let film = films.get(index);
-                let (image, poster, unavailable) = if let Some(film) = film {
-                    self.artwork(
-                        film,
-                        (grid.width, grid.height()),
-                        view.active
-                            && origin + lead + row as f32 * grid.stride() + grid.height() > top
-                            && origin + lead + (row as f32) * grid.stride() < top + view.height,
-                        window,
-                        cx,
-                    )
-                } else {
-                    (None, false, false)
-                };
-                let focus = self.cards.get(index).unwrap_or(&self.watch);
-                let hover = if self.args.hover_first_card && index == 0 {
-                    1.0
-                } else {
-                    self.hovered
-                        .get(&index)
-                        .map_or(0.0, |t| t.value(Instant::now(), view.reduced))
-                };
-                tiles = tiles.child(film_card::render(
-                    CardProps {
-                        film,
-                        image,
-                        poster,
-                        unavailable,
-                        focus,
-                        hover,
-                        index,
-                        shimmer: phase,
-                    },
-                    grid,
-                    view,
-                    window,
-                    cx,
-                ));
-            }
-            result = result.child(tiles);
-        }
-        self.hovered
-            .retain(|index, _| *index >= start * grid.columns && *index < end * grid.columns);
-        result
+                .grid_opacity(self.grid.films.is_empty(), Instant::now(), view.reduced);
+        let offset = origin + self.lead(cx) - top;
+        let services = self.state.read(cx).services.clone();
+        let images = self.images.clone();
+        let mt = if self.switcher_visible(cx) { 0.0 } else { 32.0 };
+        self.grid
+            .render_rows(
+                offset,
+                skeletons,
+                view,
+                &images,
+                services.as_ref(),
+                window,
+                cx,
+            )
+            .mt(px(mt))
+            .opacity(opacity)
     }
 }
 impl Render for Home {
@@ -120,7 +53,7 @@ impl Render for Home {
         } else {
             self.images.update(cx, |images, _| images.cancel());
         }
-        let films = self.films.clone();
+        let films = self.grid.films.clone();
         let film = films.first().filter(|_| self.search.is_none());
         let (artwork, poster, unavailable) = if -f32::from(self.scroll.offset().y) < view.height {
             film.map(|f| self.artwork(f, (view.width, view.height), view.active, window, cx))
@@ -189,12 +122,10 @@ impl Render for Home {
             || state.catalog_error.clone(),
             |search| search.error.clone(),
         );
-        let empty = self
-            .search
-            .as_ref()
-            .map_or(state.catalog.is_some() && self.films.is_empty(), |search| {
-                !search.loading && search.error.is_none() && self.films.is_empty()
-            });
+        let empty = self.search.as_ref().map_or(
+            state.catalog.is_some() && self.grid.films.is_empty(),
+            |search| !search.loading && search.error.is_none() && self.grid.films.is_empty(),
+        );
         let more = self.search.is_none() && state.catalog.as_ref().is_some_and(|p| p.has_more);
         let fetching = state.loading_more;
         let mut section = div()
@@ -228,7 +159,7 @@ impl Render for Home {
                 cx,
             ));
         }
-        if !self.films.is_empty()
+        if !self.grid.films.is_empty()
             || self
                 .search
                 .as_ref()
@@ -248,7 +179,7 @@ impl Render for Home {
                         cx.listener(|home, _: &NextCard, window, cx| home.focus_top(window, cx)),
                     )
                     .on_action(cx.listener(|home, _: &PreviousCard, window, cx| {
-                        home.focus_card(home.cards.len(), false, window, cx)
+                        home.step_card(home.grid.len(), false, window, cx)
                     }))
                     .child(
                         Button::glass(
@@ -273,10 +204,7 @@ impl Render for Home {
         let changing = self.switcher.moving(Instant::now(), view.reduced)
             || (!view.reduced && self.images.read(cx).moving())
             || self.surface.moving(Instant::now(), view.reduced)
-            || self
-                .hovered
-                .values()
-                .any(|t| t.moving(Instant::now(), view.reduced))
+            || self.grid.moving(view.reduced)
             || self
                 .search
                 .as_ref()
@@ -321,7 +249,11 @@ impl Render for Home {
                     } else if search.error.is_some() {
                         String::new()
                     } else {
-                        format!("{} films found for {}.", self.films.len(), search.query)
+                        format!(
+                            "{} films found for {}.",
+                            self.grid.films.len(),
+                            search.query
+                        )
                     },
                 ))
             })

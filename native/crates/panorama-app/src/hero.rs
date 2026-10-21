@@ -84,12 +84,12 @@ pub fn render(
         let watch = div()
             .key_context("PanoramaCard")
             .on_action(
-                cx.listener(|home, _: &crate::routes::home::NextCard, window, cx| {
+                cx.listener(|home, _: &crate::film_grid::NextCard, window, cx| {
                     home.focus_first(window, cx)
                 }),
             )
             .on_action(
-                cx.listener(|_, _: &crate::routes::home::PreviousCard, window, cx| {
+                cx.listener(|_, _: &crate::film_grid::PreviousCard, window, cx| {
                     window.focus_prev(cx);
                     cx.stop_propagation();
                 }),

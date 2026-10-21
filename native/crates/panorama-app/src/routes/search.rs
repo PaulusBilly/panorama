@@ -26,8 +26,7 @@ impl Home {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut home = Self::new(shell, state, args, id, cx);
-        home.films = Arc::from([]);
-        home.cards.clear();
+        home.grid.set_films(Arc::from([]), cx);
         home.search = Some(SearchData {
             query,
             loading: true,
@@ -65,15 +64,12 @@ impl Home {
                         match event {
                             panorama_core::addons::ResourceEvent::CacheHit(films)
                             | panorama_core::addons::ResourceEvent::Fresh(films) => {
-                                home.films = films
+                                let films = films
                                     .into_iter()
                                     .filter(|film| !film.name.trim().is_empty())
                                     .collect::<Vec<_>>()
                                     .into();
-                                home.cards.truncate(home.films.len());
-                                while home.cards.len() < home.films.len() {
-                                    home.cards.push(cx.focus_handle());
-                                }
+                                home.grid.set_films(films, cx);
                             }
                             panorama_core::addons::ResourceEvent::Failed(kind) => {
                                 search.error = Some(
