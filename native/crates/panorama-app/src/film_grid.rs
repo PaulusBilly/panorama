@@ -1,7 +1,7 @@
 //! The virtualised film-card grid Home and Search share.
 use crate::{
     film_card::{self, CardProps},
-    home_layout::{Grid, ViewSettings},
+    home_layout::{GAP, Grid, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
     theme::{Column, motion::*},
@@ -123,7 +123,7 @@ impl FilmGrid {
             self.films.len()
         };
         let rows = count.div_ceil(grid.columns);
-        let height = (rows as f32 * grid.stride() - if rows > 0 { 36.0 } else { 0.0 }).max(0.0);
+        let height = (rows as f32 * grid.stride() - if rows > 0 { GAP } else { 0.0 }).max(0.0);
         let start = (-offset / grid.stride()).floor().max(0.0) as usize;
         let start = start.saturating_sub(1).min(rows);
         let end = (((view.height - offset) / grid.stride()).ceil().max(0.0) as usize + 2).min(rows);
@@ -146,7 +146,7 @@ impl FilmGrid {
                 .w_full()
                 .h(px(grid.height()))
                 .flex()
-                .gap(px(4.0));
+                .gap(px(GAP));
             for index in row * grid.columns..((row + 1) * grid.columns).min(count) {
                 let film = films.get(index);
                 let (image, poster, unavailable) = film.map_or((None, false, false), |film| {

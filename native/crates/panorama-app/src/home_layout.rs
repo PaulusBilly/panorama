@@ -1,3 +1,6 @@
+/// Space between tiles, the same across columns and rows.
+pub const GAP: f32 = 4.0;
+
 /// Fixed-size tiles packed into the content column.
 #[derive(Clone, Copy, Debug)]
 pub struct Grid {
@@ -7,10 +10,10 @@ pub struct Grid {
     pub width: f32,
 }
 impl Grid {
-    /// Columns that fit: tile 372 (335 when the column is under 760), gap 4, 1..=4 columns.
+    /// Columns that fit: tile 372 (335 when the column is under 760), 1..=4 columns.
     pub fn fit(column_width: f32) -> Self {
         let tile: f32 = if column_width < 760.0 { 335.0 } else { 372.0 };
-        let columns = (((column_width + 4.0) / (tile + 4.0)).floor() as usize).clamp(1, 4);
+        let columns = (((column_width + GAP) / (tile + GAP)).floor() as usize).clamp(1, 4);
         Self {
             columns,
             // A single column narrower than a tile shrinks the tile rather than overflowing.
@@ -21,13 +24,13 @@ impl Grid {
     pub fn height(self) -> f32 {
         self.width * 245.0 / 404.0
     }
-    /// Total row width, including four-pixel column gaps.
+    /// Total row width, including column gaps.
     pub fn total_width(self) -> f32 {
-        self.width * self.columns as f32 + 4.0 * self.columns.saturating_sub(1) as f32
+        self.width * self.columns as f32 + GAP * self.columns.saturating_sub(1) as f32
     }
-    /// Fixed virtualization stride including the 36-pixel row gap.
+    /// Fixed virtualization stride including the row gap.
     pub fn stride(self) -> f32 {
-        self.height() + 36.0
+        self.height() + GAP
     }
 }
 
