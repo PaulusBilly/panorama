@@ -88,6 +88,10 @@ impl ImageLoader {
         if request.target.max_width == 0 || request.target.max_height == 0 {
             return Err(ImageError::Decode);
         }
+        let request = ImageRequest {
+            url: request.url.sized(request.target.max_width),
+            ..request
+        };
         let flight = {
             let mut flights = self.flights.lock().unwrap_or_else(|e| e.into_inner());
             flights.retain(|_, flight| flight.strong_count() != 0);
