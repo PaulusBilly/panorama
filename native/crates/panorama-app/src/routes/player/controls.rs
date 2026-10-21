@@ -277,11 +277,19 @@ impl Player {
         let label = |text: String| {
             div()
                 .flex_shrink_0()
+                .flex()
                 .caption()
                 .weight(FontWeight::MEDIUM)
                 .font_features(tabular())
                 .text_color(theme.ink.opacity(0.65))
-                .child(text)
+                .children(text.chars().map(|character| {
+                    div()
+                        .flex_shrink_0()
+                        .when(character.is_ascii_digit(), |digit| {
+                            digit.w(px(7.0)).text_center()
+                        })
+                        .child(character.to_string())
+                }))
         };
         let triggers = pill(theme)
             .flex_shrink_0()
