@@ -276,9 +276,7 @@ impl Home {
             && self.debug_step == self.args.scroll.len()
         {
             self.debug_focus = true;
-            if let Some(first) = self.grid.focus(0) {
-                first.focus(window, cx);
-            }
+            self.focus_first_card(window, cx);
             let _ = self.shell.update(cx, |shell, cx| {
                 shell.keyboard_navigation = true;
                 cx.notify();
