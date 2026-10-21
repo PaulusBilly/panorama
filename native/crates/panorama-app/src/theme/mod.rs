@@ -11,7 +11,7 @@ pub use crate::motion::ease_editorial;
 pub use color::{hex, oklch};
 pub use focus::focus_ring;
 use gpui::Rgba;
-pub use layout::{Column, SIDEBAR_WIDTH, dialog_inset};
+pub use layout::{Column, SIDEBAR_WIDTH};
 pub use motion::{DURATION_DELIBERATE, DURATION_FAST, DURATION_STANDARD, EASE_EDITORIAL, SHIMMER};
 use std::sync::OnceLock;
 pub use typography::{Typography, caps, credits};

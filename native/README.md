@@ -149,14 +149,14 @@ with `assets::Weighted::weight` or `assets::weighted`, never `font_weight` alone
 family follows the weight; other platforms use the single family `Aspekta`.
 
 The app modules are `main` (startup), `args`, `app`, `router`, `titlebar`,
-`header`, `routes/{home,search,film,player,addons}`, `theme`, `motion`, `assets`,
-and `debug/screenshot`. History stores 100 entries; the eight most recently visited
+`sidebar`, `button`, `routes/{home,search,film,player,addons}`, `theme`, `motion`,
+`assets`, and `debug/screenshot`. History stores 100 entries; the eight most recently visited
 views retain their entities and scroll handles. Older entries remount on revisit.
 Interrupted motion resumes from the sampled opacity and offset. The macOS
 38px caption keeps system traffic lights and native titlebar dragging; it has
 not been run on macOS.
 
-PR 2.4b adds `search_band`/`app_search`/`app_view` (header search disclosure, 320 ms height tween, query handoff), `routes/search` (Home's grid with a Films tab; Cast & Crew is hidden until a TMDB key ships), `routes/film{,_data,_actions,_view,_images}` (details + sources start together; first ready URL/info-hash stream is the Play target and is handed to Player through `AppState::playback`), `film_display` (primary-button table, quality badges, rating rule), `film_overlay`, `a11y` (polite status nodes) and fixture search/details/streams. New capture flags: `--open-search`, `--signed-out`, `--no-sources`, `--film-loading`; routes `search:<q>`, `film:<id>`. `CoreSession::set_watchlisted`/`is_watchlisted` toggle the account library. The original (native) film title is not shown because addon metadata sanitising does not carry it.
+Search is its own route: `routes/search` owns its query field and shares `film_grid` with Home. The sidebar's Search item, `/` and Ctrl+K all go through `AppShell::go`. `routes/film{,_data,_actions,_view,_images}` start details and sources together; the first ready URL/info-hash stream is the Play target and is handed to Player through `AppState::playback`. Home's hero play button opens Film with an `AppState::play_intent`, so playback always goes through Film's sign-in gate and source selection. `film_display` owns the primary-button table, quality badges and rating rule; `a11y` owns polite status nodes. Capture flags include `--signed-out`, `--no-sources`, `--film-loading` and `--film-resume`; routes `search:<q>`, `film:<id>`. `CoreSession::set_watchlisted`/`is_watchlisted` toggle the account library. The original (native) film title is not shown because addon metadata sanitising does not carry it.
 
 The component theme is synchronized through `Theme::change` then `Theme::update`
 so its solid colors, renderable tokens and Base projection agree. Mapped tokens:
@@ -234,10 +234,13 @@ dropping a GPUI consumer aborts its producer. Profile/addon changes refresh Home
 retaining cached cards until fresh data arrives. Startup errors expose Reload
 Panorama; store lock contention opens the single-instance error window.
 
-`header_state`, `header`, `account_menu`, `login`, and `transition` own fixed chrome,
-modal focus, and reversible motion. `routes/home` retains scroll and keyboard
-state; `home_view` virtualizes fixed-height rows; `hero` and `film_card` paint the
-Electron layouts. `home_layout` owns the breakpoint calculations.
+`sidebar`, `account_menu`, `login`, and `transition` own fixed chrome, modal focus,
+and reversible motion. There is one dark `Theme`; `button` is the only pill and round
+button. `routes/home` retains scroll and keyboard state and picks the hero and
+Continue row with the pure `home_lineup`; `continue_watching` holds the in-progress
+films and their details. `film_grid` virtualizes fixed-height rows; `hero`,
+`continue_row` and `film_card` paint the artwork layouts. `home_layout` fits grid
+columns to the content column.
 
 `image_cache` requests physical sizes rounded up to 64 px, allows six visible
 loads, and cancels futures that leave the viewport. Its shared 160 MiB pixel LRU
@@ -246,8 +249,8 @@ calls `cx.drop_image` on replacement, eviction, and teardown. Disk originals use
 to **straight BGRA8**, retaining alpha: GPUI 0.3.8 `src/assets.rs:42` documents
 BGRA and `src/elements/img.rs:678-681` swaps R/B without premultiplication;
 `gpui-pre-windows-0.3.8/src/directx_renderer.rs:1500-1502` uses SRC_ALPHA blending.
-The hero's radial-over-linear gradient is generated once per physical size on a
-blocking worker and uploaded as a RenderImage. Poster saturation is omitted
+Scrims over artwork are GPUI linear gradients (`theme/scrim`). Bundled
+`fixture://` stills resolve only in fixture runs. Poster saturation is omitted
 because GPUI has no saturation filter. Explicit `--reduced-motion` disables
 transforms and makes transitions instant; this GPUI version exposes no OS reduced
 motion preference.
@@ -255,7 +258,7 @@ motion preference.
 Home paging requires the core `catalog_next` API and page cursor fields. Core also
 preserves bounded legacy catalog director/country fields that Stremio's typed
 preview drops. Paging tests verify raw skip offsets, terminal empty pages, and
-preservation of the first-page cache; fixture/layout/header/error/cache tests live
+preservation of the first-page cache; fixture/layout/lineup/error/cache tests live
 in the app crate.
 
 ## panorama-mpv (PR 3.1)

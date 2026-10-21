@@ -3,11 +3,6 @@
 /// Width of the navigation sidebar every route except the player reserves.
 pub const SIDEBAR_WIDTH: f32 = 80.0;
 
-/// Dialog inset in logical pixels.
-pub fn dialog_inset(width: f32) -> f32 {
-    if width <= 700.0 { 16.0 } else { 24.0 }
-}
-
 /// The content column every route aligns to. Left-aligned after the sidebar, not centred.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Column {
@@ -58,12 +53,6 @@ mod tests {
                 },
                 "{width}"
             );
-        }
-    }
-    #[test]
-    fn dialog_insets() {
-        for (width, inset) in [(700.0, 16.0), (701.0, 24.0)] {
-            assert_eq!(dialog_inset(width), inset);
         }
     }
 }
