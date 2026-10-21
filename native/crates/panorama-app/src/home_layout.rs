@@ -10,14 +10,16 @@ pub struct Grid {
     pub width: f32,
 }
 impl Grid {
-    /// Columns that fit: tile 372 (335 when the column is under 760), 1..=4 columns.
+    /// As many columns of at least `MIN_TILE` as fit (1..=4), stretched to fill the column so the
+    /// grid's right edge meets the column's.
     pub fn fit(column_width: f32) -> Self {
-        let tile: f32 = if column_width < 760.0 { 335.0 } else { 372.0 };
-        let columns = (((column_width + GAP) / (tile + GAP)).floor() as usize).clamp(1, 4);
+        const MIN_TILE: f32 = 300.0;
+        let column_width = column_width.max(0.0);
+        let columns = (((column_width + GAP) / (MIN_TILE + GAP)).floor() as usize).clamp(1, 4);
+        let gaps = GAP * (columns - 1) as f32;
         Self {
             columns,
-            // A single column narrower than a tile shrinks the tile rather than overflowing.
-            width: tile.min(column_width.max(0.0)),
+            width: ((column_width - gaps) / columns as f32).floor(),
         }
     }
     /// FilmCard's 404:245 aspect ratio.
@@ -58,14 +60,12 @@ mod tests {
     fn grid_fits_the_column() {
         for (column, columns, width) in [
             (280.0, 1, 280.0),
-            (673.0, 1, 335.0),
-            (674.0, 2, 335.0),
-            (759.0, 2, 335.0),
-            (760.0, 2, 372.0),
-            (1123.0, 2, 372.0),
-            (1124.0, 3, 372.0),
+            (603.0, 1, 603.0),
+            (604.0, 2, 300.0),
+            (1080.0, 3, 357.0),
+            (1211.0, 3, 401.0),
+            (1212.0, 4, 300.0),
             (1500.0, 4, 372.0),
-            (3000.0, 4, 372.0),
         ] {
             let grid = Grid::fit(column);
             assert_eq!((grid.columns, grid.width), (columns, width), "{column}");
