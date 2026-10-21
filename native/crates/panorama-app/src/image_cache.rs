@@ -130,6 +130,8 @@ pub struct ImageCache {
     visible: HashSet<Key>,
     failed: HashSet<Key>,
     fading: bool,
+    /// Bundled `fixture://` stills resolve only in fixture runs, never from addon data.
+    fixtures: bool,
     _release: Option<gpui::Subscription>,
 }
 
@@ -141,6 +143,7 @@ impl Default for ImageCache {
             visible: HashSet::new(),
             failed: HashSet::new(),
             fading: false,
+            fixtures: false,
             _release: None,
         }
     }
@@ -148,8 +151,11 @@ impl Default for ImageCache {
 
 impl ImageCache {
     /// Allocate the single app-wide cache and release every atlas entry on teardown.
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        let mut cache = Self::default();
+    pub fn new(fixtures: bool, cx: &mut Context<Self>) -> Self {
+        let mut cache = Self {
+            fixtures,
+            ..Self::default()
+        };
         cache._release = Some(cx.on_release(|cache, cx| cache.clear(cx)));
         cache
     }
@@ -174,13 +180,14 @@ impl ImageCache {
     }
     /// Whether this image failed and its next fallback should be selected.
     pub fn failed(&mut self, url: &str, bounds: (f32, f32), scale: f32) -> bool {
-        Self::key(url, bounds, scale).is_none_or(|key| {
+        self.key(url, bounds, scale).is_none_or(|key| {
             self.visible.insert(key.clone());
             self.failed.contains(&key)
         })
     }
-    fn key(url: &str, bounds: (f32, f32), scale: f32) -> Option<Key> {
+    fn key(&self, url: &str, bounds: (f32, f32), scale: f32) -> Option<Key> {
         let url = match url.strip_prefix("fixture://") {
+            Some(_) if !self.fixtures => return None,
             Some(name) => Source::Fixture(crate::fixtures::STILLS.iter().find(|s| s.0 == name)?.0),
             None => Source::Remote(ImageUrl::parse(url).ok()?),
         };
@@ -192,7 +199,7 @@ impl ImageCache {
     }
     /// Read a cached offscreen tile without keeping a load alive.
     pub fn cached(&mut self, url: &str, bounds: (f32, f32), scale: f32) -> Option<CachedImage> {
-        let key = Self::key(url, bounds, scale)?;
+        let key = self.key(url, bounds, scale)?;
         self.lru.get(&key).cloned()
     }
     /// Request only images used by this frame; conversion also stays off GPUI.
@@ -204,7 +211,7 @@ impl ImageCache {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<CachedImage> {
-        let key = Self::key(url, bounds, window.scale_factor())?;
+        let key = self.key(url, bounds, window.scale_factor())?;
         self.visible.insert(key.clone());
         if let Some(entry) = self.lru.get(&key) {
             self.fading |=
@@ -350,11 +357,17 @@ mod tests {
         assert_eq!(dropped, ["two", "one", "oversized", "three", "replacement"]);
     }
     #[test]
-    fn fixture_urls_skip_the_https_only_parser() {
-        let key = |url| ImageCache::key(url, (100.0, 100.0), 1.0);
-        assert!(key("fixture://dusk.jpg").is_some());
-        assert!(key("fixture://missing.jpg").is_none());
-        assert!(key("http://dusk.jpg").is_none());
+    fn fixture_urls_resolve_only_in_fixture_runs() {
+        let fixtures = ImageCache {
+            fixtures: true,
+            ..ImageCache::default()
+        };
+        let live = ImageCache::default();
+        let key = |cache: &ImageCache, url| cache.key(url, (100.0, 100.0), 1.0);
+        assert!(key(&fixtures, "fixture://dusk.jpg").is_some());
+        assert!(key(&fixtures, "fixture://missing.jpg").is_none());
+        assert!(key(&fixtures, "http://dusk.jpg").is_none());
+        assert!(key(&live, "fixture://dusk.jpg").is_none());
     }
     #[test]
     fn alpha_is_straight_and_channels_are_bgra() {
