@@ -1,20 +1,22 @@
 pub(crate) use crate::film_grid::{NextCard, PreviousCard};
 use crate::{
     app::AppShell,
-    app_state::AppState,
+    app_state::{Account, AppState},
     args::Args,
+    continue_row::ContinueRow,
     film_grid::{FilmGrid, GridHost},
+    hero::HeroFocus,
     home_layout::ViewSettings,
     image_cache::{CachedImage, ImageCache},
     router::Route,
-    theme::motion::*,
-    transition::Tween,
+    services::Job,
 };
+use futures::{StreamExt, channel::mpsc};
 use gpui::{
-    Context, Entity, FocusHandle, ScrollHandle, Subscription, WeakEntity, Window, point,
+    Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window, point,
     prelude::*, px,
 };
-use panorama_core::addons::FilmDetails;
+use panorama_core::{addons::FilmDetails, stremio::FilmMeta};
 use std::{sync::Arc, time::Instant};
 
 #[path = "home_alert.rs"]
@@ -36,14 +38,19 @@ pub struct Home {
     id: u64,
     scroll: ScrollHandle,
     pub(crate) grid: FilmGrid,
-    watch: FocusHandle,
+    hero: HeroFocus,
+    row: ContinueRow,
+    /// Height of the first viewport, set each render; the catalog starts here.
+    fold: f32,
+    /// The hero film whose watchlist state `saved` reflects, and its library subscription.
+    flags: Option<(String, Task<()>)>,
+    saved: bool,
+    save_task: Option<Task<()>>,
     switcher: crate::catalog_switcher::CatalogSwitcher,
     retry: FocusHandle,
     reload: FocusHandle,
     more: FocusHandle,
     images: Entity<ImageCache>,
-    surface: Tween,
-    ready: bool,
     last_top: f32,
     launched: Instant,
     debug_step: usize,
@@ -51,6 +58,7 @@ pub struct Home {
     benchmark: Option<crate::debug::performance::Samples>,
     _watch_focus: Option<Subscription>,
     _images: Subscription,
+    _continue: Subscription,
     _catalog: Subscription,
     _shell: Subscription,
 }
@@ -93,7 +101,10 @@ impl Home {
         };
         let images = state.read(cx).images.clone();
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
-        let watch = cx.focus_handle();
+        let continue_observer = cx
+            .observe(&state.read(cx).continue_watching.clone(), |_, _, cx| {
+                cx.notify()
+            });
         let mut switcher =
             crate::catalog_switcher::CatalogSwitcher::new(cx.focus_handle(), cx.focus_handle());
         switcher.set_open(args.open_catalog_menu);
@@ -106,14 +117,17 @@ impl Home {
             id,
             scroll: ScrollHandle::new(),
             grid,
-            watch,
+            hero: HeroFocus::new(cx),
+            row: ContinueRow::default(),
+            fold: 0.0,
+            flags: None,
+            saved: false,
+            save_task: None,
             switcher,
             retry: cx.focus_handle(),
             reload: cx.focus_handle(),
             more: cx.focus_handle(),
             images,
-            surface: Tween::fixed(1.0),
-            ready: false,
             last_top: 0.0,
             launched: Instant::now(),
             debug_step: 0,
@@ -121,6 +135,7 @@ impl Home {
             benchmark: None,
             _watch_focus: None,
             _images: image_observer,
+            _continue: continue_observer,
             _catalog: observer,
             _shell: shell_observer,
         }
@@ -168,6 +183,78 @@ impl Home {
             cx,
         )
     }
+    fn signed_in(&self, cx: &Context<Self>) -> bool {
+        matches!(self.state.read(cx).account, Account::SignedIn(_))
+    }
+    /// Play `id` in the existing player, which resumes from the library on its own.
+    pub(crate) fn play(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.shell.update(cx, |shell, cx| {
+            shell.navigate(Route::Player { id }, window, cx)
+        });
+    }
+    /// Follow the hero film's watchlist state; a new hero drops the old subscription.
+    fn track_saved(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
+        if self.flags.as_ref().map(|(tracked, _)| tracked.as_str()) == id {
+            return;
+        }
+        self.saved = false;
+        self.save_task = None;
+        self.flags = None;
+        let (Some(id), Some(services)) = (id, self.state.read(cx).services.clone()) else {
+            return;
+        };
+        let (job, mut receiver) = services.library_flags(id.to_string());
+        let task = cx.spawn(async move |home, cx| {
+            let _job = job;
+            while let Some((saved, _)) = receiver.next().await {
+                if home
+                    .update(cx, |home, cx| {
+                        home.saved = saved;
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        self.flags = Some((id.to_string(), task));
+    }
+    /// Add the hero film to the watchlist, or remove it. Fixtures have no session and succeed.
+    pub(crate) fn toggle_saved(&mut self, film: &FilmDetails, cx: &mut Context<Self>) {
+        if self.save_task.is_some() {
+            return;
+        }
+        let Some(services) = self.state.read(cx).services.clone() else {
+            return;
+        };
+        let saved = !self.saved;
+        let meta = FilmMeta {
+            id: film.id.clone(),
+            name: film.name.clone(),
+            poster: film.poster.clone(),
+        };
+        let (sender, mut receiver) = mpsc::unbounded();
+        let job = Job(services.runtime.clone().spawn(async move {
+            let result = match &services.session {
+                Some(session) => session.lock().await.set_in_library(&meta, saved).is_ok(),
+                None => true,
+            };
+            let _ = sender.unbounded_send(result);
+        }));
+        self.save_task = Some(cx.spawn(async move |home, cx| {
+            let _job = job;
+            let success = receiver.next().await.unwrap_or(false);
+            let _ = home.update(cx, |home, cx| {
+                home.save_task = None;
+                if success {
+                    home.saved = saved;
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.settings(window, cx);
         let now = Instant::now();
@@ -185,11 +272,13 @@ impl Home {
         if view.active
             && self.args.focus_first_card
             && !self.debug_focus
-            && let Some(first) = self.grid.focus(0)
+            && !self.grid.is_empty()
             && self.debug_step == self.args.scroll.len()
         {
-            first.focus(window, cx);
             self.debug_focus = true;
+            if let Some(first) = self.grid.focus(0) {
+                first.focus(window, cx);
+            }
             let _ = self.shell.update(cx, |shell, cx| {
                 shell.keyboard_navigation = true;
                 cx.notify();

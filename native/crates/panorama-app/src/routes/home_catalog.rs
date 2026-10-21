@@ -157,10 +157,9 @@ impl Home {
         )
         .key_context("PanoramaCard")
         .on_action(cx.listener(|home, _: &NextCard, window, cx| home.focus_first_card(window, cx)))
-        .on_action(cx.listener(|home, _: &PreviousCard, window, cx| {
-            home.watch.focus(window, cx);
-            cx.stop_propagation();
-        }));
+        .on_action(
+            cx.listener(|home, _: &PreviousCard, window, cx| home.focus_above_catalog(window, cx)),
+        );
         let mut row = div()
             .relative()
             .h(px(BLOCK_HEIGHT))
@@ -294,8 +293,7 @@ impl Home {
 
     /// Reveal the trigger row, then focus it.
     pub(crate) fn focus_switcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let view = self.settings(window, cx);
-        self.scroll.set_offset(point(px(0.0), px(-view.height)));
+        self.scroll.set_offset(point(px(0.0), px(-self.fold)));
         self.switcher.trigger.focus(window, cx);
         self.tick(window, cx);
         cx.stop_propagation();

@@ -1,16 +1,101 @@
+use super::lineup::lineup;
 use super::*;
 use crate::{
     button::Button,
-    hero::{self, HeroProps},
+    continue_row::ContinueRow,
+    hero::{self, HeroState},
 };
 use gpui::{Div, Render, div};
 
 impl Home {
+    /// Backdrop, scrims, hero block and Continue row, at least one window tall. Sets `fold`.
+    fn first_viewport(
+        &mut self,
+        view: ViewSettings,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let signed_in = self.signed_in(cx);
+        let cards = self.state.read(cx).continue_watching.read(cx).cards();
+        let films = self.grid.films.clone();
+        let lineup = lineup(signed_in, &cards, &films);
+        self.row.sync(lineup.row.len(), cx);
+        let row_height = (!lineup.row.is_empty()).then(ContinueRow::height);
+        self.fold = hero::fold(view, row_height);
+        let fold = self.fold;
+        let visible = view.active && -f32::from(self.scroll.offset().y) < fold;
+        let film = lineup.hero.map(|hero| hero.film().clone());
+        self.track_saved(film.as_ref().map(|film| film.id.as_str()), cx);
+
+        let art = film.as_ref().and_then(|film| {
+            let (image, poster, _) = self.artwork(film, (view.width, fold), visible, window, cx);
+            image.map(|image| (image, poster))
+        });
+        let services = self.state.read(cx).services.clone();
+        let logo_url = film
+            .as_ref()
+            .and_then(|film| film.logo.clone())
+            .filter(|url| {
+                !self.images.update(cx, |images, _| {
+                    images.failed(url.as_str(), hero::LOGO, window.scale_factor())
+                })
+            });
+        let logo = logo_url.as_ref().filter(|_| visible).and_then(|url| {
+            let services = services.clone()?;
+            self.images.update(cx, |images, cx| {
+                images.request(url.as_str(), hero::LOGO, &services, window, cx)
+            })
+        });
+        let mut content = div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .flex_col()
+            .justify_end()
+            .pb(px(hero::FOLD_PAD));
+        if let Some(featured) = lineup.hero {
+            let state = HeroState {
+                logo_pending: logo_url.is_some() && logo.is_none(),
+                logo,
+                signed_in,
+                saved: self.saved,
+                saving: self.save_task.is_some(),
+            };
+            let block = hero::render(featured, state, &self.hero, view, window, cx)
+                .ml(px(view.column().left));
+            content = content.child(if row_height.is_some() {
+                block.mb(px(hero::ROW_GAP))
+            } else {
+                block.mb(px(hero::below(None) - hero::FOLD_PAD))
+            });
+        }
+        if row_height.is_some() {
+            content = content.child(self.row.render(
+                lineup.row,
+                view,
+                &self.images,
+                services.as_ref(),
+                visible,
+                window,
+                cx,
+            ));
+        }
+        div()
+            .id("featured-film")
+            .relative()
+            .w_full()
+            .h(px(fold))
+            .flex_shrink_0()
+            .overflow_hidden()
+            .aria_label("Featured film")
+            .child(hero::backdrop(art, (view.width, fold), view.reduced))
+            .child(hero::scrims(view.theme, view.column(), view.width))
+            .child(content)
+    }
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {
         let skeletons = self.state.read(cx).loading;
         let top = -f32::from(self.scroll.offset().y);
-        // The grid follows the full-window hero.
-        let origin = view.height;
+        let origin = self.fold;
         let opacity =
             self.switcher
                 .grid_opacity(self.grid.films.is_empty(), Instant::now(), view.reduced);
@@ -35,69 +120,23 @@ impl Home {
 impl Render for Home {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self._watch_focus.is_none() {
-            self._watch_focus = Some(cx.on_focus(&self.watch, window, |home, window, cx| {
-                if -f32::from(home.scroll.offset().y) > home.settings(window, cx).height - 84.0 {
-                    home.scroll.set_offset(point(px(0.0), px(0.0)));
-                    home.tick(window, cx);
-                    cx.notify();
-                }
-            }));
+            self._watch_focus =
+                Some(cx.on_focus(&self.hero.primary, window, |home, window, cx| {
+                    if -f32::from(home.scroll.offset().y) > 0.0 {
+                        home.scroll.set_offset(point(px(0.0), px(0.0)));
+                        home.tick(window, cx);
+                        cx.notify();
+                    }
+                }));
         }
         let view = self.settings(window, cx);
-        let theme = view.theme;
         self.advance_swap(view.reduced, cx);
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         } else {
             self.images.update(cx, |images, _| images.cancel());
         }
-        let films = self.grid.films.clone();
-        let film = films.first();
-        let (artwork, poster, unavailable) = if -f32::from(self.scroll.offset().y) < view.height {
-            film.map(|f| self.artwork(f, (view.width, view.height), view.active, window, cx))
-                .unwrap_or((None, false, true))
-        } else {
-            (None, false, true)
-        };
-        let ready = film.is_some() && (unavailable || artwork.is_some());
-        if ready != self.ready {
-            self.ready = ready;
-            self.surface.retarget(
-                if ready { 0.0 } else { 1.0 },
-                DURATION_DELIBERATE,
-                Some(EASE_EDITORIAL),
-                Instant::now(),
-            );
-        }
-        let title_logo = film.and_then(|film| film.logo.as_ref()).is_some_and(|url| {
-            !self.images.update(cx, |images, _| {
-                images.failed(url.as_str(), (310.0, 128.0), window.scale_factor())
-            })
-        });
-        let logo = film
-            .filter(|_| view.active && -f32::from(self.scroll.offset().y) < view.height)
-            .and_then(|film| film.logo.as_ref())
-            .and_then(|url| {
-                let services = self.state.read(cx).services.clone()?;
-                self.images.update(cx, |images, cx| {
-                    images.request(url.as_str(), (310.0, 128.0), &services, window, cx)
-                })
-            });
-        let hero = hero::render(
-            HeroProps {
-                film,
-                artwork,
-                poster,
-                logo,
-                title_logo,
-                surface: self.surface.value(Instant::now(), view.reduced),
-                focus: &self.watch,
-                shell: self.shell.clone(),
-            },
-            view,
-            window,
-            cx,
-        );
+        let first = self.first_viewport(view, window, cx);
         let state = self.state.read(cx);
         let runtime_error = state.runtime_error.clone();
         let error = state.catalog_error.clone();
@@ -157,13 +196,12 @@ impl Render for Home {
                     ),
             );
         }
-        let footer = crate::footer::footer(theme, view.width);
+        let footer = crate::footer::footer(view.theme, view.width);
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());
         }
         let changing = self.switcher.moving(Instant::now(), view.reduced)
             || (!view.reduced && self.images.read(cx).moving())
-            || self.surface.moving(Instant::now(), view.reduced)
             || self.grid.moving(view.reduced)
             || self.state.read(cx).loading
             || self.args.bench_scroll
@@ -186,7 +224,7 @@ impl Render for Home {
                 // request_animation_frame panics outside render; notify schedules the frame instead.
                 cx.notify();
             }))
-            .child(hero)
+            .child(first)
             .child(section)
             .child(footer)
     }

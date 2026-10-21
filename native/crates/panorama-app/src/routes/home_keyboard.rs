@@ -1,7 +1,67 @@
 use super::*;
 
 impl Home {
-    /// Move keyboard focus from WATCH into the visible first row.
+    /// Leave the hero's last action: into the Continue row, else the catalog.
+    pub(crate) fn focus_below_hero(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.row.cards.is_empty() {
+            self.focus_first(window, cx);
+        } else {
+            self.focus_row(0, window, cx);
+        }
+        cx.stop_propagation();
+    }
+    /// Focus the control just above the catalog: the last Continue card, else the hero's last
+    /// action, scrolled back up to it.
+    pub(crate) fn focus_above_catalog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(last) = self.row.cards.len().checked_sub(1) {
+            self.focus_row(last, window, cx);
+        } else {
+            let signed_in = self.signed_in(cx);
+            self.hero.last(signed_in).focus(window, cx);
+            self.scroll.set_offset(point(px(0.0), px(0.0)));
+        }
+        self.tick(window, cx);
+        cx.stop_propagation();
+        cx.notify();
+    }
+    /// Focus Continue card `index`, revealed both sideways and on the page.
+    fn focus_row(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(card) = self.row.cards.get(index) else {
+            return;
+        };
+        card.focus(window, cx);
+        self.row.scroll.scroll_to_item(index);
+        let view = self.settings(window, cx);
+        let height = crate::continue_row::CARD.1;
+        crate::film_grid::reveal(
+            &self.scroll,
+            self.fold - crate::hero::FOLD_PAD - height,
+            height,
+            view.height,
+        );
+        cx.notify();
+    }
+    /// Tab through the Continue row: back into the hero, on into the catalog.
+    pub(crate) fn step_row(
+        &mut self,
+        index: usize,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match (forward, index) {
+            (false, 0) => {
+                let signed_in = self.signed_in(cx);
+                self.hero.last(signed_in).focus(window, cx);
+            }
+            (false, _) => self.focus_row(index - 1, window, cx),
+            (true, _) if index + 1 < self.row.cards.len() => self.focus_row(index + 1, window, cx),
+            (true, _) => self.focus_first(window, cx),
+        }
+        self.tick(window, cx);
+        cx.stop_propagation();
+    }
+    /// Move keyboard focus from the hero or Continue row into the visible first catalog row.
     pub(crate) fn focus_first(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.switcher_visible(cx) {
             self.focus_switcher(window, cx);
@@ -14,8 +74,10 @@ impl Home {
         let lead = self.lead(cx);
         if let Some(first) = self.grid.focus(0) {
             let grid = crate::home_layout::Grid::fit(self.settings(window, cx).column().width);
-            self.scroll
-                .set_offset(point(px(0.0), px(-(lead + grid.height()))));
+            self.scroll.set_offset(point(
+                px(0.0),
+                px(-(self.fold - self.settings(window, cx).height + lead + grid.height())),
+            ));
             first.focus(window, cx);
             self.tick(window, cx);
             cx.notify();
@@ -52,8 +114,8 @@ impl Home {
                 self.focus_switcher(window, cx);
                 return;
             }
-            self.watch.focus(window, cx);
-            self.scroll.set_offset(point(px(0.0), px(0.0)));
+            self.focus_above_catalog(window, cx);
+            return;
         } else if forward && index + 1 >= self.grid.len() {
             if !self
                 .state
@@ -70,7 +132,7 @@ impl Home {
                 self.more.focus(window, cx);
                 self.scroll.set_offset(point(
                     px(0.0),
-                    px(-(view.height
+                    px(-(self.fold
                         + self.lead(cx)
                         + self.grid.len().div_ceil(grid.columns) as f32 * grid.stride()
                         + 64.0
@@ -80,7 +142,7 @@ impl Home {
             }
         } else {
             let next = if forward { index + 1 } else { index - 1 };
-            let y = view.height + self.lead(cx) + FilmGrid::row_top(next, view.column());
+            let y = self.fold + self.lead(cx) + FilmGrid::row_top(next, view.column());
             crate::film_grid::reveal(&self.scroll, y, grid.height(), view.height);
             if let Some(card) = self.grid.focus(next) {
                 card.focus(window, cx);

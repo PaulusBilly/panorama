@@ -65,6 +65,19 @@ pub fn shimmer(view: ViewSettings, phase: f32) -> Div {
     )
 }
 
+/// Opacity of an image fading in since it finished loading.
+pub fn fade_in(image: &CachedImage, reduced: bool) -> f32 {
+    if reduced {
+        return 1.0;
+    }
+    bezier(
+        (Instant::now().duration_since(image.loaded).as_secs_f32()
+            / crate::theme::DURATION_STANDARD.as_secs_f32())
+        .min(1.0),
+        crate::theme::EASE_EDITORIAL,
+    )
+}
+
 /// Render image, fades, credits and a full-tile focusable details button.
 pub fn render<V: GridHost>(
     props: CardProps<'_>,
@@ -91,16 +104,7 @@ pub fn render<V: GridHost>(
         tile = tile.child(shimmer(view, props.shimmer));
     }
     if let Some(image) = props.image {
-        let fade = if view.reduced {
-            1.0
-        } else {
-            bezier(
-                (Instant::now().duration_since(image.loaded).as_secs_f32()
-                    / crate::theme::DURATION_STANDARD.as_secs_f32())
-                .min(1.0),
-                crate::theme::EASE_EDITORIAL,
-            )
-        };
+        let fade = fade_in(&image, view.reduced);
         tile = tile.child(
             hero::cover(
                 image.image,

@@ -10,6 +10,7 @@ pub mod assets;
 pub mod button;
 pub mod cascade_loader;
 pub mod catalog_switcher;
+pub mod continue_row;
 pub mod continue_watching;
 pub mod debug;
 pub mod film_card;
