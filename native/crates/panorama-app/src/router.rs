@@ -157,6 +157,12 @@ impl History {
         self.next_id += 1;
         true
     }
+    /// Rewrite entry `id`'s route without changing its identity, so its view is kept.
+    pub fn retitle(&mut self, id: u64, route: Route) {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.0 == id) {
+            entry.1 = route;
+        }
+    }
     /// Move backward if possible.
     pub fn back(&mut self) -> bool {
         if !self.can_back() {
@@ -264,6 +270,17 @@ mod tests {
         assert_eq!(history.entries.len(), 5);
         assert!(history.back());
         assert_eq!(history.current(), &Route::Film { id: "a:b".into() });
+    }
+
+    #[test]
+    fn retitle_keeps_identity() {
+        let mut history = History::new(Route::Search {
+            query: String::new(),
+        });
+        let id = history.current_id();
+        history.retitle(id, Route::Search { query: "x".into() });
+        assert_eq!(history.current_id(), id);
+        assert_eq!(history.current(), &Route::Search { query: "x".into() });
     }
 
     #[test]

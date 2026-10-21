@@ -173,13 +173,6 @@ impl Film {
             self.scroll.set_offset(point(px(0.0), px(-top)));
             self.debug_step += 1;
         }
-        if view.active {
-            let top = -f32::from(self.scroll.offset().y);
-            let ready = self.metadata.is_some();
-            let _ = self.shell.update(cx, |shell, cx| {
-                shell.update_home_header(self.entry, top, view.height, ready, cx)
-            });
-        }
         cx.notify();
     }
 }
@@ -321,10 +314,6 @@ impl Render for Film {
         page = page.child(content);
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());
-            let top = -f32::from(self.scroll.offset().y);
-            let _ = self.shell.update(cx, |shell, cx| {
-                shell.update_home_header(self.entry, top, view.height, metadata.is_some(), cx)
-            });
         }
         if self.sources_loading && !view.reduced
             || view.active && self.images.read(cx).moving()

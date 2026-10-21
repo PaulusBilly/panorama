@@ -7,12 +7,10 @@ use gpui::{Div, Render, div};
 
 impl Home {
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {
-        let skeletons = self
-            .search
-            .as_ref()
-            .map_or(self.state.read(cx).loading, |search| search.loading);
+        let skeletons = self.state.read(cx).loading;
         let top = -f32::from(self.scroll.offset().y);
-        let origin = self.content_start(view, cx) + if self.search.is_some() { 72.0 } else { 0.0 };
+        // The grid follows the full-window hero.
+        let origin = view.height;
         let opacity =
             self.switcher
                 .grid_opacity(self.grid.films.is_empty(), Instant::now(), view.reduced);
@@ -54,7 +52,7 @@ impl Render for Home {
             self.images.update(cx, |images, _| images.cancel());
         }
         let films = self.grid.films.clone();
-        let film = films.first().filter(|_| self.search.is_none());
+        let film = films.first();
         let (artwork, poster, unavailable) = if -f32::from(self.scroll.offset().y) < view.height {
             film.map(|f| self.artwork(f, (view.width, view.height), view.active, window, cx))
                 .unwrap_or((None, false, true))
@@ -70,22 +68,6 @@ impl Render for Home {
                 Some(EASE_EDITORIAL),
                 Instant::now(),
             );
-        }
-        if view.active {
-            let fold = if self.search.is_some() {
-                0.0
-            } else {
-                self.content_start(view, cx)
-            };
-            let _ = self.shell.update(cx, |shell, cx| {
-                shell.update_home_header(
-                    self.id,
-                    -f32::from(self.scroll.offset().y),
-                    fold,
-                    ready,
-                    cx,
-                )
-            });
         }
         let title_logo = film.and_then(|film| film.logo.as_ref()).is_some_and(|url| {
             !self.images.update(cx, |images, _| {
@@ -118,53 +100,31 @@ impl Render for Home {
         );
         let state = self.state.read(cx);
         let runtime_error = state.runtime_error.clone();
-        let error = self.search.as_ref().map_or_else(
-            || state.catalog_error.clone(),
-            |search| search.error.clone(),
-        );
-        let empty = self.search.as_ref().map_or(
-            state.catalog.is_some() && self.grid.films.is_empty(),
-            |search| !search.loading && search.error.is_none() && self.grid.films.is_empty(),
-        );
-        let more = self.search.is_none() && state.catalog.as_ref().is_some_and(|p| p.has_more);
+        let error = state.catalog_error.clone();
+        let empty = state.catalog.is_some() && self.grid.films.is_empty();
+        let more = state.catalog.as_ref().is_some_and(|p| p.has_more);
         let fetching = state.loading_more;
         let mut section = div()
             .ml(px(view.column().left))
             .w(px(view.column().width))
             .pb(px(112.0));
-        if self.search.is_some() {
-            section = section.child(self.tabs(view, window));
-        }
         if self.switcher_visible(cx) {
             section = section.child(self.catalog_row(view, window, cx));
         }
         if let Some(message) = runtime_error {
-            section = section.child(self.alert(message, "Reload Panorama", view, cx));
+            section = section.child(self.alert(message, "Reload Panorama", view));
         }
         if let Some(message) = error {
-            section = section.child(self.alert(message, "Try again", view, cx));
+            section = section.child(self.alert(message, "Try again", view));
         }
         if empty {
             section = section.child(self.alert(
-                self.search.as_ref().map_or_else(
-                    || "No popular films are available right now.".into(),
-                    |search| format!("No films found for \u{201c}{}\u{201d}.", search.query),
-                ),
-                if self.search.is_some() {
-                    "Clear search"
-                } else {
-                    "Refresh catalog"
-                },
+                "No popular films are available right now.".into(),
+                "Refresh catalog",
                 view,
-                cx,
             ));
         }
-        if !self.grid.films.is_empty()
-            || self
-                .search
-                .as_ref()
-                .map_or(self.state.read(cx).loading, |search| search.loading)
-        {
+        if !self.grid.films.is_empty() || self.state.read(cx).loading {
             section = section.child(self.grid(view, window, cx));
         }
         if more {
@@ -205,10 +165,7 @@ impl Render for Home {
             || (!view.reduced && self.images.read(cx).moving())
             || self.surface.moving(Instant::now(), view.reduced)
             || self.grid.moving(view.reduced)
-            || self
-                .search
-                .as_ref()
-                .map_or(self.state.read(cx).loading, |search| search.loading)
+            || self.state.read(cx).loading
             || self.args.bench_scroll
             || self.debug_step < self.args.scroll.len()
             || self.args.focus_first_card && !self.debug_focus;
@@ -229,33 +186,8 @@ impl Render for Home {
                 // request_animation_frame panics outside render; notify schedules the frame instead.
                 cx.notify();
             }))
-            .when(self.search.is_none(), |root| {
-                root.child(
-                    div()
-                        .pt(px((self.content_start(view, cx) - view.height).max(0.0)))
-                        .child(hero),
-                )
-            })
-            .when(self.search.is_some(), |root| {
-                root.pt(px(self.content_start(view, cx)))
-            })
+            .child(hero)
             .child(section)
             .child(footer)
-            .when_some(self.search.as_ref(), |root, search| {
-                root.child(crate::a11y::status(
-                    "search-status",
-                    if search.loading {
-                        format!("Searching for {}.", search.query)
-                    } else if search.error.is_some() {
-                        String::new()
-                    } else {
-                        format!(
-                            "{} films found for {}.",
-                            self.grid.films.len(),
-                            search.query
-                        )
-                    },
-                ))
-            })
     }
 }

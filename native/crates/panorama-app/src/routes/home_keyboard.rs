@@ -28,7 +28,7 @@ impl Home {
         self.tick(window, cx);
         let _ = self
             .shell
-            .update(cx, |shell, cx| shell.focus_header(window, cx));
+            .update(cx, |shell, cx| shell.focus_sidebar(window, cx));
         cx.stop_propagation();
         cx.notify();
     }
@@ -61,12 +61,11 @@ impl Home {
                 .catalog
                 .as_ref()
                 .is_some_and(|page| page.has_more)
-                || self.search.is_some()
             {
                 self.scroll.set_offset(point(px(0.0), px(0.0)));
                 let _ = self
                     .shell
-                    .update(cx, |shell, cx| shell.focus_header(window, cx));
+                    .update(cx, |shell, cx| shell.focus_sidebar(window, cx));
             } else {
                 self.more.focus(window, cx);
                 self.scroll.set_offset(point(
@@ -81,10 +80,7 @@ impl Home {
             }
         } else {
             let next = if forward { index + 1 } else { index - 1 };
-            let y = self.content_start(view, cx)
-                + if self.search.is_some() { 72.0 } else { 0.0 }
-                + self.lead(cx)
-                + FilmGrid::row_top(next, view.column());
+            let y = view.height + self.lead(cx) + FilmGrid::row_top(next, view.column());
             crate::film_grid::reveal(&self.scroll, y, grid.height(), view.height);
             if let Some(card) = self.grid.focus(next) {
                 card.focus(window, cx);

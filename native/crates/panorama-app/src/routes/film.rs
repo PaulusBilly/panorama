@@ -170,13 +170,8 @@ impl Film {
             .unwrap_or_default();
         ViewSettings {
             width: f32::from(window.viewport_size().width),
-            height: f32::from(window.viewport_size().height)
-                // The macOS titlebar is transparent and overlays the page.
-                - if window.is_fullscreen() || cfg!(target_os = "macos") {
-                    0.0
-                } else {
-                    32.0
-                },
+            // The titlebar overlays the page on every platform.
+            height: f32::from(window.viewport_size().height),
             theme,
             active,
             keyboard,

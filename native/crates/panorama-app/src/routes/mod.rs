@@ -22,7 +22,7 @@ pub fn create(
             .new(|cx| home::Home::new(shell, state, args, id, cx))
             .into(),
         Route::Search { query } => cx
-            .new(|cx| home::Home::new_search(shell, state, args, id, query.clone(), cx))
+            .new(|cx| search::Search::new(shell, state, args, id, query.clone(), window, cx))
             .into(),
         Route::Film { id: film_id } => cx
             .new(|cx| film::Film::new(film_id.clone(), id, shell, state, args, cx))

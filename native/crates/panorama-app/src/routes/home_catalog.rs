@@ -12,7 +12,7 @@ const TRIGGER_HEIGHT: f32 = 44.0;
 
 impl Home {
     pub(crate) fn switcher_visible(&self, cx: &Context<Self>) -> bool {
-        self.search.is_none() && offers_choice(self.state.read(cx).switcher_groups())
+        offers_choice(self.state.read(cx).switcher_groups())
     }
 
     /// Space between the hero and the first card row.
@@ -295,8 +295,7 @@ impl Home {
     /// Reveal the trigger row, then focus it.
     pub(crate) fn focus_switcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.settings(window, cx);
-        self.scroll
-            .set_offset(point(px(0.0), px(-self.content_start(view, cx))));
+        self.scroll.set_offset(point(px(0.0), px(-view.height)));
         self.switcher.trigger.focus(window, cx);
         self.tick(window, cx);
         cx.stop_propagation();

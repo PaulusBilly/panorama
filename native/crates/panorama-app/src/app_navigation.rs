@@ -1,6 +1,48 @@
 use super::*;
 
 impl AppShell {
+    /// Sidebar click, `/`, Ctrl+K. Selecting the current destination is a no-op, except Search,
+    /// which refocuses its field. Other selections push (so Back returns).
+    pub fn go(&mut self, to: Destination, window: &mut Window, cx: &mut Context<Self>) {
+        if self.history.go(to) {
+            self.changed(window, cx);
+        } else if to == Destination::Search {
+            self.focus_search(window, cx);
+        }
+    }
+
+    /// Rewrite entry `id`'s route in place, keeping its mounted view; Search records its query.
+    pub fn retitle(&mut self, id: u64, route: Route) {
+        self.history.retitle(id, route);
+    }
+
+    /// Focus the sidebar item for the current destination.
+    pub(crate) fn focus_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sidebar
+            .focus(self.history.current().destination(), window, cx);
+    }
+
+    /// The mounted view of the current entry, if it is a `T`.
+    fn current_view<T: 'static>(&self) -> Option<Entity<T>> {
+        let id = self.history.current_id();
+        self.cache
+            .iter()
+            .find(|entry| entry.id == id)
+            .or_else(|| {
+                self.presence
+                    .iter()
+                    .map(|presence| &presence.view)
+                    .find(|entry| entry.id == id)
+            })
+            .and_then(|entry| entry.view.clone().downcast::<T>().ok())
+    }
+
+    fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(search) = self.current_view::<routes::search::Search>() {
+            search.update(cx, |search, cx| search.focus_field(window, cx));
+        }
+    }
+
     /// Push a route while preserving existing view instances for backward navigation.
     pub fn navigate(&mut self, route: Route, window: &mut Window, cx: &mut Context<Self>) {
         if self.history.push(route) {
@@ -35,28 +77,10 @@ impl AppShell {
 
     pub(super) fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.menu.dismiss();
-        let open = self
-            .search_disclosures
-            .get(&self.history.current_id())
-            .copied()
-            .unwrap_or(matches!(self.history.current(), Route::Search { .. }));
-        self.search.set_open(open);
-        if let Route::Search { query } = self.history.current() {
-            self.search.query.clone_from(query);
-            self.search_input
-                .update(cx, |input, cx| input.set_value(query.clone(), window, cx));
-        }
-        self.search_disclosures
-            .retain(|id, _| self.history.contains(*id));
-        self.search_caret(cx);
-        self.sticky = if matches!(self.history.current(), Route::Home | Route::Film { .. }) {
-            Sticky::home()
-        } else {
-            Sticky::default()
-        };
-        self.header_slide = Tween::fixed(0.0);
         window.focus(&self.focus, cx);
         self.present(window, cx);
+        // A revisited Search takes the caret back; a new one focuses itself on mount.
+        self.focus_search(window, cx);
         cx.notify();
     }
 
@@ -78,7 +102,6 @@ impl AppShell {
             let route = self.history.current().clone();
             Rc::new(Mounted {
                 id,
-                header: Header::new(cx),
                 view: routes::create(
                     &route,
                     id,
@@ -133,21 +156,11 @@ impl AppShell {
         let key = event.keystroke.key.as_str();
         let modifiers = &event.keystroke.modifiers;
         let input = window.has_focused_input(cx);
+        let sidebar = self.history.current().has_sidebar();
         match key {
-            "escape"
-                if self.search.open || matches!(self.history.current(), Route::Search { .. }) =>
-            {
-                self.clear_search(window, cx);
-            }
             "escape" if self.menu.open => {
                 self.menu.set_open(false);
-                if let Some(entry) = self
-                    .cache
-                    .iter()
-                    .find(|entry| entry.id == self.history.current_id())
-                {
-                    entry.header.account.focus(window, cx);
-                }
+                self.sidebar.account.focus(window, cx);
                 cx.notify();
             }
             "left" if modifiers.alt => self.back(window, cx),
@@ -157,9 +170,14 @@ impl AppShell {
             {
                 self.back(window, cx)
             }
-            "k" if modifiers.control => self.toggle_search(window, cx),
-            "/" if !input && !modifiers.control && !modifiers.alt && !modifiers.platform => {
-                self.toggle_search(window, cx)
+            "k" if modifiers.control && sidebar => self.go(Destination::Search, window, cx),
+            "/" if sidebar
+                && !input
+                && !modifiers.control
+                && !modifiers.alt
+                && !modifiers.platform =>
+            {
+                self.go(Destination::Search, window, cx)
             }
             "escape" if matches!(self.history.current(), Route::Player { .. }) => {
                 self.back(window, cx)

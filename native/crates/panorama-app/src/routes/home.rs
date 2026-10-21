@@ -34,7 +34,6 @@ pub struct Home {
     id: u64,
     scroll: ScrollHandle,
     pub(crate) grid: FilmGrid,
-    pub(crate) search: Option<super::search::SearchData>,
     watch: FocusHandle,
     switcher: crate::catalog_switcher::CatalogSwitcher,
     retry: FocusHandle,
@@ -73,13 +72,7 @@ impl Home {
             films = fixture_benchmark().into();
         }
         let observer = cx.observe(&state, |home, state, cx| {
-            if home.search.as_ref().is_some_and(|search| {
-                search.installed != state.read(cx).installed
-                    || search.account != state.read(cx).account
-            }) {
-                home.load_search(cx);
-            }
-            if !home.args.bench_scroll && home.search.is_none() {
+            if !home.args.bench_scroll {
                 let films = state
                     .read(cx)
                     .catalog
@@ -111,7 +104,6 @@ impl Home {
             id,
             scroll: ScrollHandle::new(),
             grid,
-            search: None,
             watch,
             switcher,
             retry: cx.focus_handle(),
@@ -147,13 +139,8 @@ impl Home {
             .unwrap_or_default();
         ViewSettings {
             width: f32::from(window.viewport_size().width),
-            height: f32::from(window.viewport_size().height)
-                // The macOS titlebar is transparent and overlays the page.
-                - if window.is_fullscreen() || cfg!(target_os = "macos") {
-                    0.0
-                } else {
-                    32.0
-                },
+            // The titlebar overlays the page on every platform.
+            height: f32::from(window.viewport_size().height),
             theme,
             active,
             keyboard: keyboard || self.args.focus_first_card,
@@ -210,15 +197,6 @@ impl Home {
         let top = -f32::from(self.scroll.offset().y);
         if top != self.last_top {
             self.last_top = top;
-            let height = if self.search.is_some() {
-                0.0
-            } else {
-                self.content_start(view, cx)
-            };
-            let _ = self.shell.update(cx, |shell, cx| {
-                shell.menu.dismiss();
-                shell.update_home_header(self.id, top, height, self.ready, cx);
-            });
             cx.notify();
         }
         if view.active

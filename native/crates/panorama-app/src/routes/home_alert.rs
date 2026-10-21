@@ -3,13 +3,7 @@ use crate::alert_row::AlertRow;
 use gpui::Div;
 
 impl Home {
-    pub(super) fn alert(
-        &self,
-        message: String,
-        label: &'static str,
-        view: ViewSettings,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    pub(super) fn alert(&self, message: String, label: &'static str, view: ViewSettings) -> Div {
         let state = self.state.clone();
         AlertRow {
             message,
@@ -24,24 +18,14 @@ impl Home {
             active: view.active,
             keyboard: view.keyboard,
         }
-        .render(cx.listener(move |home, _, window, cx| {
-            if home.search.is_some() {
-                if label == "Clear search" {
-                    let _ = home
-                        .shell
-                        .update(cx, |shell, cx| shell.clear_search(window, cx));
+        .render(move |_, _, cx| {
+            state.update(cx, |state, cx| {
+                if label == "Reload Panorama" {
+                    state.reload(cx)
                 } else {
-                    home.load_search(cx);
+                    state.load(false, cx)
                 }
-            } else {
-                state.update(cx, |state, cx| {
-                    if label == "Reload Panorama" {
-                        state.reload(cx)
-                    } else {
-                        state.load(false, cx)
-                    }
-                });
-            }
-        }))
+            });
+        })
     }
 }

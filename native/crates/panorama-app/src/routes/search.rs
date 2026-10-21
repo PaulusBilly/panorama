@@ -1,152 +1,442 @@
-use super::home::Home;
-use crate::theme::{Typography, focus_ring};
-use crate::{app::AppShell, app_state::AppState, args::Args, home_layout::ViewSettings};
+//! Search: its own field, results grid and request lifetime.
+use crate::{
+    alert_row::AlertRow,
+    app::AppShell,
+    app_state::{Account, AppState},
+    args::Args,
+    assets::Weighted,
+    film_grid::{FilmGrid, GridHost, reveal},
+    home_layout::ViewSettings,
+    image_cache::ImageCache,
+    router::Route,
+    theme::Typography,
+};
 use futures::StreamExt;
-use gpui::{Context, Div, Entity, FocusHandle, Task, WeakEntity, Window, div, prelude::*, px};
+use gpui::{
+    Context, Entity, FocusHandle, Focusable, FontWeight, KeyDownEvent, ScrollHandle, Subscription,
+    Task, WeakEntity, Window, div, point, prelude::*, px, relative, svg,
+};
+use gpui_component::input::{Input, InputEvent, InputState};
+use panorama_core::{
+    addons::{FailureKind, ResourceEvent},
+    stremio::Descriptor,
+};
 use std::sync::Arc;
 
-pub(crate) struct SearchData {
-    pub(crate) query: String,
-    pub(crate) loading: bool,
-    pub(crate) error: Option<String>,
-    pub(crate) request: Option<Task<()>>,
-    pub(crate) tab: FocusHandle,
-    pub(crate) installed: Vec<panorama_core::stremio::Descriptor>,
-    pub(crate) account: crate::app_state::Account,
+/// Space above the field, level with the Addons title.
+const TOP: f32 = 56.0;
+/// Field underline gap.
+const FIELD_PAD: f32 = 12.0;
+/// Status line block, including its top margin.
+const STATUS: f32 = 16.0 + 20.0;
+/// Gap between the status line and the first card row.
+const GRID_GAP: f32 = 32.0;
+
+/// One Search history entry.
+pub struct Search {
+    shell: WeakEntity<AppShell>,
+    state: Entity<AppState>,
+    id: u64,
+    input: Entity<InputState>,
+    /// Last submitted query; equals the route's query.
+    query: String,
+    grid: FilmGrid,
+    loading: bool,
+    error: Option<String>,
+    request: Option<Task<()>>,
+    scroll: ScrollHandle,
+    images: Entity<ImageCache>,
+    retry: FocusHandle,
+    keyboard: bool,
+    /// Inputs of the last request, so addon or account changes re-run it.
+    asked: (Vec<Descriptor>, Account),
+    _input: Subscription,
+    _state: Subscription,
+    _images: Subscription,
+    _shell: Option<Subscription>,
 }
 
-impl Home {
-    /// Mount Search using Home's shared cards, grid, alerts and footer.
-    pub fn new_search(
+impl Search {
+    /// Mount with `query` in the field, searching at once when it is not empty.
+    pub fn new(
         shell: WeakEntity<AppShell>,
         state: Entity<AppState>,
         args: Args,
         id: u64,
         query: String,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut home = Self::new(shell, state, args, id, cx);
-        home.grid.set_films(Arc::from([]), cx);
-        home.search = Some(SearchData {
+        let input = cx.new(|cx| {
+            let mut input = InputState::new(window, cx).placeholder("Search films");
+            input.set_value(query.clone(), window, cx);
+            input
+        });
+        let input_events = cx.subscribe_in(&input, window, |search, _, event, window, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                search.submit(window, cx);
+            }
+        });
+        let state_observer = cx.observe(&state, |search, state, cx| {
+            let state = state.read(cx);
+            if !search.query.is_empty()
+                && (search.asked.0 != state.installed || search.asked.1 != state.account)
+            {
+                search.load(cx);
+            }
+        });
+        let images = state.read(cx).images.clone();
+        let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
+        let shell_observer = shell
+            .upgrade()
+            .map(|shell| cx.observe(&shell, |_, _, cx| cx.notify()));
+        let mut search = Self {
+            shell,
+            state,
+            id,
+            input,
             query,
-            loading: true,
+            grid: FilmGrid::new(args.hover_first_card, cx),
+            loading: false,
             error: None,
             request: None,
-            tab: cx.focus_handle(),
-            installed: vec![],
-            account: crate::app_state::Account::SignedOut,
-        });
-        home.load_search(cx);
-        home
-    }
-    pub(crate) fn load_search(&mut self, cx: &mut Context<Self>) {
-        let Some(search) = &mut self.search else {
-            return;
+            scroll: ScrollHandle::new(),
+            images,
+            retry: cx.focus_handle(),
+            keyboard: args.focus_first_card,
+            asked: (Vec::new(), Account::SignedOut),
+            _input: input_events,
+            _state: state_observer,
+            _images: image_observer,
+            _shell: shell_observer,
         };
+        if !search.query.is_empty() {
+            search.load(cx);
+        }
+        search.focus_field(window, cx);
+        search
+    }
+
+    /// Called by `AppShell::go(Search)` when Search is already current, and on mount.
+    pub fn focus_field(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.focus_handle(cx).focus(window, cx);
+    }
+
+    /// PressEnter: an empty field clears the results; otherwise record the query and search.
+    fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.input.read(cx).value().trim().to_string();
+        if value.is_empty() {
+            self.clear(window, cx);
+            return;
+        }
+        self.record(value, cx);
+        self.load(cx);
+        self.scroll.set_offset(point(px(0.0), px(0.0)));
+        self.focus_field(window, cx);
+    }
+
+    /// Empty the field and the results, keeping focus in the field.
+    fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.record(String::new(), cx);
+        self.request = None;
+        self.loading = false;
+        self.error = None;
+        self.grid.set_films(Arc::from([]), cx);
+        self.focus_field(window, cx);
+        cx.notify();
+    }
+
+    /// Keep this history entry's route in step with the submitted query.
+    fn record(&mut self, query: String, cx: &mut Context<Self>) {
+        self.query.clone_from(&query);
+        let id = self.id;
+        let _ = self.shell.update(cx, |shell, _| {
+            shell.retitle(id, Route::Search { query });
+        });
+    }
+
+    fn load(&mut self, cx: &mut Context<Self>) {
         let state = self.state.read(cx);
-        search.installed.clone_from(&state.installed);
-        search.account = state.account.clone();
+        self.asked = (state.installed.clone(), state.account.clone());
         let Some(services) = &state.services else {
             return;
         };
-        let (job, mut receiver) = services.search(state.installed.clone(), search.query.clone());
-        search.loading = true;
-        search.error = None;
-        search.request = Some(cx.spawn(async move |entity, cx| {
+        let (job, mut receiver) = services.search(state.installed.clone(), self.query.clone());
+        self.loading = true;
+        self.error = None;
+        self.request = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
             while let Some(event) = receiver.next().await {
-                if entity
-                    .update(cx, |home, cx| {
-                        let Some(search) = &mut home.search else {
-                            return;
-                        };
-                        search.loading = false;
-                        match event {
-                            panorama_core::addons::ResourceEvent::CacheHit(films)
-                            | panorama_core::addons::ResourceEvent::Fresh(films) => {
-                                let films = films
-                                    .into_iter()
-                                    .filter(|film| !film.name.trim().is_empty())
-                                    .collect::<Vec<_>>()
-                                    .into();
-                                home.grid.set_films(films, cx);
-                            }
-                            panorama_core::addons::ResourceEvent::Failed(kind) => {
-                                search.error = Some(
-                                    match kind {
-                                        panorama_core::addons::FailureKind::Offline => {
-                                            "Can't search films. Check your connection."
-                                        }
-                                        panorama_core::addons::FailureKind::Timeout => {
-                                            "Searching films took too long. Try again."
-                                        }
-                                        _ => "Could not search films. Try again.",
-                                    }
-                                    .into(),
-                                )
-                            }
+                let updated = entity.update(cx, |search, cx| {
+                    search.loading = false;
+                    match event {
+                        ResourceEvent::CacheHit(films) | ResourceEvent::Fresh(films) => {
+                            let films = films
+                                .into_iter()
+                                .filter(|film| !film.name.trim().is_empty())
+                                .collect::<Vec<_>>()
+                                .into();
+                            search.grid.set_films(films, cx);
                         }
-                        cx.notify();
-                    })
-                    .is_err()
-                {
+                        ResourceEvent::Failed(kind) => {
+                            search.error = Some(
+                                match kind {
+                                    FailureKind::Offline => {
+                                        "Can't search films. Check your connection."
+                                    }
+                                    FailureKind::Timeout => {
+                                        "Searching films took too long. Try again."
+                                    }
+                                    _ => "Could not search films. Try again.",
+                                }
+                                .into(),
+                            )
+                        }
+                    }
+                    cx.notify();
+                });
+                if updated.is_err() {
                     break;
                 }
             }
         }));
         cx.notify();
     }
-    pub(crate) fn content_start(&self, view: ViewSettings, cx: &Context<Self>) -> f32 {
-        let header = self.shell.upgrade().map_or(60.0, |shell| {
-            shell.read(cx).search_header_height(view.width)
-        });
-        if self.search.is_some() {
-            header
-        } else {
-            view.height
-                + self
-                    .shell
-                    .upgrade()
-                    .map_or(0.0, |shell| shell.read(cx).home_search_padding(view.width))
+
+    fn settings(&self, window: &Window, cx: &Context<Self>) -> ViewSettings {
+        let (theme, active, keyboard, reduced) = self
+            .shell
+            .upgrade()
+            .map(|shell| {
+                let shell = shell.read(cx);
+                (
+                    shell.theme,
+                    shell.is_current(self.id),
+                    shell.keyboard_navigation,
+                    shell.reduced_motion,
+                )
+            })
+            .unwrap_or_default();
+        ViewSettings {
+            width: f32::from(window.viewport_size().width),
+            height: f32::from(window.viewport_size().height),
+            theme,
+            active,
+            keyboard: keyboard || self.keyboard,
+            reduced,
         }
     }
-    pub(crate) fn tabs(&self, view: ViewSettings, window: &Window) -> Div {
-        let Some(search) = &self.search else {
-            return div();
-        };
-        div().child(
-            div()
-                .id("search-tabs")
-                .role(gpui::Role::TabList)
-                .aria_label("Search result categories")
-                .pt(px(32.0))
-                .border_b_1()
-                .border_color(view.theme.rule)
-                .flex()
-                .gap(px(32.0))
-                .child(focus_ring(
-                    div()
-                        .id("films-tab")
-                        .role(gpui::Role::Tab)
-                        .aria_label("Films")
-                        .aria_selected(true)
-                        .min_h(px(40.0))
-                        .px(px(4.0))
-                        .mb(px(-1.0))
-                        .border_b_2()
-                        .border_color(view.theme.ink)
-                        .label()
-                        .flex()
-                        .items_center()
-                        .cursor_pointer()
-                        .child("FILMS"),
-                    &search.tab,
-                    view.theme,
-                    view.active,
-                    view.keyboard,
-                    0.0,
-                    window,
-                )),
-        )
+
+    /// Field type size: the display scale, so the query reads as the page title.
+    fn field_size(width: f32) -> f32 {
+        (width * 0.05).clamp(36.0, 52.0)
+    }
+
+    /// Top of the results grid in scroll content.
+    fn grid_top(width: f32) -> f32 {
+        TOP + Self::field_size(width) * 1.2 + FIELD_PAD + 2.0 + STATUS + GRID_GAP
+    }
+
+    fn status(&self) -> String {
+        if self.query.is_empty() {
+            "Type a title and press Enter.".into()
+        } else if self.loading {
+            format!("Searching for \u{201c}{}\u{201d}", self.query)
+        } else if self.error.is_some() {
+            String::new()
+        } else {
+            match self.grid.films.len() {
+                0 => format!("No films found for \u{201c}{}\u{201d}.", self.query),
+                1 => format!("1 film for \u{201c}{}\u{201d}", self.query),
+                count => format!("{count} films for \u{201c}{}\u{201d}", self.query),
+            }
+        }
+    }
+}
+
+impl GridHost for Search {
+    fn film_grid(&mut self) -> &mut FilmGrid {
+        &mut self.grid
+    }
+    fn focus_card(
+        &mut self,
+        index: usize,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.settings(window, cx);
+        let col = view.column();
+        let last = self.grid.len().saturating_sub(1);
+        if !forward && index == 0 {
+            self.scroll.set_offset(point(px(0.0), px(0.0)));
+            self.focus_field(window, cx);
+        } else if forward && index >= last {
+            self.scroll.set_offset(point(px(0.0), px(0.0)));
+            let _ = self
+                .shell
+                .update(cx, |shell, cx| shell.focus_sidebar(window, cx));
+        } else {
+            let next = if forward { index + 1 } else { index - 1 };
+            let y = Self::grid_top(view.width) + FilmGrid::row_top(next, col);
+            reveal(&self.scroll, y, FilmGrid::layout(col).height(), view.height);
+            if let Some(card) = self.grid.focus(next) {
+                card.focus(window, cx);
+            }
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+    fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        super::home::open_film(&self.state, &self.shell, &self.grid, id, window, cx);
+    }
+}
+
+impl Render for Search {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = self.settings(window, cx);
+        let theme = view.theme;
+        let col = view.column();
+        if view.active {
+            self.images.update(cx, |images, _| images.begin_frame());
+        }
+        let focused = self.input.focus_handle(cx).is_focused(window);
+        let size = Self::field_size(view.width);
+        let field = div()
+            .w_full()
+            .pb(px(FIELD_PAD + if focused { 0.0 } else { 1.0 }))
+            .border_b(px(if focused { 2.0 } else { 1.0 }))
+            .border_color(if focused { theme.ink } else { theme.ink_muted })
+            .flex()
+            .items_center()
+            .gap(px(16.0))
+            .child(
+                svg()
+                    .path("search.svg")
+                    .size(px(size * 0.6))
+                    .flex_shrink_0()
+                    .text_color(if focused { theme.ink } else { theme.ink_muted }),
+            )
+            .child(
+                Input::new(&self.input)
+                    .appearance(false)
+                    .bordered(false)
+                    .focus_bordered(false)
+                    .aria_label("Search films")
+                    .tab_index(if view.active { 0 } else { -1 })
+                    .disabled(!view.active)
+                    .map(|input| gpui::Styled::h(input, px(size * 1.2)))
+                    .flex_1()
+                    .p_0()
+                    .text_size(px(size))
+                    .weight(FontWeight::MEDIUM)
+                    .line_height(relative(1.2))
+                    .text_color(theme.ink),
+            );
+        let status = self.status();
+        let empty = !self.query.is_empty()
+            && !self.loading
+            && self.error.is_none()
+            && self.grid.films.is_empty();
+        // The alert row carries the message; the line above it stays quiet.
+        let line = if empty { String::new() } else { status.clone() };
+        let mut section = div()
+            .ml(px(col.left))
+            .w(px(col.width))
+            .pt(px(TOP))
+            .pb(px(112.0))
+            .child(field)
+            .child(
+                div()
+                    .mt(px(16.0))
+                    .h(px(20.0))
+                    .label()
+                    .text_color(theme.ink_muted)
+                    .child(line),
+            );
+        if let Some(message) = self.error.clone() {
+            section = section.child(self.alert(message, "Try again", view, cx));
+        } else if empty {
+            section = section.child(self.alert(
+                format!("No films found for \u{201c}{}\u{201d}.", self.query),
+                "Clear search",
+                view,
+                cx,
+            ));
+        } else if !self.query.is_empty() {
+            let top = -f32::from(self.scroll.offset().y);
+            let offset = Self::grid_top(view.width) - top;
+            let services = self.state.read(cx).services.clone();
+            let images = self.images.clone();
+            section = section.child(
+                self.grid
+                    .render_rows(
+                        offset,
+                        self.loading,
+                        view,
+                        &images,
+                        services.as_ref(),
+                        window,
+                        cx,
+                    )
+                    .mt(px(GRID_GAP)),
+            );
+        }
+        if view.active {
+            self.images.update(cx, |images, _| images.finish_frame());
+        }
+        if self.loading
+            || self.grid.moving(view.reduced)
+            || (!view.reduced && view.active && self.images.read(cx).moving())
+        {
+            cx.on_next_frame(window, |_, _, cx| cx.notify());
+            window.request_animation_frame();
+        }
+        div()
+            .id(("search-scroll", self.id))
+            .size_full()
+            .overflow_y_scroll()
+            .track_scroll(&self.scroll)
+            .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
+            .capture_key_down(cx.listener(|search, event: &KeyDownEvent, window, cx| {
+                // Esc clears a non-empty query and otherwise does nothing.
+                if event.keystroke.key == "escape"
+                    && (!search.query.is_empty() || !search.input.read(cx).value().is_empty())
+                {
+                    search.clear(window, cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .child(section)
+            .child(crate::a11y::status("search-status", status))
+    }
+}
+
+impl Search {
+    fn alert(
+        &self,
+        message: String,
+        label: &'static str,
+        view: ViewSettings,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        AlertRow {
+            message,
+            label,
+            theme: view.theme,
+            width: view.width,
+            focus: &self.retry,
+            active: view.active,
+            keyboard: view.keyboard,
+        }
+        .render(cx.listener(move |search, _, window, cx| {
+            if label == "Clear search" {
+                search.clear(window, cx);
+            } else {
+                search.load(cx);
+            }
+        }))
     }
 }

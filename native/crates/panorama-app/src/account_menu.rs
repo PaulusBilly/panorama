@@ -1,17 +1,22 @@
 use crate::{
     app::AppShell,
-    router::Route,
-    theme::{Column, focus_ring, motion::*},
+    app_state::Account,
+    sidebar::{SIDEBAR_WIDTH, avatar_bounds},
+    theme::{Typography, focus_ring, motion::*},
     transition::Tween,
 };
-use gpui::{BoxShadow, Context, Div, FocusHandle, Window, div, point, prelude::*, px, rgba};
+use gpui::{
+    BoxShadow, Context, Div, FocusHandle, MouseDownEvent, ScrollWheelEvent, Stateful, Window, div,
+    point, prelude::*, px, rgba,
+};
 use std::time::Instant;
+
+/// Popup width.
+const WIDTH: f32 = 224.0;
 
 /// One row of the account popup.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuEntry {
-    /// Opens the Addons screen.
-    Addons,
     /// Ends the session.
     LogOut,
     /// Opens the sign-in dialog.
@@ -22,14 +27,9 @@ impl MenuEntry {
     /// Visible and accessible label.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Addons => "Addons",
-            Self::LogOut => "Log Out",
-            Self::LogIn => "Log In",
+            Self::LogOut => "Sign out",
+            Self::LogIn => "Sign in",
         }
-    }
-    /// The destination this entry navigates to, if it navigates.
-    pub fn route(self) -> Option<Route> {
-        (self == Self::Addons).then_some(Route::Addons)
     }
 }
 
@@ -60,18 +60,13 @@ pub fn popover_shadow() -> Vec<BoxShadow> {
     ]
 }
 
-/// Entries in display order; signed out keeps only sign-in.
+/// Entries in display order: the sidebar already has Addons, so only the session remains.
 pub fn entries(signed_in: bool) -> &'static [MenuEntry] {
     if signed_in {
-        &[MenuEntry::Addons, MenuEntry::LogOut]
+        &[MenuEntry::LogOut]
     } else {
         &[MenuEntry::LogIn]
     }
-}
-
-/// Popup height: 12 px padding twice plus 40 px per entry.
-pub fn height(signed_in: bool) -> f32 {
-    24.0 + 40.0 * entries(signed_in).len() as f32
 }
 
 /// Retained account-popup presence and keyboard focus.
@@ -87,7 +82,7 @@ impl AccountMenu {
         Self {
             open: false,
             presence: Tween::fixed(0.0),
-            focus: (0..2).map(|_| cx.focus_handle().tab_stop(false)).collect(),
+            focus: vec![cx.focus_handle().tab_stop(false)],
         }
     }
     /// Reverse popup presence from its current pose.
@@ -113,79 +108,122 @@ impl AccountMenu {
     pub fn visible(&self, reduced: bool) -> bool {
         self.open || self.moving(reduced)
     }
-    /// Render bottom-end anchoring with collision padding.
+    /// Move keyboard focus to the first entry, for menus opened from the keyboard.
+    pub fn focus_first(&self, window: &mut Window, cx: &mut Context<AppShell>) {
+        if let Some(first) = self.focus.first() {
+            first.focus(window, cx);
+        }
+    }
+    /// While open, a full-window transparent layer under the popup: any press or wheel outside
+    /// the popup lands here and closes it without reaching the page.
+    pub fn catcher(&self, cx: &mut Context<AppShell>) -> Stateful<Div> {
+        div()
+            .id("account-menu-catcher")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_any_mouse_down(cx.listener(|shell, _: &MouseDownEvent, _, cx| {
+                shell.keyboard_navigation = false;
+                shell.menu.set_open(false);
+                cx.notify();
+            }))
+            .on_scroll_wheel(cx.listener(|shell, _: &ScrollWheelEvent, _, cx| {
+                shell.menu.dismiss();
+                cx.notify();
+            }))
+    }
+    /// Render beside the avatar: `left = SIDEBAR_WIDTH + 8`, bottom aligned with the avatar.
     pub fn render(
         &self,
         view: crate::home_layout::ViewSettings,
-        signed_in: bool,
+        account: &Account,
         window: &Window,
         cx: &mut Context<AppShell>,
-    ) -> Div {
+    ) -> Stateful<Div> {
         let theme = view.theme;
-        let keyboard = view.keyboard;
         let reduced = view.reduced;
-        let width = f32::from(window.viewport_size().width);
+        let viewport = window.viewport_size();
+        let avatar = avatar_bounds(viewport);
         let progress = self.presence.value(Instant::now(), reduced);
-        let scale = if reduced { 1.0 } else { 0.98 + 0.02 * progress };
-        let offset = if reduced {
-            0.0
-        } else {
-            -6.0 * (1.0 - progress)
+        let rise = if reduced { 0.0 } else { 6.0 * (1.0 - progress) };
+        let email = match account {
+            Account::SignedIn(email) => Some(email.clone()),
+            _ => None,
         };
-        let inset = Column::at(width).right_inset(width).max(16.0);
+        let mut shadow = popover_shadow();
+        shadow[0].color = theme.rule.into();
         div()
+            .id("account-menu")
+            .role(gpui::Role::Menu)
+            .aria_label("Account")
             .absolute()
-            .top(px(68.0 + offset))
-            .right(px(inset))
-            .w(px(192.0 * scale))
-            .p(px(12.0 * scale))
-            .bg(theme.canvas)
+            .left(px(SIDEBAR_WIDTH + 8.0))
+            .bottom(viewport.height - avatar.bottom() - px(rise))
+            .w(px(WIDTH))
+            .p(px(4.0))
+            .bg(theme.surface)
             .text_color(theme.ink)
             .opacity(progress)
             .occlude()
-            .shadow(popover_shadow())
-            .children(
-                entries(signed_in)
-                    .iter()
-                    .zip(&self.focus)
-                    .map(|(&entry, focus)| {
-                        focus_ring(
+            .shadow(shadow)
+            .when_some(email, |menu, email| {
+                menu.child(
+                    div()
+                        .px(px(12.0))
+                        .pt(px(10.0))
+                        .pb(px(12.0))
+                        .mb(px(4.0))
+                        .border_b_1()
+                        .border_color(theme.rule)
+                        .child(
                             div()
-                                .id(("account-entry", entry as usize))
-                                .w_full()
-                                .min_h(px(40.0 * scale))
-                                .px(px(4.0 * scale))
-                                .border_b(px(scale))
-                                .border_color(theme.ink)
-                                .text_size(px(13.0 * scale))
-                                .line_height(gpui::relative(1.4))
-                                .flex()
-                                .items_center()
-                                .cursor_pointer()
-                                .role(gpui::Role::Button)
-                                .aria_label(entry.label())
-                                .on_click(cx.listener(move |shell, _, window, cx| {
-                                    shell.menu.set_open(false);
-                                    match entry.route() {
-                                        Some(route) => shell.navigate(route, window, cx),
-                                        None if entry == MenuEntry::LogOut => {
-                                            shell.state.update(cx, |state, cx| state.sign_out(cx))
-                                        }
-                                        None => shell.open_login(window, cx),
-                                    }
-                                    cx.notify();
-                                }))
-                                .child(entry.label()),
-                            focus,
-                            theme,
-                            self.open,
-                            keyboard,
-                            0.0,
-                            window,
+                                .caption()
+                                .text_color(theme.ink_muted)
+                                .child("Signed in as"),
                         )
-                    }),
-            )
+                        .child(div().label().truncate().child(email)),
+                )
+            })
+            .children(entries(email_present(account)).iter().zip(&self.focus).map(
+                |(&entry, focus)| {
+                    focus_ring(
+                        div()
+                            .id(("account-entry", entry as usize))
+                            .w_full()
+                            .min_h(px(40.0))
+                            .px(px(12.0))
+                            .label()
+                            .flex()
+                            .items_center()
+                            .cursor_pointer()
+                            .hover(|style| style.bg(theme.hover))
+                            .role(gpui::Role::MenuItem)
+                            .aria_label(entry.label())
+                            .on_click(cx.listener(move |shell, _, window, cx| {
+                                shell.menu.set_open(false);
+                                if entry == MenuEntry::LogOut {
+                                    shell.state.update(cx, |state, cx| state.sign_out(cx));
+                                    shell.sidebar.account.focus(window, cx);
+                                } else {
+                                    shell.open_login(window, cx);
+                                }
+                                cx.notify();
+                            }))
+                            .child(entry.label()),
+                        focus,
+                        theme,
+                        self.open,
+                        view.keyboard,
+                        0.0,
+                        window,
+                    )
+                },
+            ))
     }
+}
+
+fn email_present(account: &Account) -> bool {
+    matches!(account, Account::SignedIn(_))
 }
 
 #[cfg(test)]
@@ -193,17 +231,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn signed_out_keeps_only_sign_in() {
+    fn one_session_entry_per_account_state() {
         assert_eq!(entries(false), [MenuEntry::LogIn]);
-        assert_eq!(entries(true), [MenuEntry::Addons, MenuEntry::LogOut]);
-        assert_eq!(height(false), 64.0);
-        assert_eq!(height(true), 104.0);
-    }
-
-    #[test]
-    fn only_addons_navigates() {
-        assert_eq!(MenuEntry::Addons.route(), Some(Route::Addons));
-        assert_eq!(MenuEntry::LogOut.route(), None);
-        assert_eq!(MenuEntry::LogIn.route(), None);
+        assert_eq!(entries(true), [MenuEntry::LogOut]);
     }
 }
