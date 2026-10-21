@@ -10,9 +10,10 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     ("target-colorspace-hint", "auto", false),
     ("hwdec", "d3d11va,auto-safe", false),
     ("cache", "yes", false),
-    // ponytail: 60 s ahead (~100 MB at 13 Mbps); max-bytes still caps high-bitrate remuxes.
+    // 60 s ahead (~100 MB at 13 Mbps). Sources already sit in the on-disk media/torrent cache,
+    // so 256 MiB (~30 s of an 80 Mbps remux) is plenty in RAM.
     ("cache-secs", "60", false),
-    ("demuxer-max-bytes", "512MiB", false),
+    ("demuxer-max-bytes", "256MiB", false),
     ("demuxer-max-back-bytes", "32MiB", false),
     ("cache-pause", "yes", false),
     ("cache-pause-wait", "2", false),
@@ -37,9 +38,10 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     ("hwdec", "auto-safe", false),
     ("gpu-hwdec-interop", "auto", false),
     ("cache", "yes", false),
-    // ponytail: 60 s ahead (~100 MB at 13 Mbps); max-bytes still caps high-bitrate remuxes.
+    // 60 s ahead (~100 MB at 13 Mbps). Sources already sit in the on-disk media/torrent cache,
+    // so 256 MiB (~30 s of an 80 Mbps remux) is plenty in RAM.
     ("cache-secs", "60", false),
-    ("demuxer-max-bytes", "512MiB", false),
+    ("demuxer-max-bytes", "256MiB", false),
     ("demuxer-max-back-bytes", "32MiB", false),
     ("cache-pause", "yes", false),
     ("cache-pause-wait", "2", false),
@@ -52,4 +54,7 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     ("gpu-api", "vulkan", false),
     ("gpu-context", "panorama-macvk", false),
     ("target-colorspace-hint", "auto", false),
+    // Per-frame HDR peak measurement is a compute pass on every 4K frame; HDR10/HDR10+
+    // metadata already carries the peak, and skipping it keeps fanless Macs cooler.
+    ("hdr-compute-peak", "no", false),
 ];
