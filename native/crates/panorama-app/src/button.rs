@@ -46,6 +46,7 @@ pub enum Icon {
     Addons,
     Person,
     Retry,
+    Close,
 }
 impl Icon {
     /// Asset path, as registered in `assets.rs`.
@@ -62,6 +63,7 @@ impl Icon {
             Self::Addons => "addons.svg",
             Self::Person => "person.svg",
             Self::Retry => "refresh.svg",
+            Self::Close => "x.svg",
         }
     }
 }
@@ -303,6 +305,7 @@ mod tests {
             Icon::Addons,
             Icon::Person,
             Icon::Retry,
+            Icon::Close,
         ] {
             assert!(
                 crate::assets::Assets.load(icon.path()).unwrap().is_some(),
