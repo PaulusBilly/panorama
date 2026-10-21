@@ -38,7 +38,12 @@ impl Preview {
         match (over, self) {
             (true, Self::Open { index: open, .. }) if open == index => self,
             (true, _) => Self::Dwelling { index, since: now },
-            (false, Self::Dwelling { index: dwelling, .. }) if dwelling == index => Self::Closed,
+            (
+                false,
+                Self::Dwelling {
+                    index: dwelling, ..
+                },
+            ) if dwelling == index => Self::Closed,
             (false, _) => self,
         }
     }
@@ -90,6 +95,8 @@ pub struct FilmGrid {
     spare: FocusHandle,
     watch: FocusHandle,
     preview: Preview,
+    /// A preview that was left, settling back onto its card.
+    fading: Option<(usize, Tween)>,
     /// Captures pin the first card's preview; the real pointer must not move it.
     pinned: bool,
     launched: Instant,
@@ -111,6 +118,7 @@ impl FilmGrid {
             } else {
                 Preview::Closed
             },
+            fading: None,
             pinned: hover_first,
             launched: Instant::now(),
         }
@@ -146,15 +154,29 @@ impl FilmGrid {
         if self.pinned {
             return;
         }
+        if let Preview::Open {
+            index: open,
+            mut tween,
+        } = self.preview
+            && open == index
+        {
+            tween.retarget(0.0, DURATION_STANDARD, Some(EASE_EDITORIAL), Instant::now());
+            self.fading = Some((index, tween));
+        }
         self.preview = self.preview.leave(index);
     }
-    /// Frames are needed while a dwell counts down or the preview opens.
+    /// Frames are needed while a dwell counts down or a preview opens or settles.
     pub fn moving(&self, reduced: bool) -> bool {
-        match self.preview {
-            Preview::Closed => false,
-            Preview::Dwelling { .. } => true,
-            Preview::Open { tween, .. } => tween.moving(Instant::now(), reduced),
-        }
+        let now = Instant::now();
+        let fading = self
+            .fading
+            .is_some_and(|(_, tween)| tween.moving(now, reduced));
+        fading
+            || match self.preview {
+                Preview::Closed => false,
+                Preview::Dwelling { .. } => true,
+                Preview::Open { tween, .. } => tween.moving(now, reduced),
+            }
     }
     /// Render the rows that intersect the viewport. `offset` is the grid's top edge relative to
     /// the viewport's; `skeletons` draws placeholder tiles while there are no films yet.
@@ -232,14 +254,33 @@ impl FilmGrid {
             }
             result = result.child(tiles);
         }
-        self.preview = self.preview.tick(Instant::now());
-        if let Preview::Open { index, tween } = self.preview
-            && let Some(film) = films.get(index)
-            && (start * grid.columns..end * grid.columns).contains(&index)
+        let now = Instant::now();
+        self.preview = self.preview.tick(now);
+        if self
+            .fading
+            .is_some_and(|(_, tween)| !tween.moving(now, view.reduced))
         {
-            let lift = tween.value(Instant::now(), view.reduced);
-            result = result
-                .child(self.preview(film, index, lift, grid, view, images, services, window, cx));
+            self.fading = None;
+        }
+        let rendered = start * grid.columns..end * grid.columns;
+        let open = match self.preview {
+            Preview::Open { index, tween } => Some((index, tween, true)),
+            _ => None,
+        };
+        for (index, tween, live) in self
+            .fading
+            .map(|(i, t)| (i, t, false))
+            .into_iter()
+            .chain(open)
+        {
+            if let Some(film) = films.get(index)
+                && rendered.contains(&index)
+            {
+                let lift = tween.value(now, view.reduced);
+                result = result.child(self.preview(
+                    film, index, lift, live, grid, view, images, services, window, cx,
+                ));
+            }
         }
         result
     }
@@ -251,6 +292,7 @@ impl FilmGrid {
         film: &FilmDetails,
         index: usize,
         lift: f32,
+        live: bool,
         grid: Grid,
         view: ViewSettings,
         images: &Entity<ImageCache>,
@@ -350,20 +392,37 @@ impl FilmGrid {
             });
 
         div()
-            .id(("film-preview", index))
+            .id((
+                if live {
+                    "film-preview"
+                } else {
+                    "film-preview-fading"
+                },
+                index,
+            ))
             .absolute()
             .left(px(x))
             .top(px(y))
             .w(px(width))
             .bg(theme.surface)
-            .shadow_lg()
-            .occlude()
-            .on_hover(cx.listener(move |host: &mut V, over: &bool, _, cx| {
-                if !*over {
-                    host.film_grid().leave_preview(index);
-                    cx.notify();
-                }
-            }))
+            .shadow(vec![gpui::BoxShadow {
+                color: gpui::black().opacity(0.7 * lift),
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(40.0),
+                spread_radius: px(4.0),
+                inset: false,
+            }])
+            .when(live, |preview| {
+                // Clicks stop here so the cards beneath stay quiet; the wheel still scrolls the page.
+                preview.block_mouse_except_scroll().on_hover(cx.listener(
+                    move |host: &mut V, over: &bool, _, cx| {
+                        if !*over {
+                            host.film_grid().leave_preview(index);
+                            cx.notify();
+                        }
+                    },
+                ))
+            })
             .child(art)
             .child(details)
     }
@@ -442,7 +501,11 @@ mod tests {
         assert_eq!(moved_on.tick(ms(800)).open(), Some(3));
 
         let open = resting.tick(ms(500));
-        assert_eq!(open.hover(2, false, ms(600)).open(), Some(2), "card under preview");
+        assert_eq!(
+            open.hover(2, false, ms(600)).open(),
+            Some(2),
+            "card under preview"
+        );
         assert_eq!(open.hover(2, true, ms(700)).open(), Some(2));
         assert_eq!(open.leave(3).open(), Some(2));
         assert_eq!(open.leave(2).open(), None);
