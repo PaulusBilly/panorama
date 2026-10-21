@@ -1,5 +1,14 @@
 use super::*;
 
+/// A search card already carrying everything a Home card shows, so it needs no details request.
+fn complete(id: &str, name: &str) -> Value {
+    let mut film = movie(id, name);
+    film["background"] = json!("https://images.test/backdrop.jpg");
+    film["director"] = json!(["A Director"]);
+    film["country"] = json!("France");
+    film
+}
+
 fn search_addon(host: &str) -> Descriptor {
     addon(
         host,
@@ -57,7 +66,10 @@ async fn search_queries_at_most_four_search_capable_catalogs() {
             &format!("search{index}.test"),
             "catalog",
             "find",
-            page(&format!("tt{index}"), &format!("Film {index}")).delayed(1),
+            Reply::json(
+                json!({"metas":[complete(&format!("tt{index}"), &format!("Film {index}"))]}),
+            )
+            .delayed(1),
         );
     }
     let events = client.search(&addons, " movie ").collect::<Vec<_>>().await;
@@ -137,13 +149,14 @@ async fn search_merges_in_account_order_deduplicates_and_bounds_query() {
         "first.test",
         "catalog",
         "find",
-        Reply::json(json!({"metas":[movie("tt1","First"), movie("tt2","Two")]})).delayed(2),
+        Reply::json(json!({"metas":[complete("tt1","First"), complete("tt2","Two")]})).delayed(2),
     );
     fake.set(
         "second.test",
         "catalog",
         "find",
-        Reply::json(json!({"metas":[movie("tt1","Duplicate"), movie("tt3","Three")]})).delayed(1),
+        Reply::json(json!({"metas":[complete("tt1","Duplicate"), complete("tt3","Three")]}))
+            .delayed(1),
     );
     let events = client
         .search(&addons, &format!(" {} ", "é".repeat(110)))
@@ -259,7 +272,7 @@ async fn search_enriches_missing_names_and_delivers_cached_then_fresh_details_in
         Reply::json(json!({"metas":[
             {"id":"custom:1","type":"movie","name":""},
             {"id":"custom:2","type":"movie","name":""},
-            movie("custom:3", "Original")
+            complete("custom:3", "Original")
         ]})),
     );
     let mut refreshed = movie("custom:1", "Fresh");

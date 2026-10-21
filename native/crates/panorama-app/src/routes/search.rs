@@ -63,7 +63,7 @@ impl Search {
         cx: &mut Context<Self>,
     ) -> Self {
         let input = cx.new(|cx| {
-            let mut input = InputState::new(window, cx).placeholder("Search films");
+            let mut input = InputState::new(window, cx);
             input.set_value(query.clone(), window, cx);
             input
         });
@@ -157,6 +157,8 @@ impl Search {
         let (job, mut receiver) = services.search(state.installed.clone(), self.query.clone());
         self.loading = true;
         self.error = None;
+        // Drop the previous query's cards so the placeholders show this search is running.
+        self.grid.set_films(Arc::from([]), cx);
         self.request = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
             while let Some(event) = receiver.next().await {
@@ -230,7 +232,7 @@ impl Search {
 
     fn status(&self) -> String {
         if self.query.is_empty() {
-            "Type a title and press Enter.".into()
+            String::new()
         } else if self.loading {
             format!("Searching for \u{201c}{}\u{201d}", self.query)
         } else if self.error.is_some() {
@@ -238,8 +240,7 @@ impl Search {
         } else {
             match self.grid.films.len() {
                 0 => format!("No films found for \u{201c}{}\u{201d}.", self.query),
-                1 => format!("1 film for \u{201c}{}\u{201d}", self.query),
-                count => format!("{count} films for \u{201c}{}\u{201d}", self.query),
+                _ => String::new(),
             }
         }
     }
@@ -401,6 +402,7 @@ impl Render for Search {
                 }
             }))
             .child(section)
+            .child(crate::home_layout::footer())
             .child(crate::a11y::status("search-status", status))
     }
 }
