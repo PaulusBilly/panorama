@@ -1,6 +1,7 @@
 use crate::{
     assets::{self, Assets},
-    theme::{Theme, Typography, content_width, focus_ring},
+    button::Button,
+    theme::{Column, Theme, Typography},
 };
 use gpui::{
     Bounds, Context, FocusHandle, Render, Window, WindowBounds, WindowOptions, div, prelude::*, px,
@@ -22,7 +23,7 @@ pub fn show(message: String) -> ExitCode {
         .run(move |cx| {
             gpui_component::init(cx);
             let _ = assets::register_fonts(cx);
-            Theme::light().install(false, cx);
+            Theme::default().install(cx);
             let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
             let result = cx.open_window(
                 WindowOptions {
@@ -56,53 +57,37 @@ struct StartupErrorView {
 }
 impl Render for StartupErrorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::light();
+        let theme = Theme::default();
         let width = f32::from(window.viewport_size().width);
-        let button = focus_ring(
-            div()
-                .id("reload-runtime")
-                .min_h(px(40.0))
-                .px(px(4.0))
-                .text_size(px(13.0))
-                .border_b_1()
-                .border_color(theme.ink)
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .role(gpui::Role::Button)
-                .aria_label("Reload Panorama")
-                .on_click(cx.listener(|view, _, _, cx| {
-                    if view.pending {
-                        return;
-                    }
-                    let Some(executable) = view.executable.clone() else {
-                        return;
-                    };
-                    view.pending = true;
-                    let args = view.arguments.clone();
-                    let work = cx
-                        .background_executor()
-                        .spawn(async move { Command::new(executable).args(args).spawn().is_ok() });
-                    cx.spawn(async move |entity, cx| {
-                        let started = work.await;
-                        let _ = entity.update(cx, |view, cx| {
-                            if started {
-                                cx.quit();
-                            } else {
-                                view.pending = false;
-                                cx.notify();
-                            }
-                        });
-                    })
-                    .detach();
-                }))
-                .child("Reload Panorama"),
-            &self.focus,
-            theme,
-            !self.pending,
-            true,
-            window,
-        );
+        let button = Button::glass("reload-runtime", "Reload Panorama")
+            .compact()
+            .busy(self.pending)
+            .focus(&self.focus, true)
+            .on_click(cx.listener(|view, _, _, cx| {
+                if view.pending {
+                    return;
+                }
+                let Some(executable) = view.executable.clone() else {
+                    return;
+                };
+                view.pending = true;
+                let args = view.arguments.clone();
+                let work = cx
+                    .background_executor()
+                    .spawn(async move { Command::new(executable).args(args).spawn().is_ok() });
+                cx.spawn(async move |entity, cx| {
+                    let started = work.await;
+                    let _ = entity.update(cx, |view, cx| {
+                        if started {
+                            cx.quit();
+                        } else {
+                            view.pending = false;
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+            }));
         div()
             .size_full()
             .bg(theme.canvas)
@@ -110,8 +95,8 @@ impl Render for StartupErrorView {
             .font(assets::font())
             .child(
                 div()
-                    .w(px(content_width(width)))
-                    .mx_auto()
+                    .w(px(Column::at(width).width))
+                    .ml(px(Column::at(width).left))
                     .mt(px(32.0))
                     .py(px(22.0))
                     .border_y_1()

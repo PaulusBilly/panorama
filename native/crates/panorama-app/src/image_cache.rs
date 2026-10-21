@@ -98,9 +98,17 @@ impl<K: Eq, V> ByteLru<K, V> {
     }
 }
 
+/// Where an image comes from. Fixture stills are matched here, before `ImageUrl::parse`, so
+/// the core's https-only rule stays as it is.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Source {
+    Remote(ImageUrl),
+    Fixture(&'static str),
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
-    url: ImageUrl,
+    url: Source,
     width: u32,
     height: u32,
 }
@@ -121,6 +129,8 @@ pub struct ImageCache {
     visible: HashSet<Key>,
     failed: HashSet<Key>,
     fading: bool,
+    /// Bundled `fixture://` stills resolve only in fixture runs, never from addon data.
+    fixtures: bool,
     _release: Option<gpui::Subscription>,
 }
 
@@ -132,6 +142,7 @@ impl Default for ImageCache {
             visible: HashSet::new(),
             failed: HashSet::new(),
             fading: false,
+            fixtures: false,
             _release: None,
         }
     }
@@ -139,8 +150,11 @@ impl Default for ImageCache {
 
 impl ImageCache {
     /// Allocate the single app-wide cache and release every atlas entry on teardown.
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        let mut cache = Self::default();
+    pub fn new(fixtures: bool, cx: &mut Context<Self>) -> Self {
+        let mut cache = Self {
+            fixtures,
+            ..Self::default()
+        };
         cache._release = Some(cx.on_release(|cache, cx| cache.clear(cx)));
         cache
     }
@@ -165,21 +179,26 @@ impl ImageCache {
     }
     /// Whether this image failed and its next fallback should be selected.
     pub fn failed(&mut self, url: &str, bounds: (f32, f32), scale: f32) -> bool {
-        Self::key(url, bounds, scale).is_none_or(|key| {
+        self.key(url, bounds, scale).is_none_or(|key| {
             self.visible.insert(key.clone());
             self.failed.contains(&key)
         })
     }
-    fn key(url: &str, bounds: (f32, f32), scale: f32) -> Option<Key> {
+    fn key(&self, url: &str, bounds: (f32, f32), scale: f32) -> Option<Key> {
+        let url = match url.strip_prefix("fixture://") {
+            Some(_) if !self.fixtures => return None,
+            Some(name) => Source::Fixture(crate::fixtures::STILLS.iter().find(|s| s.0 == name)?.0),
+            None => Source::Remote(ImageUrl::parse(url).ok()?),
+        };
         Some(Key {
-            url: ImageUrl::parse(url).ok()?,
+            url,
             width: bucket(bounds.0, scale),
             height: bucket(bounds.1, scale),
         })
     }
     /// Read a cached offscreen tile without keeping a load alive.
     pub fn cached(&mut self, url: &str, bounds: (f32, f32), scale: f32) -> Option<CachedImage> {
-        let key = Self::key(url, bounds, scale)?;
+        let key = self.key(url, bounds, scale)?;
         self.lru.get(&key).cloned()
     }
     /// Request only images used by this frame; conversion also stays off GPUI.
@@ -191,7 +210,7 @@ impl ImageCache {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<CachedImage> {
-        let key = Self::key(url, bounds, window.scale_factor())?;
+        let key = self.key(url, bounds, window.scale_factor())?;
         self.visible.insert(key.clone());
         if let Some(entry) = self.lru.get(&key) {
             self.fading |=
@@ -205,24 +224,46 @@ impl ImageCache {
         {
             return stale;
         }
-        let loader = services.images.clone()?;
-        let request = ImageRequest {
-            url: key.url.clone(),
-            target: ImageTarget {
-                max_width: key.width,
-                max_height: key.height,
-            },
-        };
         let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.spawn(async move {
-            let result = match loader.load(request).await {
-                Ok(decoded) => tokio::task::spawn_blocking(move || render_image(decoded))
+        let job = match &key.url {
+            Source::Remote(url) => {
+                let loader = services.images.clone()?;
+                let request = ImageRequest {
+                    url: url.clone(),
+                    target: ImageTarget {
+                        max_width: key.width,
+                        max_height: key.height,
+                    },
+                };
+                Job(services.runtime.spawn(async move {
+                    let result = match loader.load(request).await {
+                        Ok(decoded) => tokio::task::spawn_blocking(move || render_image(decoded))
+                            .await
+                            .unwrap_or(Err(ImageError::Decode)),
+                        Err(error) => Err(error),
+                    };
+                    let _ = sender.unbounded_send(result);
+                }))
+            }
+            Source::Fixture(name) => {
+                let bytes = crate::fixtures::STILLS.iter().find(|s| s.0 == *name)?.1;
+                Job(services.runtime.spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        let rgba = image::load_from_memory(bytes)
+                            .map_err(|_| ImageError::Decode)?
+                            .into_rgba8();
+                        render_image(DecodedImage {
+                            width: rgba.width(),
+                            height: rgba.height(),
+                            rgba: rgba.into_raw(),
+                        })
+                    })
                     .await
-                    .unwrap_or(Err(ImageError::Decode)),
-                Err(error) => Err(error),
-            };
-            let _ = sender.unbounded_send(result);
-        }));
+                    .unwrap_or(Err(ImageError::Decode));
+                    let _ = sender.unbounded_send(result);
+                }))
+            }
+        };
         let completed = key.clone();
         let task = cx.spawn_in(window, async move |entity, cx| {
             let _job = job;
@@ -313,6 +354,19 @@ mod tests {
         cache.clear(|v| dropped.push(v));
         assert_eq!(cache.bytes, 0);
         assert_eq!(dropped, ["two", "one", "oversized", "three", "replacement"]);
+    }
+    #[test]
+    fn fixture_urls_resolve_only_in_fixture_runs() {
+        let fixtures = ImageCache {
+            fixtures: true,
+            ..ImageCache::default()
+        };
+        let live = ImageCache::default();
+        let key = |cache: &ImageCache, url| cache.key(url, (100.0, 100.0), 1.0);
+        assert!(key(&fixtures, "fixture://dusk.jpg").is_some());
+        assert!(key(&fixtures, "fixture://missing.jpg").is_none());
+        assert!(key(&fixtures, "http://dusk.jpg").is_none());
+        assert!(key(&live, "fixture://dusk.jpg").is_none());
     }
     #[test]
     fn alpha_is_straight_and_channels_are_bgra() {

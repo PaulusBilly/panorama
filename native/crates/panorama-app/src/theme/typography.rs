@@ -1,6 +1,8 @@
 //! Atomic type styles.
+use super::Theme;
 use crate::assets::Weighted;
-use gpui::{FontWeight, Styled, px, relative};
+use gpui::{Div, FontWeight, SharedString, Styled, div, prelude::*, px, relative};
+use panorama_core::addons::FilmDetails;
 
 /// Font size, weight and line height applied as one style.
 #[derive(Clone, Copy, Debug)]
@@ -55,6 +57,63 @@ pub const TEXT_3XL: TypeStyle = TypeStyle {
     weight: 500.0,
     line_height: 1.05,
 };
+/// Film titles over artwork. Aspekta ships 400, 500 and 700 only.
+pub const DISPLAY: TypeStyle = TypeStyle {
+    size: 52.0,
+    weight: 700.0,
+    line_height: 1.0,
+};
+/// Row and section headings.
+pub const SECTION: TypeStyle = TypeStyle {
+    size: 16.0,
+    weight: 700.0,
+    line_height: 1.2,
+};
+/// Director, origin and year lines.
+pub const CREDIT: TypeStyle = TypeStyle {
+    size: 13.0,
+    weight: 500.0,
+    line_height: 1.3,
+};
+/// Pill button labels.
+pub const BUTTON: TypeStyle = TypeStyle {
+    size: 14.0,
+    weight: 700.0,
+    line_height: 1.0,
+};
+
+/// GPUI has no text-transform, so uppercase is applied to the string.
+pub fn caps(text: &str) -> SharedString {
+    text.to_uppercase().into()
+}
+
+/// "WONG KAR WAI  HONG KONG 2000": director in ink, origin and year in ink_muted.
+pub fn credits(film: &FilmDetails, theme: Theme) -> Div {
+    let place = [film.origin_country.as_deref(), film.release_info.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    CREDIT
+        .apply(div())
+        .flex()
+        .flex_wrap()
+        .gap_x(px(12.0))
+        .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
+            ("tnum".into(), 1),
+            ("kern".into(), 1),
+        ])))
+        .when(!film.director.is_empty(), |row| {
+            row.child(
+                div()
+                    .text_color(theme.ink)
+                    .child(caps(&film.director.join(", "))),
+            )
+        })
+        .when(!place.is_empty(), |row| {
+            row.child(div().text_color(theme.ink_muted).child(caps(&place)))
+        })
+}
 
 impl TypeStyle {
     /// Apply all type properties together.
@@ -91,9 +150,8 @@ pub trait Typography: Styled + Sized {
     /// Apply responsive display typography.
     fn display(self, width: f32) -> Self {
         TypeStyle {
-            size: (width * 0.05).clamp(36.0, 52.0),
-            weight: 500.0,
-            line_height: 1.05,
+            size: (width * 0.05).clamp(36.0, DISPLAY.size),
+            ..DISPLAY
         }
         .apply(self)
     }

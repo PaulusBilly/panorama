@@ -1,8 +1,8 @@
-use crate::assets::Weighted;
 use crate::{
     app::AppShell,
     app_state::{Account, AppState},
-    theme::{Theme, Typography, focus_ring, motion::*},
+    button::{Button, Icon},
+    theme::{Theme, Typography, motion::*},
     transition::Tween,
 };
 use gpui::{
@@ -124,6 +124,7 @@ impl LoginDialog {
         &self,
         label: &'static str,
         input: &Entity<InputState>,
+        short: bool,
         theme: Theme,
         window: &Window,
         cx: &Context<Self>,
@@ -141,7 +142,7 @@ impl LoginDialog {
                 div()
                     .border_b(px(if focused { 2.0 } else { 1.0 }))
                     .border_color(theme.ink)
-                    .py(px(11.0))
+                    .py(px(if short { 8.0 } else { 11.0 }))
                     .child(
                         Input::new(input)
                             .appearance(false)
@@ -171,7 +172,7 @@ impl Render for LoginDialog {
                 let shell = shell.read(cx);
                 (shell.theme, shell.reduced_motion, shell.keyboard_navigation)
             })
-            .unwrap_or((Theme::light(), false, true));
+            .unwrap_or((Theme::default(), false, true));
         let now = Instant::now();
         let progress = self.presence.value(now, reduced);
         let scrim = self.scrim.value(now, reduced);
@@ -191,6 +192,7 @@ impl Render for LoginDialog {
             window.request_animation_frame();
         }
         let width = f32::from(window.viewport_size().width);
+        let short = f32::from(window.viewport_size().height) < 560.0;
         let busy = matches!(self.state.read(cx).account, Account::Authenticating);
         let error = match &self.state.read(cx).account {
             Account::Error(message) => Some(message.clone()),
@@ -199,9 +201,9 @@ impl Render for LoginDialog {
         let panel = div()
             .relative()
             .w(px((width - 40.0).min(520.0)))
-            .p(px(if width < 560.0 { 26.0 } else { 34.0 }))
-            .when(width < 560.0, |panel| panel.px(px(22.0)))
-            .bg(theme.canvas)
+            .px(px(if width < 560.0 { 24.0 } else { 34.0 }))
+            .py(px(if short { 20.0 } else { 30.0 }))
+            .bg(theme.surface)
             .text_color(theme.ink)
             .opacity(progress)
             .top(px(if reduced {
@@ -211,7 +213,7 @@ impl Render for LoginDialog {
             }))
             .flex()
             .flex_col()
-            .gap(px(24.0))
+            .gap(px(if short { 16.0 } else { 24.0 }))
             .shadow(vec![BoxShadow {
                 inset: false,
                 color: theme.shadow.into(),
@@ -222,10 +224,10 @@ impl Render for LoginDialog {
             .child(
                 div()
                     .flex()
-                    .items_start()
+                    .items_center()
                     .justify_between()
                     .gap(px(24.0))
-                    .pb(px(26.0))
+                    .pb(px(if short { 16.0 } else { 24.0 }))
                     .border_b_1()
                     .border_color(theme.rule)
                     .child(
@@ -235,32 +237,16 @@ impl Render for LoginDialog {
                             .title()
                             .child("Sign in to sync addons"),
                     )
-                    .child(focus_ring(
-                        div()
-                            .id("login-close")
-                            .min_h(px(40.0))
-                            .px(px(4.0))
-                            .flex_shrink_0()
-                            .caption()
-                            .text_color(theme.ink_muted)
-                            .border_b_1()
-                            .border_color(theme.ink_muted)
-                            .flex()
-                            .items_center()
-                            .cursor_pointer()
-                            .role(gpui::Role::Button)
-                            .aria_label("Close sign in")
-                            .on_click(cx.listener(|dialog, _, window, cx| dialog.close(window, cx)))
-                            .child("Close"),
-                        &self.close,
-                        theme,
-                        !self.closing,
-                        keyboard,
-                        window,
-                    )),
+                    .child(
+                        Button::round("login-close", Icon::Close, "Close sign in")
+                            .compact()
+                            .focus(&self.close, keyboard)
+                            .tab_stop(!self.closing)
+                            .on_click(cx.listener(|dialog, _, window, cx| dialog.close(window, cx))),
+                    ),
             )
-            .child(self.field("Email", &self.email, theme, window, cx))
-            .child(self.field("Password", &self.password, theme, window, cx))
+            .child(self.field("Email", &self.email, short, theme, window, cx))
+            .child(self.field("Password", &self.password, short, theme, window, cx))
             .when_some(error, |panel, error| {
                 panel.child(
                     div()
@@ -271,35 +257,18 @@ impl Render for LoginDialog {
                         .child(error),
                 )
             })
-            .child(focus_ring(
-                div()
-                    .id("login-submit")
-                    .text_size(px(16.0))
-                    .line_height(relative(1.5))
-                    .w_full()
-                    .min_h(px(44.0))
-                    .px(px(18.0))
-                    .py(px(13.0))
-                    .border_1()
-                    .border_color(theme.ink)
-                    .bg(theme.ink)
-                    .text_color(theme.canvas)
-                    .weight(gpui::FontWeight::MEDIUM)
-                    .flex()
-                    .justify_center()
-                    .items_center()
-                    .cursor_pointer()
-                    .role(gpui::Role::Button)
-                    .aria_label("Sign in")
-                    .opacity(if busy { 0.6 } else { 1.0 })
-                    .on_click(cx.listener(|dialog, _, window, cx| dialog.sign_in(window, cx)))
-                    .child(if busy { "Signing in" } else { "Sign in" }),
-                &self.submit,
-                theme,
-                !busy && !self.closing,
-                keyboard,
-                window,
-            ));
+            .child(
+                div().flex().justify_end().child(
+                    Button::primary("login-submit", if busy { "Signing in" } else { "Sign in" })
+                        .aria_label("Sign in")
+                        .compact()
+                        .busy(busy)
+                        .reduced_motion(reduced)
+                        .focus(&self.submit, keyboard)
+                        .tab_stop(!self.closing)
+                        .on_click(cx.listener(|dialog, _, window, cx| dialog.sign_in(window, cx))),
+                ),
+            );
         div()
             .id("login-dialog")
             .absolute()
@@ -323,11 +292,18 @@ impl Render for LoginDialog {
                     dialog.sign_in(window, cx);
                 }
             }))
-            .child(div().absolute().inset_0().bg(theme.scrim).opacity(scrim))
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .bg(theme.scrim.opacity(0.72))
+                    .opacity(scrim),
+            )
             .child(
                 div()
                     .relative()
                     .size_full()
+                    .pt(px(crate::titlebar::SAFE_TOP))
                     .flex()
                     .items_center()
                     .justify_center()

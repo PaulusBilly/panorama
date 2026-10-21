@@ -56,7 +56,7 @@ impl Player {
                             svg()
                                 .path("player-loader-2.svg")
                                 .size(px(22.0))
-                                .text_color(theme.player_ink)
+                                .text_color(theme.ink)
                                 .when(!reduced, |icon| {
                                     icon.with_transformation(Transformation::rotate(gpui::radians(
                                         self.launched.elapsed().as_secs_f32()
@@ -68,7 +68,7 @@ impl Player {
                             column.child(
                                 div()
                                     .caption()
-                                    .text_color(theme.player_ink.opacity(0.65))
+                                    .text_color(theme.ink.opacity(0.65))
                                     .child(caption),
                             )
                         })),
@@ -86,7 +86,7 @@ impl Player {
                         div()
                             .body()
                             .mt(px(8.0))
-                            .text_color(theme.player_ink.opacity(0.8))
+                            .text_color(theme.ink.opacity(0.8))
                             .child(NO_PEERS_BODY),
                     )
                     .child(self.no_peers_buttons(theme, keyboard, window, cx)),
@@ -128,9 +128,9 @@ impl Player {
                 .px(px(20.0))
                 .border_1()
                 .text_size(px(14.0))
-                .border_color(theme.player_ink.opacity(if primary { 1.0 } else { 0.6 }))
+                .border_color(theme.ink.opacity(if primary { 1.0 } else { 0.6 }))
                 .when(primary, |button| {
-                    button.bg(theme.player_ink).text_color(theme.player_canvas)
+                    button.bg(theme.ink).text_color(theme.player_canvas)
                 })
                 .flex()
                 .items_center()
@@ -142,6 +142,7 @@ impl Player {
             focus_theme(theme),
             true,
             keyboard,
+            0.0,
             window,
         )
     }
@@ -164,7 +165,7 @@ impl Player {
                 text.child(
                     div()
                         .caption()
-                        .text_color(theme.player_ink.opacity(0.65))
+                        .text_color(theme.ink.opacity(0.65))
                         .child(caption),
                 )
             })

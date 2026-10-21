@@ -146,6 +146,7 @@ fn progress_is_ignored_while_signed_out() {
         session.report_progress(FILM, sample(500.0, false));
         session.stop_playback(FILM);
         assert_eq!(session.resume(FILM), None);
+        assert_eq!(session.continue_watching(), []);
         assert_eq!(put_calls(&api), 0);
     });
 }

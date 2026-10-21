@@ -150,7 +150,7 @@ pub fn ring(theme: Theme, alpha: f32) -> Div {
         .inset_0()
         .rounded_full()
         .border_1()
-        .border_color(theme.player_ink.opacity(alpha))
+        .border_color(theme.ink.opacity(alpha))
 }
 
 /// The shared pill surface: 72% canvas. Add `ring` as the last child so it paints above content.
@@ -164,7 +164,7 @@ pub fn pill(theme: Theme) -> Div {
 pub fn focus_theme(theme: Theme) -> Theme {
     Theme {
         focus_inner: theme.player_canvas,
-        focus_outer: theme.player_ink,
+        focus_outer: theme.ink,
         ..theme
     }
 }
@@ -263,7 +263,7 @@ impl Player {
                     .absolute()
                     .inset_0()
                     .rounded_full()
-                    .bg(theme.player_ink.opacity(wash)),
+                    .bg(theme.ink.opacity(wash)),
             )
             .when(spec.fill != Fill::None, |button| {
                 button.child(ring(theme, 0.12))
@@ -272,7 +272,7 @@ impl Player {
                 svg()
                     .path(spec.icon)
                     .size(px(spec.icon_size * scale))
-                    .text_color(theme.player_ink),
+                    .text_color(theme.ink),
             );
         let focused = focus_ring(
             button,
@@ -280,6 +280,7 @@ impl Player {
             focus_theme(theme),
             !spec.disabled,
             keyboard,
+            0.0,
             window,
         );
         div()

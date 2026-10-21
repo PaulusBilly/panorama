@@ -1,23 +1,23 @@
+pub(crate) use crate::film_grid::{NextCard, PreviousCard};
 use crate::{
     app::AppShell,
-    app_state::AppState,
+    app_state::{Account, AppState},
     args::Args,
+    continue_row::ContinueRow,
+    film_grid::{FilmGrid, GridHost},
+    hero::HeroFocus,
     home_layout::ViewSettings,
-    image_cache::{CachedImage, ImageCache, render_image},
+    image_cache::{CachedImage, ImageCache},
     router::Route,
     services::Job,
-    theme::motion::*,
-    transition::Tween,
 };
 use futures::{StreamExt, channel::mpsc};
 use gpui::{
-    Context, Entity, FocusHandle, RenderImage, ScrollHandle, Subscription, Task, WeakEntity,
-    Window, point, prelude::*, px,
+    Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window, point,
+    prelude::*, px,
 };
-use panorama_core::addons::FilmDetails;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-
-gpui::actions!(panorama_card, [NextCard, PreviousCard]);
+use panorama_core::{addons::FilmDetails, stremio::FilmMeta};
+use std::{sync::Arc, time::Instant};
 
 #[path = "home_alert.rs"]
 mod alert;
@@ -25,6 +25,8 @@ mod alert;
 mod catalog;
 #[path = "home_keyboard.rs"]
 mod keyboard;
+#[path = "home_lineup.rs"]
+pub(crate) mod lineup;
 #[path = "home_view.rs"]
 mod view;
 
@@ -35,22 +37,18 @@ pub struct Home {
     args: Args,
     id: u64,
     scroll: ScrollHandle,
-    pub(crate) films: Arc<[FilmDetails]>,
-    pub(crate) cards: Vec<FocusHandle>,
-    pub(crate) search: Option<super::search::SearchData>,
-    watch: FocusHandle,
+    pub(crate) grid: FilmGrid,
+    hero: HeroFocus,
+    row: ContinueRow,
+    fold: f32,
+    flags: Option<(String, Task<()>)>,
+    saved: bool,
+    save_task: Option<Task<()>>,
     switcher: crate::catalog_switcher::CatalogSwitcher,
     retry: FocusHandle,
     reload: FocusHandle,
     more: FocusHandle,
     images: Entity<ImageCache>,
-    hovered: HashMap<usize, Tween>,
-    overlay: Option<Arc<RenderImage>>,
-    overlay_size: (u32, u32),
-    overlay_task: Option<Task<()>>,
-    surface: Tween,
-    ready: bool,
-    watch_hover: Tween,
     last_top: f32,
     launched: Instant,
     debug_step: usize,
@@ -58,9 +56,9 @@ pub struct Home {
     benchmark: Option<crate::debug::performance::Samples>,
     _watch_focus: Option<Subscription>,
     _images: Subscription,
+    _continue: Subscription,
     _catalog: Subscription,
     _shell: Subscription,
-    _release: Subscription,
 }
 impl Home {
     /// Create one history entry with independent scroll, focus and request lifetimes.
@@ -82,24 +80,15 @@ impl Home {
             films = fixture_benchmark().into();
         }
         let observer = cx.observe(&state, |home, state, cx| {
-            if home.search.as_ref().is_some_and(|search| {
-                search.installed != state.read(cx).installed
-                    || search.account != state.read(cx).account
-            }) {
-                home.load_search(cx);
-            }
-            if !home.args.bench_scroll && home.search.is_none() {
-                home.films = state
+            if !home.args.bench_scroll {
+                let films = state
                     .read(cx)
                     .catalog
                     .as_ref()
                     .map(|p| p.films.clone())
                     .unwrap_or_default()
                     .into();
-            }
-            home.cards.truncate(home.films.len());
-            while home.cards.len() < home.films.len() {
-                home.cards.push(cx.focus_handle());
+                home.grid.set_films(films, cx);
             }
             cx.notify();
         });
@@ -110,37 +99,33 @@ impl Home {
         };
         let images = state.read(cx).images.clone();
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
-        let release = cx.on_release(|home, cx| {
-            if let Some(image) = home.overlay.take() {
-                cx.drop_image(image, None);
-            }
-        });
-        let watch = cx.focus_handle();
+        let continue_observer = cx
+            .observe(&state.read(cx).continue_watching.clone(), |_, _, cx| {
+                cx.notify()
+            });
         let mut switcher =
             crate::catalog_switcher::CatalogSwitcher::new(cx.focus_handle(), cx.focus_handle());
         switcher.set_open(args.open_catalog_menu);
+        let mut grid = FilmGrid::new(args.hover_first_card, cx);
+        grid.set_films(films, cx);
         Self {
             shell,
             state,
             args,
             id,
             scroll: ScrollHandle::new(),
-            cards: (0..films.len()).map(|_| cx.focus_handle()).collect(),
-            films,
-            search: None,
-            watch,
+            grid,
+            hero: HeroFocus::new(cx),
+            row: ContinueRow::default(),
+            fold: 0.0,
+            flags: None,
+            saved: false,
+            save_task: None,
             switcher,
             retry: cx.focus_handle(),
             reload: cx.focus_handle(),
             more: cx.focus_handle(),
             images,
-            hovered: HashMap::new(),
-            overlay: None,
-            overlay_size: (0, 0),
-            overlay_task: None,
-            surface: Tween::fixed(1.0),
-            ready: false,
-            watch_hover: Tween::fixed(0.0),
             last_top: 0.0,
             launched: Instant::now(),
             debug_step: 0,
@@ -148,9 +133,9 @@ impl Home {
             benchmark: None,
             _watch_focus: None,
             _images: image_observer,
+            _continue: continue_observer,
             _catalog: observer,
             _shell: shell_observer,
-            _release: release,
         }
     }
     fn settings(&self, window: &Window, cx: &Context<Self>) -> ViewSettings {
@@ -169,55 +154,13 @@ impl Home {
             .unwrap_or_default();
         ViewSettings {
             width: f32::from(window.viewport_size().width),
-            height: f32::from(window.viewport_size().height)
-                // The macOS titlebar is transparent and overlays the page.
-                - if window.is_fullscreen() || cfg!(target_os = "macos") {
-                    0.0
-                } else {
-                    32.0
-                },
+            // The titlebar overlays the page on every platform.
+            height: f32::from(window.viewport_size().height),
             theme,
             active,
             keyboard: keyboard || self.args.focus_first_card,
             reduced,
         }
-    }
-    fn ensure_overlay(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) {
-        let scale = window.scale_factor();
-        // The overlay is stretched to the hero, so redraw it per 64px bucket rather than per pixel of a resize.
-        let size = (
-            crate::image_cache::bucket(view.width, scale),
-            crate::image_cache::bucket(view.height, scale),
-        );
-        if size == self.overlay_size {
-            return;
-        }
-        let Some(services) = self.state.read(cx).services.clone() else {
-            return;
-        };
-        self.overlay_size = size;
-        let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                render_image(crate::hero::overlay(size.0, size.1, view.theme))
-            })
-            .await;
-            let _ = sender.unbounded_send(result.ok().and_then(Result::ok));
-        }));
-        self.overlay_task = Some(cx.spawn_in(window, async move |entity, cx| {
-            let _job = job;
-            if let Some(image) = receiver.next().await {
-                let _ = cx.update(|window, cx| {
-                    entity.update(cx, |home, cx| {
-                        if let Some(old) = home.overlay.take() {
-                            cx.drop_image(old, Some(window));
-                        }
-                        home.overlay = image;
-                        cx.notify();
-                    })
-                });
-            }
-        }));
     }
     fn artwork(
         &mut self,
@@ -227,67 +170,95 @@ impl Home {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> (Option<CachedImage>, bool, bool) {
-        let Some(services) = self.state.read(cx).services.clone() else {
-            return (None, false, true);
-        };
-        for (url, poster) in [(&film.background, false), (&film.poster, true)] {
-            if let Some(url) = url {
-                if !visible {
-                    return (
-                        self.images.update(cx, |images, _| {
-                            images.cached(url.as_str(), bounds, window.scale_factor())
-                        }),
-                        poster,
-                        false,
-                    );
-                }
-
-                if self.images.update(cx, |images, _| {
-                    images.failed(url.as_str(), bounds, window.scale_factor())
-                }) {
-                    continue;
-                }
-                return (
-                    self.images.update(cx, |images, cx| {
-                        images.request(url.as_str(), bounds, &services, window, cx)
-                    }),
-                    poster,
-                    false,
-                );
-            }
-        }
-        (None, false, true)
+        let services = self.state.read(cx).services.clone();
+        crate::film_grid::artwork(
+            &self.images,
+            services.as_ref(),
+            film,
+            bounds,
+            visible,
+            window,
+            cx,
+        )
     }
-    /// Retarget a card's image expansion without changing tile layout.
-    pub(crate) fn hover(&mut self, index: usize, over: bool, cx: &mut Context<Self>) {
-        self.hovered
-            .entry(index)
-            .or_insert_with(|| Tween::fixed(0.0))
-            .retarget(
-                if over { 1.0 } else { 0.0 },
-                DURATION_STANDARD,
-                Some(EASE_EDITORIAL),
-                Instant::now(),
-            );
-        cx.notify();
+    fn signed_in(&self, cx: &Context<Self>) -> bool {
+        matches!(self.state.read(cx).account, Account::SignedIn(_))
     }
-    pub(crate) fn hover_watch(&mut self, over: bool, cx: &mut Context<Self>) {
-        self.watch_hover.retarget(
-            if over { 1.0 } else { 0.0 },
-            DURATION_FAST,
-            Some(EASE_DEFAULT),
-            Instant::now(),
-        );
-        cx.notify();
-    }
-    /// Open the card's opaque film identifier in the existing router.
-    pub(crate) fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+    /// Open the film and let it start playback, since only Film resolves a playable source.
+    pub(crate) fn play(
+        &mut self,
+        film: FilmDetails,
+        resume: Option<panorama_core::stremio::ResumePoint>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = film.id.clone();
         self.state.update(cx, |state, _| {
-            state.film_preview = self.films.iter().find(|film| film.id == id).cloned()
+            state.play_intent = Some(crate::app_state::PlayIntent { id, resume })
         });
-        let _ = self.shell.update(cx, |shell, cx| {
-            shell.navigate(Route::Film { id }, window, cx)
+        self.open_film(film, window, cx);
+    }
+    fn track_saved(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
+        if self.flags.as_ref().map(|(tracked, _)| tracked.as_str()) == id {
+            return;
+        }
+        self.saved = false;
+        self.save_task = None;
+        self.flags = None;
+        let (Some(id), Some(services)) = (id, self.state.read(cx).services.clone()) else {
+            return;
+        };
+        let (job, mut receiver) = services.library_flags(id.to_string());
+        let task = cx.spawn(async move |home, cx| {
+            let _job = job;
+            while let Some((saved, _)) = receiver.next().await {
+                if home
+                    .update(cx, |home, cx| {
+                        home.saved = saved;
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
         });
+        self.flags = Some((id.to_string(), task));
+    }
+    /// Add the hero film to the watchlist, or remove it. Fixtures have no session and succeed.
+    pub(crate) fn toggle_saved(&mut self, film: &FilmDetails, cx: &mut Context<Self>) {
+        if self.save_task.is_some() {
+            return;
+        }
+        let Some(services) = self.state.read(cx).services.clone() else {
+            return;
+        };
+        let saved = !self.saved;
+        let meta = FilmMeta {
+            id: film.id.clone(),
+            name: film.name.clone(),
+            poster: film.poster.clone(),
+        };
+        let (sender, mut receiver) = mpsc::unbounded();
+        let job = Job(services.runtime.clone().spawn(async move {
+            let result = match &services.session {
+                Some(session) => session.lock().await.set_in_library(&meta, saved).is_ok(),
+                None => true,
+            };
+            let _ = sender.unbounded_send(result);
+        }));
+        self.save_task = Some(cx.spawn(async move |home, cx| {
+            let _job = job;
+            let success = receiver.next().await.unwrap_or(false);
+            let _ = home.update(cx, |home, cx| {
+                home.save_task = None;
+                if success {
+                    home.saved = saved;
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.settings(window, cx);
@@ -306,11 +277,11 @@ impl Home {
         if view.active
             && self.args.focus_first_card
             && !self.debug_focus
-            && !self.cards.is_empty()
+            && !self.grid.is_empty()
             && self.debug_step == self.args.scroll.len()
         {
-            self.cards[0].focus(window, cx);
             self.debug_focus = true;
+            self.focus_first_card(window, cx);
             let _ = self.shell.update(cx, |shell, cx| {
                 shell.keyboard_navigation = true;
                 cx.notify();
@@ -320,15 +291,6 @@ impl Home {
         let top = -f32::from(self.scroll.offset().y);
         if top != self.last_top {
             self.last_top = top;
-            let height = if self.search.is_some() {
-                0.0
-            } else {
-                self.content_start(view, cx)
-            };
-            let _ = self.shell.update(cx, |shell, cx| {
-                shell.menu.dismiss();
-                shell.update_home_header(self.id, top, height, self.ready, cx);
-            });
             cx.notify();
         }
         if view.active
@@ -356,6 +318,38 @@ impl Home {
             }
         }
     }
+}
+
+impl GridHost for Home {
+    fn film_grid(&mut self) -> &mut FilmGrid {
+        &mut self.grid
+    }
+    fn focus_card(
+        &mut self,
+        index: usize,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.step_card(index, forward, window, cx);
+    }
+    fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
+        open_film(&self.state, &self.shell, film, window, cx);
+    }
+}
+
+pub(crate) fn open_film<V: 'static>(
+    state: &Entity<AppState>,
+    shell: &WeakEntity<AppShell>,
+    film: FilmDetails,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) {
+    let id = film.id.clone();
+    state.update(cx, |state, _| state.film_preview = Some(film));
+    let _ = shell.update(cx, |shell, cx| {
+        shell.navigate(Route::Film { id }, window, cx)
+    });
 }
 
 fn fixture_benchmark() -> Vec<FilmDetails> {

@@ -4,7 +4,7 @@ use panorama_core::{
     images::{ImageLoader, ImageLoaderOptions},
     store::{self, Store, StoreError},
     stremio::{
-        CoreSession, Descriptor,
+        ContinueItem, CoreChange, CoreSession, Descriptor, ResumePoint,
         env::{EnvConfig, PanoramaEnv},
     },
 };
@@ -298,5 +298,113 @@ impl Services {
             }
         });
         (Job(job), receiver)
+    }
+
+    /// Films in progress: a snapshot on start, then again on every library or profile change.
+    /// Fixtures send their list once.
+    pub fn continue_watching(
+        self: &Arc<Self>,
+    ) -> (Job<()>, mpsc::UnboundedReceiver<Vec<ContinueItem>>) {
+        let (sender, receiver) = mpsc::unbounded();
+        let services = self.clone();
+        let job = self.runtime.spawn(async move {
+            let Some(session) = services.session.clone() else {
+                let _ = sender.unbounded_send(crate::fixtures::continue_items());
+                return;
+            };
+            let mut events = session.lock().await.subscribe();
+            loop {
+                let items = session.lock().await.continue_watching();
+                if sender.unbounded_send(items).is_err() {
+                    break;
+                }
+                if !wait_for_library_change(&mut events).await {
+                    break;
+                }
+            }
+        });
+        (Job(job), receiver)
+    }
+
+    /// Addon details for one film, using the session's installed addons. Fixtures answer from
+    /// `fixtures::details`.
+    pub fn details(
+        self: &Arc<Self>,
+        id: String,
+    ) -> (Job<()>, mpsc::UnboundedReceiver<ResourceEvent<FilmDetails>>) {
+        let (sender, receiver) = mpsc::unbounded();
+        let services = self.clone();
+        let job = self.runtime.spawn(async move {
+            let (Some(client), Some(session)) = (&services.addons, &services.session) else {
+                let event = crate::fixtures::details(&id).map_or(
+                    ResourceEvent::Failed(panorama_core::addons::FailureKind::InvalidInput),
+                    ResourceEvent::Fresh,
+                );
+                let _ = sender.unbounded_send(event);
+                return;
+            };
+            let addons = session.lock().await.installed_addons();
+            let mut events = client.details(&addons, &id, None);
+            while let Some(event) = events.next().await {
+                if sender.unbounded_send(event).is_err() {
+                    break;
+                }
+            }
+        });
+        (Job(job), receiver)
+    }
+
+    /// The addon transport that supplied a film's cached metadata, for the playback target.
+    pub async fn metadata_base(&self, id: &str) -> Option<url::Url> {
+        let (client, session) = (self.addons.as_ref()?, self.session.as_ref()?);
+        let addons = session.lock().await.installed_addons();
+        client.metadata_base(&addons, id).await
+    }
+
+    /// Whether a film is saved and where to resume it, now and after every library change.
+    /// Sends nothing without a session.
+    pub fn library_flags(
+        self: &Arc<Self>,
+        id: String,
+    ) -> (
+        Job<()>,
+        mpsc::UnboundedReceiver<(bool, Option<ResumePoint>)>,
+    ) {
+        let (sender, receiver) = mpsc::unbounded();
+        let session = self.session.clone();
+        let job = self.runtime.spawn(async move {
+            let Some(session) = session else {
+                return;
+            };
+            let mut events = session.lock().await.subscribe();
+            loop {
+                let flags = {
+                    let session = session.lock().await;
+                    (session.in_library(&id), session.resume(&id))
+                };
+                if sender.unbounded_send(flags).is_err() {
+                    break;
+                }
+                if !wait_for_library_change(&mut events).await {
+                    break;
+                }
+            }
+        });
+        (Job(job), receiver)
+    }
+}
+
+/// Waits for the next change that can alter library state; false once the session is gone.
+async fn wait_for_library_change(
+    events: &mut tokio::sync::broadcast::Receiver<CoreChange>,
+) -> bool {
+    use tokio::sync::broadcast::error::RecvError;
+    loop {
+        match events.recv().await {
+            Ok(CoreChange::LibraryChanged | CoreChange::ProfileChanged)
+            | Err(RecvError::Lagged(_)) => return true,
+            Err(RecvError::Closed) => return false,
+            _ => {}
+        }
     }
 }

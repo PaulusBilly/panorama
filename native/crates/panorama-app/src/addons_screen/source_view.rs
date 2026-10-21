@@ -2,7 +2,7 @@
 use super::{
     Addons, Slot,
     model::{error_copy, radio_step},
-    widgets::{View, section},
+    widgets::{View, panel, section},
 };
 use crate::{
     theme::{Typography, focus_ring, motion::*},
@@ -53,13 +53,11 @@ impl Addons {
             .position(|choice| choice.key == self.meta.selected)
             .unwrap_or(0);
         let keys: Vec<Option<AddonKey>> = choices.iter().map(|choice| choice.key.clone()).collect();
-        let mut list = div()
+        let last = choices.len().saturating_sub(1);
+        let mut list = panel(theme)
             .id("meta-source")
             .role(gpui::Role::RadioGroup)
-            .aria_label("Film details source")
-            .mt(px(16.0))
-            .border_t_1()
-            .border_color(theme.rule);
+            .aria_label("Film details source");
         for (index, choice) in choices.into_iter().enumerate() {
             let dot = self
                 .dots
@@ -86,8 +84,7 @@ impl Addons {
                         gpui::accesskit::Toggled::False
                     })
                     .min_h(px(52.0))
-                    .border_b_1()
-                    .border_color(theme.rule)
+                    .when(index != last, |row| row.border_b_1().border_color(theme.rule))
                     .flex()
                     .items_center()
                     .gap(px(14.0))
@@ -156,6 +153,7 @@ impl Addons {
                 theme,
                 view.active && index == selected,
                 view.keyboard,
+                0.0,
                 window,
             );
             list = list.child(row);

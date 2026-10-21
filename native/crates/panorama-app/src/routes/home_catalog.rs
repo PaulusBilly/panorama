@@ -2,8 +2,9 @@ use super::*;
 use crate::{
     account_menu::popover_shadow,
     addons_screen::model::{CatalogGroup, NAME_CAP, display_text},
+    assets::Weighted,
     catalog_switcher::{BLOCK_HEIGHT, current, flatten, offers_choice, step},
-    theme::{Typography, focus_ring},
+    theme::{Typography, caps, focus_ring},
 };
 use gpui::{Div, KeyDownEvent, Transformation, deferred, div, svg};
 use panorama_core::addons::CatalogRef;
@@ -12,7 +13,7 @@ const TRIGGER_HEIGHT: f32 = 44.0;
 
 impl Home {
     pub(crate) fn switcher_visible(&self, cx: &Context<Self>) -> bool {
-        self.search.is_none() && offers_choice(self.state.read(cx).switcher_groups())
+        offers_choice(self.state.read(cx).switcher_groups())
     }
 
     /// Space between the hero and the first card row.
@@ -119,13 +120,14 @@ impl Home {
                                 .min_w_0()
                                 .truncate()
                                 .title()
+                                .weight(gpui::FontWeight::BOLD)
                                 .text_color(theme.ink)
                                 .border_b_1()
                                 .border_color(theme.canvas.opacity(0.0))
                                 .group_hover("catalog-trigger", |style| {
                                     style.border_color(theme.ink)
                                 })
-                                .child(name),
+                                .child(caps(&name)),
                         )
                         .child(
                             svg()
@@ -152,14 +154,14 @@ impl Home {
             theme,
             view.active,
             view.keyboard,
+            0.0,
             window,
         )
         .key_context("PanoramaCard")
         .on_action(cx.listener(|home, _: &NextCard, window, cx| home.focus_first_card(window, cx)))
-        .on_action(cx.listener(|home, _: &PreviousCard, window, cx| {
-            home.watch.focus(window, cx);
-            cx.stop_propagation();
-        }));
+        .on_action(
+            cx.listener(|home, _: &PreviousCard, window, cx| home.focus_above_catalog(window, cx)),
+        );
         let mut row = div()
             .relative()
             .h(px(BLOCK_HEIGHT))
@@ -293,9 +295,7 @@ impl Home {
 
     /// Reveal the trigger row, then focus it.
     pub(crate) fn focus_switcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let view = self.settings(window, cx);
-        self.scroll
-            .set_offset(point(px(0.0), px(-self.content_start(view, cx))));
+        self.scroll.set_offset(point(px(0.0), px(-self.fold)));
         self.switcher.trigger.focus(window, cx);
         self.tick(window, cx);
         cx.stop_propagation();

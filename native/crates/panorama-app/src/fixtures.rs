@@ -1,8 +1,23 @@
-use panorama_core::addons::{
-    AddonKey, FilmDetails, StreamGroup, StreamSource, StreamState, StreamsEvent,
+use panorama_core::{
+    addons::{AddonKey, FilmDetails, StreamGroup, StreamSource, StreamState, StreamsEvent},
+    stremio::{ContinueItem, FilmMeta, ResumePoint},
 };
 
-/// The nine preview film records.
+/// Bundled stills served for `fixture://<name>` image URLs; one is deliberately bright.
+pub const STILLS: [(&str, &[u8]); 3] = [
+    ("dusk.jpg", include_bytes!("../assets/fixtures/dusk.jpg")),
+    ("night.jpg", include_bytes!("../assets/fixtures/night.jpg")),
+    (
+        "bright.jpg",
+        include_bytes!("../assets/fixtures/bright.jpg"),
+    ),
+];
+
+/// Which still each preview film uses. The catalog pick (tmdb:100) gets the bright one so the
+/// signed-out hero exercises the scrims on it. The Continue films (101, 105, 106) differ in
+/// title and still, and the bright one lands in the row.
+const FILM_STILLS: [usize; 9] = [2, 0, 1, 0, 1, 2, 1, 2, 0];
+
 pub fn films() -> Vec<FilmDetails> {
     (0..9)
         .map(|index| FilmDetails {
@@ -16,7 +31,8 @@ pub fn films() -> Vec<FilmDetails> {
             description: None,
             cast: vec![],
             poster: None,
-            background: None,
+            background: url::Url::parse(&format!("fixture://{}", STILLS[FILM_STILLS[index]].0))
+                .ok(),
             logo: None,
             imdb_rating: None,
             links: vec![],
@@ -55,6 +71,27 @@ pub fn details(id: &str) -> Option<FilmDetails> {
         .into(),
     );
     Some(film)
+}
+
+pub fn continue_items() -> Vec<ContinueItem> {
+    [("tmdb:101", 0.2), ("tmdb:105", 0.55), ("tmdb:106", 0.8)]
+        .into_iter()
+        .filter_map(|(id, fraction)| {
+            let film = films().into_iter().find(|film| film.id == id)?;
+            let duration_secs = 6600.0;
+            Some(ContinueItem {
+                film: FilmMeta {
+                    id: film.id,
+                    name: film.name,
+                    poster: film.poster,
+                },
+                resume: ResumePoint {
+                    offset_secs: duration_secs * fraction,
+                    duration_secs,
+                },
+            })
+        })
+        .collect()
 }
 
 /// One fixture addon with a single HD, 5.1 source, or none when `empty`.
@@ -114,6 +151,14 @@ mod search_tests {
 mod tests {
     use super::*;
     #[test]
+    fn continue_films_are_told_apart_on_screen() {
+        let names = continue_items()
+            .into_iter()
+            .map(|item| item.film.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Perfect Days", "Past Lives", "Aftersun"]);
+    }
+    #[test]
     fn preview_films() {
         let films = films();
         assert_eq!(films.len(), 9);
@@ -132,12 +177,8 @@ mod tests {
                 film.origin_country.as_deref(),
                 (index % 3 == 1).then_some("Japan")
             );
-            assert!(
-                film.poster.is_none()
-                    && film.background.is_none()
-                    && film.logo.is_none()
-                    && film.description.is_none()
-            );
+            assert!(film.poster.is_none() && film.logo.is_none() && film.description.is_none());
+            assert!(film.background.is_some());
         }
     }
 }

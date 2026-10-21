@@ -1,9 +1,9 @@
 use crate::assets::Weighted;
 use crate::{
+    film_grid::{GridHost, NextCard, PreviousCard},
     hero,
     home_layout::{Grid, ViewSettings},
     image_cache::CachedImage,
-    routes::home::Home,
     theme::{focus_ring, motion::SHIMMER},
     transition::bezier,
 };
@@ -65,13 +65,25 @@ pub fn shimmer(view: ViewSettings, phase: f32) -> Div {
     )
 }
 
+pub fn fade_in(image: &CachedImage, reduced: bool) -> f32 {
+    if reduced {
+        return 1.0;
+    }
+    bezier(
+        (Instant::now().duration_since(image.loaded).as_secs_f32()
+            / crate::theme::DURATION_STANDARD.as_secs_f32())
+        .min(1.0),
+        crate::theme::EASE_EDITORIAL,
+    )
+}
+
 /// Render image, fades, credits and a full-tile focusable details button.
-pub fn render(
+pub fn render<V: GridHost>(
     props: CardProps<'_>,
     grid: Grid,
     view: ViewSettings,
     window: &Window,
-    cx: &mut Context<Home>,
+    cx: &mut Context<V>,
 ) -> Div {
     let theme = view.theme;
     let height = grid.height();
@@ -91,16 +103,7 @@ pub fn render(
         tile = tile.child(shimmer(view, props.shimmer));
     }
     if let Some(image) = props.image {
-        let fade = if view.reduced {
-            1.0
-        } else {
-            bezier(
-                (Instant::now().duration_since(image.loaded).as_secs_f32()
-                    / crate::theme::DURATION_STANDARD.as_secs_f32())
-                .min(1.0),
-                crate::theme::EASE_EDITORIAL,
-            )
-        };
+        let fade = fade_in(&image, view.reduced);
         tile = tile.child(
             hero::cover(
                 image.image,
@@ -111,11 +114,9 @@ pub fn render(
             .opacity(fade),
         );
     }
-    let fade = if props.film.is_some() {
-        theme.artwork_fade
-    } else {
-        theme.skeleton_fade
-    };
+    let fade = theme
+        .scrim
+        .opacity(if props.film.is_some() { 0.58 } else { 0.28 });
     tile = tile.child(
         div()
             .absolute()
@@ -149,7 +150,7 @@ pub fn render(
                 row.child(
                     div()
                         .flex_shrink_0()
-                        .text_color(theme.inverse.opacity(0.9))
+                        .text_color(theme.ink)
                         .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
                             ("tnum".into(), 1),
                             ("kern".into(), 1),
@@ -161,7 +162,7 @@ pub fn render(
                 row.child(
                     div()
                         .flex_shrink_0()
-                        .text_color(theme.inverse.opacity(0.9))
+                        .text_color(theme.ink)
                         .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
                             ("tnum".into(), 1),
                             ("kern".into(), 1),
@@ -181,45 +182,47 @@ pub fn render(
                 .flex()
                 .flex_col()
                 .gap(px(2.0))
-                .text_color(theme.inverse)
+                .text_color(theme.ink)
                 .child(
                     div()
                         .text_size(px((view.width * 0.018).clamp(16.0, 24.0)))
-                        .weight(FontWeight::MEDIUM)
+                        .weight(FontWeight::BOLD)
                         .line_height(relative(1.18))
                         .line_clamp(2)
                         .child(film.name.to_uppercase()),
                 )
                 .child(credits),
         );
-        let id = film.id.clone();
+        let target = film.clone();
         let button = focus_ring(
             div()
                 .id(("film-card", index))
                 .key_context("PanoramaCard")
-                .on_action(cx.listener(
-                    move |home, _: &crate::routes::home::NextCard, window, cx| {
-                        home.focus_card(index, true, window, cx)
-                    },
-                ))
-                .on_action(cx.listener(
-                    move |home, _: &crate::routes::home::PreviousCard, window, cx| {
-                        home.focus_card(index, false, window, cx)
-                    },
-                ))
+                .on_action(cx.listener(move |host: &mut V, _: &NextCard, window, cx| {
+                    host.focus_card(index, true, window, cx)
+                }))
+                .on_action(
+                    cx.listener(move |host: &mut V, _: &PreviousCard, window, cx| {
+                        host.focus_card(index, false, window, cx)
+                    }),
+                )
                 .absolute()
                 .inset_0()
                 .cursor_pointer()
                 .role(gpui::Role::Button)
                 .aria_label(format!("Open details for {}", film.name))
-                .on_hover(cx.listener(move |home, over, _, cx| home.hover(index, *over, cx)))
-                .on_click(
-                    cx.listener(move |home, _, window, cx| home.open_film(id.clone(), window, cx)),
-                ),
+                .on_hover(cx.listener(move |host: &mut V, over, _, cx| {
+                    host.film_grid().hover(index, *over);
+                    cx.notify();
+                }))
+                .on_click(cx.listener(move |host: &mut V, _, window, cx| {
+                    host.open_film(target.clone(), window, cx)
+                })),
             props.focus,
             theme,
             view.active,
             view.keyboard,
+            0.0,
             window,
         )
         .absolute();
@@ -239,18 +242,13 @@ pub fn render(
                 .left(px(18.0))
                 .right(px(18.0))
                 .bottom(px(14.0))
-                .child(
-                    div()
-                        .h(px(11.0))
-                        .w(relative(0.58))
-                        .bg(theme.inverse.opacity(0.4)),
-                )
+                .child(div().h(px(11.0)).w(relative(0.58)).bg(theme.glass))
                 .child(
                     div()
                         .mt(px(8.0))
                         .h(px(11.0))
                         .w(relative(0.28))
-                        .bg(theme.inverse.opacity(0.4)),
+                        .bg(theme.glass),
                 ),
         );
     }

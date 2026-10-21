@@ -21,7 +21,7 @@ use crate::{
     args::Args,
     footer::footer,
     image_cache::ImageCache,
-    theme::{Typography, content_width},
+    theme::{Column, Typography, typography::caps},
     transition::Tween,
 };
 use backend::{Backend, Token};
@@ -72,7 +72,6 @@ pub struct Addons {
     shown: Option<PreviewCard>,
     reveal: Tween,
     measured: Rc<Cell<f32>>,
-    press: Tween,
     loading: bool,
     load_failed: bool,
     seeded: bool,
@@ -154,7 +153,6 @@ impl Addons {
             shown: None,
             reveal: Tween::fixed(0.0),
             measured: Rc::new(Cell::new(0.0)),
-            press: Tween::fixed(1.0),
             loading: false,
             load_failed: false,
             seeded: false,
@@ -213,7 +211,6 @@ impl Addons {
 
     fn animating(&self, now: Instant, reduced: bool) -> bool {
         self.reveal.moving(now, reduced)
-            || self.press.moving(now, reduced)
             || self.flow.busy()
             || self.loading
             || self.rows.iter().any(|row| {
@@ -267,10 +264,11 @@ impl Render for Addons {
             (signed_in(state), state.runtime_error.clone())
         };
         let current = screen(is_signed_in, self.loading, self.load_failed);
-        let container = content_width(view.width);
+        let col = Column::at(view.width);
+        let container = col.width;
         let mut page = div()
             .w(px(container))
-            .mx_auto()
+            .ml(px(col.left))
             .pt(px(56.0))
             .pb(px(112.0))
             .child(
@@ -279,7 +277,8 @@ impl Render for Addons {
                     .display(view.width)
                     .text_color(theme.ink)
                     .role(gpui::Role::Heading)
-                    .child("Addons"),
+                    .aria_label("Addons")
+                    .child(caps("Addons")),
             )
             .child(
                 div()
@@ -294,23 +293,21 @@ impl Render for Addons {
             );
         if let Some(message) = runtime_error {
             let focus = self.handle(Slot::Retry, cx);
-            page = page.child(
-                AlertRow {
-                    message,
-                    label: "Reload Panorama",
-                    theme,
-                    width: view.width,
-                    focus: &focus,
-                    active: view.active,
-                    keyboard: view.keyboard,
-                }
-                .render(
-                    window,
-                    cx.listener(|this, _, _, cx| {
+            page =
+                page.child(
+                    AlertRow {
+                        message,
+                        label: "Reload Panorama",
+                        theme,
+                        width: view.width,
+                        focus: &focus,
+                        active: view.active,
+                        keyboard: view.keyboard,
+                    }
+                    .render(cx.listener(|this, _, _, cx| {
                         this.state.update(cx, |state, cx| state.reload(cx))
-                    }),
-                ),
-            );
+                    })),
+                );
         } else if current == Screen::SignedOut {
             let focus = self.handle(Slot::SignIn, cx);
             page = page.child(
@@ -324,14 +321,11 @@ impl Render for Addons {
                         active: view.active,
                         keyboard: view.keyboard,
                     }
-                    .render(
-                        window,
-                        cx.listener(|this, _, window, cx| {
-                            let _ = this
-                                .shell
-                                .update(cx, |shell, cx| shell.open_login(window, cx));
-                        }),
-                    ),
+                    .render(cx.listener(|this, _, window, cx| {
+                        let _ = this
+                            .shell
+                            .update(cx, |shell, cx| shell.open_login(window, cx));
+                    })),
                 ),
             );
         } else {

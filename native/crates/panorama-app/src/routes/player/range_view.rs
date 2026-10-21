@@ -32,7 +32,7 @@ impl Player {
     ) -> Div {
         let id = view.id;
         let look = id.look();
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let emphasis = self.emphasis[id as usize].value(std::time::Instant::now(), self.reduced);
         let height = look.track_height(emphasis);
         let cap = look.thumb / 2.0;
@@ -146,6 +146,7 @@ impl Player {
             focus_theme(theme),
             !disabled,
             keyboard,
+            0.0,
             window,
         ))
     }

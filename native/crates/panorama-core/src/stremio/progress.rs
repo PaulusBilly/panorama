@@ -14,6 +14,7 @@ use stremio_core::{
     runtime::msg::{Action, ActionCtx, ActionLoad, ActionPlayer},
     types::{
         addon::{ResourcePath, ResourceRequest},
+        library::LibraryItemState,
         resource::{MetaItemPreview, Stream},
     },
 };
@@ -91,6 +92,19 @@ pub(super) struct Tracker {
     last: Option<PlaybackSample>,
 }
 
+pub(super) fn resume_point(state: &LibraryItemState) -> Option<ResumePoint> {
+    let (offset_secs, duration_secs) = (
+        state.time_offset as f64 / 1000.0,
+        state.duration as f64 / 1000.0,
+    );
+    (offset_secs >= RESUME_MIN_OFFSET_SECS
+        && duration_secs - offset_secs >= RESUME_MIN_REMAINING_SECS)
+        .then_some(ResumePoint {
+            offset_secs,
+            duration_secs,
+        })
+}
+
 fn millis(secs: f64) -> u64 {
     (secs * 1000.0).round().max(0.0) as u64
 }
@@ -146,17 +160,7 @@ impl CoreSession {
     pub fn resume(&self, film_id: &str) -> Option<ResumePoint> {
         let running = self.running().filter(|_| self.is_signed_in())?;
         let model = running.runtime.model().unwrap_or_else(|p| p.into_inner());
-        let state = &model.ctx.inner.library.items.get(film_id)?.state;
-        let (offset_secs, duration_secs) = (
-            state.time_offset as f64 / 1000.0,
-            state.duration as f64 / 1000.0,
-        );
-        (offset_secs >= RESUME_MIN_OFFSET_SECS
-            && duration_secs - offset_secs >= RESUME_MIN_REMAINING_SECS)
-            .then_some(ResumePoint {
-                offset_secs,
-                duration_secs,
-            })
+        resume_point(&model.ctx.inner.library.items.get(film_id)?.state)
     }
 
     /// Whether the film is saved to the watchlist (neither removed nor temporary).

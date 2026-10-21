@@ -1,71 +1,55 @@
-//! Responsive CSS layout rules.
+/// Width of the navigation sidebar every route except the player reserves.
+pub const SIDEBAR_WIDTH: f32 = 80.0;
 
-/// Page gutter in logical pixels, including CSS's inclusive max-width queries.
-pub fn page_gutter(width: f32) -> f32 {
-    if width <= 700.0 {
-        20.0
-    } else if width <= 1100.0 {
-        48.0
-    } else {
-        82.0
+/// The content column every route aligns to. Left-aligned after the sidebar, not centred.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Column {
+    pub left: f32,
+    /// Usable width, at most 1500.
+    pub width: f32,
+}
+
+impl Column {
+    /// Place the column for a window width, with a 60, 40 or 24 px gutter on both sides.
+    pub fn at(window_width: f32) -> Self {
+        let gutter = if window_width > 1100.0 {
+            60.0
+        } else if window_width > 700.0 {
+            40.0
+        } else {
+            24.0
+        };
+        let left = SIDEBAR_WIDTH + gutter;
+        Self {
+            left,
+            width: (window_width - left - gutter).clamp(0.0, 1500.0),
+        }
     }
-}
-
-/// Dialog inset in logical pixels.
-pub fn dialog_inset(width: f32) -> f32 {
-    if width <= 700.0 { 16.0 } else { 24.0 }
-}
-
-/// Width of the content container at the given viewport width.
-pub fn content_width(width: f32) -> f32 {
-    let max = if width < 720.0 {
-        335.0
-    } else if width < 850.0 {
-        674.0
-    } else if width < 1220.0 {
-        748.0
-    } else if width < 1640.0 {
-        1124.0
-    } else {
-        1500.0
-    };
-    (width - 2.0 * (width * 0.0427).clamp(20.0, 70.0))
-        .max(0.0)
-        .min(max)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn content_breakpoints() {
-        for (width, expected) in [
-            (719.0, 335.0),
-            (720.0, 658.512),
-            (849.0, 674.0),
-            (850.0, 748.0),
-            (1219.0, 748.0),
-            (1220.0, 1115.812),
-            (1639.0, 1124.0),
-            (1640.0, 1500.0),
-            (1800.0, 1500.0),
-            (320.0, 280.0),
-            (0.0, 0.0),
+    fn column_breakpoints() {
+        for (width, left, column) in [
+            (480.0, 104.0, 352.0),
+            (700.0, 104.0, 572.0),
+            (701.0, 120.0, 541.0),
+            (1100.0, 120.0, 940.0),
+            (1101.0, 140.0, 901.0),
+            (1280.0, 140.0, 1080.0),
+            (2400.0, 140.0, 1500.0),
+            (100.0, 104.0, 0.0),
         ] {
-            assert!((content_width(width) - expected).abs() < 0.01, "{width}");
-        }
-    }
-    #[test]
-    fn gutters_and_insets() {
-        for (width, gutter, inset) in [
-            (699.0, 20.0, 16.0),
-            (700.0, 20.0, 16.0),
-            (701.0, 48.0, 24.0),
-            (1100.0, 48.0, 24.0),
-            (1101.0, 82.0, 24.0),
-        ] {
-            assert_eq!(page_gutter(width), gutter);
-            assert_eq!(dialog_inset(width), inset);
+            assert_eq!(
+                Column::at(width),
+                Column {
+                    left,
+                    width: column
+                },
+                "{width}"
+            );
         }
     }
 }

@@ -43,7 +43,7 @@ pub fn render(elapsed: f32, reduced: bool, theme: Theme) -> Div {
                         .top_0()
                         .w(px(160.0))
                         .h(px(160.0 * 197.0 / 366.0))
-                        .text_color(theme.player_ink),
+                        .text_color(theme.ink),
                 ),
         );
     }

@@ -2,16 +2,8 @@ use super::Theme;
 use gpui::{App, px};
 use gpui_component::{Theme as ComponentTheme, ThemeMode};
 
-pub(super) fn install(palette: Theme, dark: bool, cx: &mut App) {
-    ComponentTheme::change(
-        if dark {
-            ThemeMode::Dark
-        } else {
-            ThemeMode::Light
-        },
-        None,
-        cx,
-    );
+pub(super) fn install(palette: Theme, cx: &mut App) {
+    ComponentTheme::change(ThemeMode::Dark, None, cx);
     ComponentTheme::update(cx, |theme| {
         theme.font_family = crate::assets::font().family;
         theme.font_size = px(16.0);
@@ -36,16 +28,16 @@ pub(super) fn install(palette: Theme, dark: bool, cx: &mut App) {
         colors.button_foreground = palette.ink.into();
         colors.button_hover = palette.hover.into();
         colors.button_active = palette.selected.into();
-        colors.primary = palette.ink.into();
-        colors.primary_foreground = palette.inverse.into();
+        colors.primary = palette.accent.into();
+        colors.primary_foreground = palette.ink.into();
         colors.secondary = palette.surface.into();
         colors.secondary_foreground = palette.ink.into();
         colors.secondary_hover = palette.hover.into();
         colors.secondary_active = palette.selected.into();
         colors.danger = palette.danger.into();
-        colors.danger_foreground = palette.inverse.into();
+        colors.danger_foreground = palette.ink.into();
         colors.input = palette.rule.into();
         colors.caret = palette.ink.into();
-        colors.skeleton = palette.skeleton_fade.into();
+        colors.skeleton = palette.surface_strong.into();
     });
 }

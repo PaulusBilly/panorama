@@ -37,6 +37,13 @@ pub fn account_error(kind: CoreErrorKind) -> &'static str {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct PlayIntent {
+    pub id: String,
+    /// Known at the hero already; Film's own library read arrives later.
+    pub resume: Option<panorama_core::stremio::ResumePoint>,
+}
+
 /// Account, installed addons and cache-first Home data shared by app entities.
 pub struct AppState {
     /// Current account state.
@@ -63,12 +70,16 @@ pub struct AppState {
     pub loading_more: bool,
     /// The single 160 MiB renderer cache shared across retained Home entries.
     pub images: gpui::Entity<crate::image_cache::ImageCache>,
+    pub continue_watching: gpui::Entity<crate::continue_watching::ContinueWatching>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
     /// Stream groups for a film; Film keeps this current so an open Player follows late addons.
     pub streams: Option<(String, Arc<Vec<panorama_core::addons::StreamGroup>>)>,
     /// Source selected by Film for the next Player mount.
     pub playback: Option<crate::playback::selection::PlaybackSelection>,
+    /// Home's hero asked to play this film: the Film it opens starts playback once a source is
+    /// ready, through Film's own sign-in and source selection.
+    pub play_intent: Option<PlayIntent>,
     pub closing: bool,
     pub player: Option<crate::playback::shell::ShellPlayerState>,
     pub playback_host: Option<crate::playback::host::PlaybackHost>,
@@ -91,12 +102,19 @@ impl AppState {
             Err(StartupError::Locked) => (None, Some("Panorama is already running.".into())),
             Err(StartupError::Failed(message)) => (None, Some(message)),
         };
-        let images = cx.new(crate::image_cache::ImageCache::new);
+        let fixtures = services
+            .as_ref()
+            .is_some_and(|services| services.addons.is_none());
+        let images = cx.new(|cx| crate::image_cache::ImageCache::new(fixtures, cx));
+        let continue_watching =
+            cx.new(|cx| crate::continue_watching::ContinueWatching::new(services.clone(), cx));
         let mut state = Self {
             images,
+            continue_watching,
             film_preview: None,
             streams: None,
             playback: None,
+            play_intent: None,
             playback_host: None,
             player: None,
             closing: false,
@@ -430,8 +448,11 @@ impl AppState {
                     state.reload = None;
                     match result {
                         Ok(services) => {
-                            state.services = Some(services);
+                            state.services = Some(services.clone());
                             state.runtime_error = None;
+                            state
+                                .continue_watching
+                                .update(cx, |watching, cx| watching.restart(Some(services), cx));
                             state.subscribe(cx);
                             state.load(false, cx);
                         }

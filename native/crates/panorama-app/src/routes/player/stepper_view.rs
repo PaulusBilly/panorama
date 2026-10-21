@@ -26,7 +26,7 @@ impl Player {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Stateful<Div> {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let button = div()
             .id(("stepper", slot))
             .role(gpui::Role::Button)
@@ -63,6 +63,7 @@ impl Player {
             focus_theme(theme),
             !disabled,
             keyboard,
+            0.0,
             window,
         )
     }
@@ -79,7 +80,7 @@ impl Player {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Div {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let value = self.ui.prefs.get(field);
         let base = slot::STEPPERS + index * 3;
         let editing = self

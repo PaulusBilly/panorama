@@ -43,12 +43,12 @@ fn main() -> ExitCode {
             cx.bind_keys([
                 gpui::KeyBinding::new(
                     "tab",
-                    panorama_app::routes::home::NextCard,
+                    panorama_app::film_grid::NextCard,
                     Some("PanoramaCard"),
                 ),
                 gpui::KeyBinding::new(
                     "shift-tab",
-                    panorama_app::routes::home::PreviousCard,
+                    panorama_app::film_grid::PreviousCard,
                     Some("PanoramaCard"),
                 ),
                 gpui::KeyBinding::new("tab", panorama_app::login::NextField, Some("PanoramaLogin")),
@@ -69,12 +69,7 @@ fn main() -> ExitCode {
                 cx.quit();
                 return;
             }
-            let theme = if args.dark {
-                Theme::dark()
-            } else {
-                Theme::light()
-            };
-            theme.install(args.dark, cx);
+            Theme::default().install(cx);
             let bounds = Bounds::centered(None, size(px(args.size.0), px(args.size.1)), cx);
             let result = cx.open_window(
                 WindowOptions {

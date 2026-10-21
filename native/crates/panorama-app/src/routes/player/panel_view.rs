@@ -57,7 +57,7 @@ impl Player {
             .bottom(px(self.panel_motion.bottom - offset))
             .rounded(px(16.0))
             .bg(theme.player_canvas)
-            .text_color(theme.player_ink)
+            .text_color(theme.ink)
             .overflow_hidden()
             .opacity(appear)
             .occlude()
@@ -251,7 +251,7 @@ impl Player {
         theme: Theme,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let ink = theme.player_ink;
+        let ink = theme.ink;
         let clamp = |text: Div| {
             if row.multiline {
                 text.line_clamp(2)
@@ -339,7 +339,7 @@ pub(super) fn caption(text: &str, theme: Theme, danger: bool) -> Div {
         .text_color(if danger {
             theme.danger
         } else {
-            theme.player_ink.opacity(0.55)
+            theme.ink.opacity(0.55)
         })
         .child(text.to_owned())
 }

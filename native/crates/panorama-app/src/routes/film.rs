@@ -5,10 +5,9 @@ use crate::{
     home_layout::ViewSettings,
     image_cache::{CachedImage, ImageCache},
     services::Job,
-    transition::Tween,
 };
 use gpui::{
-    Context, Entity, FocusHandle, RenderImage, ScrollHandle, Subscription, Task, WeakEntity, Window,
+    Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window,
 };
 use panorama_core::addons::{FilmDetails, StreamGroup};
 use std::{sync::Arc, time::Instant};
@@ -44,19 +43,16 @@ pub struct Film {
     watchlist_error: bool,
     account: Account,
     installed: Vec<panorama_core::stremio::Descriptor>,
+    back: FocusHandle,
     primary: FocusHandle,
+    restart: FocusHandle,
     watchlist: FocusHandle,
     retry_details: FocusHandle,
     retry_sources: FocusHandle,
-    press: [Tween; 2],
-    hover: [Tween; 2],
-    icon: Tween,
-    previous_saved: bool,
+    autoplay: bool,
     launched: Instant,
     debug_step: usize,
     images: Entity<ImageCache>,
-    overlay: Option<Arc<RenderImage>>,
-    overlay_size: (u32, u32),
     details_task: Option<Task<()>>,
     sources_task: Option<Task<()>>,
     library_task: Option<Task<()>>,
@@ -64,7 +60,6 @@ pub struct Film {
     _state: Subscription,
     _shell: Subscription,
     _images: Subscription,
-    _release: Subscription,
 }
 impl Film {
     /// Start details and sources together, with the clicked card as a placeholder.
@@ -76,6 +71,9 @@ impl Film {
         args: Args,
         cx: &mut Context<Self>,
     ) -> Self {
+        let intent = state.update(cx, |state, _| {
+            state.play_intent.take_if(|intent| intent.id == id)
+        });
         let current = state.read(cx);
         let metadata = current
             .film_preview
@@ -110,11 +108,6 @@ impl Film {
             .map(|shell| cx.observe(&shell, |_, _, cx| cx.notify()))
             .unwrap_or_else(|| cx.on_release(|_, _| {}));
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
-        let release = cx.on_release(|film, cx| {
-            if let Some(image) = film.overlay.take() {
-                cx.drop_image(image, None);
-            }
-        });
         let mut film = Self {
             shell,
             state,
@@ -127,7 +120,7 @@ impl Film {
             details_error: false,
             groups: vec![],
             selected: None,
-            resume: None,
+            resume: intent.as_ref().and_then(|intent| intent.resume),
             meta_base: None,
             sources_loading: true,
             sources_error: false,
@@ -136,19 +129,16 @@ impl Film {
             watchlist_error: false,
             account,
             installed,
+            back: cx.focus_handle(),
             primary: cx.focus_handle(),
+            restart: cx.focus_handle(),
             watchlist: cx.focus_handle(),
             retry_details: cx.focus_handle(),
             retry_sources: cx.focus_handle(),
-            press: [Tween::fixed(1.0); 2],
-            hover: [Tween::fixed(0.0); 2],
-            icon: Tween::fixed(1.0),
-            previous_saved: false,
+            autoplay: intent.is_some(),
             launched: Instant::now(),
             debug_step: 0,
             images,
-            overlay: None,
-            overlay_size: (0, 0),
             details_task: None,
             sources_task: None,
             library_task: None,
@@ -156,7 +146,6 @@ impl Film {
             _state: observer,
             _shell: shell_observer,
             _images: image_observer,
-            _release: release,
         };
         film.load_details(cx);
         film.load_sources(cx);
@@ -179,13 +168,8 @@ impl Film {
             .unwrap_or_default();
         ViewSettings {
             width: f32::from(window.viewport_size().width),
-            height: f32::from(window.viewport_size().height)
-                // The macOS titlebar is transparent and overlays the page.
-                - if window.is_fullscreen() || cfg!(target_os = "macos") {
-                    0.0
-                } else {
-                    32.0
-                },
+            // The titlebar overlays the page on every platform.
+            height: f32::from(window.viewport_size().height),
             theme,
             active,
             keyboard,

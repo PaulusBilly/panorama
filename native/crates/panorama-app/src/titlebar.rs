@@ -1,15 +1,20 @@
-//! Platform caption chrome with native Windows hit testing.
-#[cfg(not(target_os = "macos"))]
-use crate::assets::Weighted;
 use crate::theme::Theme;
 #[cfg(not(target_os = "macos"))]
 use crate::theme::focus_ring;
 #[cfg(not(target_os = "macos"))]
-use gpui::{App, FocusHandle, MouseButton, WindowControlArea, rgb, svg};
+use gpui::{App, FocusHandle, MouseButton, WindowControlArea, svg};
 use gpui::{Context, Div, Window, div, prelude::*, px};
+
+/// Top band that must stay free of interactive content (drag region).
+#[cfg(target_os = "macos")]
+pub const SAFE_TOP: f32 = 38.0;
+/// Top band that must stay free of interactive content (drag region).
+#[cfg(not(target_os = "macos"))]
+pub const SAFE_TOP: f32 = 32.0;
 
 /// Retained keyboard focus for native caption controls.
 pub struct Titlebar {
+    #[cfg(not(target_os = "macos"))]
     state: gpui::Entity<crate::app_state::AppState>,
     #[cfg(not(target_os = "macos"))]
     controls: [FocusHandle; 3],
@@ -19,88 +24,72 @@ impl Titlebar {
     /// Allocate caption focus independently of route views.
     pub fn new<T: 'static>(
         _cx: &mut Context<T>,
-        state: gpui::Entity<crate::app_state::AppState>,
+        _state: gpui::Entity<crate::app_state::AppState>,
     ) -> Self {
         Self {
-            state,
+            #[cfg(not(target_os = "macos"))]
+            state: _state,
             #[cfg(not(target_os = "macos"))]
             controls: std::array::from_fn(|_| _cx.focus_handle()),
         }
     }
 
-    /// Render the caption; the root hides it in fullscreen.
+    /// Both platforms: an absolute overlay, full width x SAFE_TOP, drawn last, no layout space.
+    /// Windows and Linux add minimise, maximise and close at the top right.
     #[cfg(not(target_os = "macos"))]
     pub fn render(&self, theme: Theme, keyboard_navigation: bool, window: &Window) -> Div {
         let maximized = window.is_maximized();
-        let caption = div()
-            .h(px(32.0))
-            .w_full()
-            .flex_shrink_0()
+        strip()
             .flex()
-            .items_center()
-            .bg(rgb(0xf4f4f4))
-            .text_color(rgb(0x181818))
-            .border_b_1()
-            .border_color(gpui::Rgba {
-                a: 0.14,
-                ..rgb(0x000000)
+            .when(!cfg!(target_os = "windows"), |bar| {
+                bar.on_mouse_down(MouseButton::Left, |event, window, _| {
+                    if event.click_count == 2 {
+                        window.zoom_window();
+                    } else {
+                        window.start_window_move();
+                    }
+                })
             })
             .child(
                 div()
                     .flex_1()
                     .h_full()
-                    .flex()
-                    .items_center()
-                    .pl(px(12.0))
-                    .text_size(px(12.0))
-                    .weight(gpui::FontWeight::MEDIUM)
-                    .line_height(px(12.0))
-                    .window_control_area(WindowControlArea::Drag)
-                    .when(!cfg!(target_os = "windows"), |bar| {
-                        bar.on_mouse_down(MouseButton::Left, |event, window, _| {
-                            if event.click_count == 2 {
-                                window.zoom_window();
-                            } else {
-                                window.start_window_move();
-                            }
-                        })
-                    })
-                    .child("Panorama"),
-            );
-        caption.children([
-            self.control(
-                0,
-                "Minimize window",
-                "minimize.svg",
-                WindowControlArea::Min,
-                (theme, keyboard_navigation),
-                window,
-            ),
-            self.control(
-                1,
-                if maximized {
-                    "Restore window"
-                } else {
-                    "Maximize window"
-                },
-                if maximized {
-                    "restore.svg"
-                } else {
-                    "maximize.svg"
-                },
-                WindowControlArea::Max,
-                (theme, keyboard_navigation),
-                window,
-            ),
-            self.control(
-                2,
-                "Close window",
-                "close.svg",
-                WindowControlArea::Close,
-                (theme, keyboard_navigation),
-                window,
-            ),
-        ])
+                    .window_control_area(WindowControlArea::Drag),
+            )
+            .children([
+                self.control(
+                    0,
+                    "Minimize window",
+                    "minimize.svg",
+                    WindowControlArea::Min,
+                    (theme, keyboard_navigation),
+                    window,
+                ),
+                self.control(
+                    1,
+                    if maximized {
+                        "Restore window"
+                    } else {
+                        "Maximize window"
+                    },
+                    if maximized {
+                        "restore.svg"
+                    } else {
+                        "maximize.svg"
+                    },
+                    WindowControlArea::Max,
+                    (theme, keyboard_navigation),
+                    window,
+                ),
+                self.control(
+                    2,
+                    "Close window",
+                    "close.svg",
+                    WindowControlArea::Close,
+                    (theme, keyboard_navigation),
+                    window,
+                ),
+            ])
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -119,22 +108,18 @@ impl Titlebar {
             div()
                 .id(("caption", index))
                 .w(px(46.0))
-                .h(px(32.0))
+                .h(px(SAFE_TOP))
                 .flex()
                 .items_center()
                 .justify_center()
-                .when(index == 2, |button| button.group("caption-close"))
                 .aria_label(label)
                 .role(gpui::Role::Button)
                 .hover(move |style| {
-                    if index == 2 {
-                        style.bg(rgb(0xc42b1c)).text_color(rgb(0xffffff))
+                    style.bg(if index == 2 {
+                        theme.danger
                     } else {
-                        style.bg(gpui::Rgba {
-                            a: 0.1,
-                            ..rgb(0x000000)
-                        })
-                    }
+                        theme.glass
+                    })
                 })
                 .when(cfg!(target_os = "windows"), |button| {
                     button.window_control_area(area)
@@ -150,44 +135,33 @@ impl Titlebar {
                         }
                     }
                 })
-                .child(
-                    svg()
-                        .path(icon)
-                        .size(px(10.0))
-                        .text_color(rgb(0x181818))
-                        .when(index == 2, |icon| {
-                            icon.group_hover("caption-close", |style| {
-                                style.text_color(rgb(0xffffff))
-                            })
-                        }),
-                ),
+                .child(svg().path(icon).size(px(10.0)).text_color(theme.ink)),
             &self.controls[index],
             theme,
             true,
             keyboard_navigation,
+            0.0,
             window,
         )
     }
 
-    /// macOS keeps system traffic lights and native dragging.
+    /// macOS: drag strip only; the traffic lights sit over the sidebar's top.
     #[cfg(target_os = "macos")]
     pub fn render(&self, _: Theme, _: bool, _: &Window) -> Div {
-        // Content runs under the transparent native titlebar; this strip only restores dragging
-        // and the system double-click action, since the window owns titlebar drags.
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .w_full()
-            .h(px(28.0))
-            .on_mouse_down(gpui::MouseButton::Left, |event, window, _| {
-                if event.click_count == 2 {
-                    window.titlebar_double_click();
-                } else {
-                    window.start_window_move();
-                }
-            })
+        // The window owns titlebar drags, so this strip restores dragging and the system
+        // double-click action.
+        strip().on_mouse_down(gpui::MouseButton::Left, |event, window, _| {
+            if event.click_count == 2 {
+                window.titlebar_double_click();
+            } else {
+                window.start_window_move();
+            }
+        })
     }
+}
+
+fn strip() -> Div {
+    div().absolute().top_0().left_0().w_full().h(px(SAFE_TOP))
 }
 
 #[cfg(not(target_os = "macos"))]

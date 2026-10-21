@@ -2,15 +2,16 @@
 use super::{
     Addons, Slot,
     model::{InstallFlow, PreviewCard, error_copy},
-    widgets::{View, logo, section, spinner, text_button, tnum},
+    widgets::{View, logo, section, tnum},
 };
 use crate::assets::Weighted;
 use crate::{
     a11y,
+    button::Button,
     image_cache::CachedImage,
-    theme::{Typography, focus_ring, motion::*},
+    theme::{Typography, motion::*},
 };
-use gpui::{Context, Div, FontWeight, MouseButton, Window, canvas, div, prelude::*, px, relative};
+use gpui::{Context, Div, FontWeight, Window, canvas, div, prelude::*, px, relative};
 use gpui_component::input::Input;
 use std::time::Instant;
 use url::Url;
@@ -49,19 +50,18 @@ impl Addons {
         let preview_focus = self.handle(Slot::Preview, cx);
         let input_focus = gpui::Focusable::focus_handle(&self.input, cx);
         let focused = input_focus.is_focused(window);
-        let trigger = text_button(
-            "addon-preview",
-            if previewing { "Checking" } else { "Preview" },
-            previewing.then(|| spinner(14.0, theme.ink, view)),
-            theme.ink,
-            &preview_focus,
-            view,
-            window,
-        )
-        .absolute()
-        .right_0()
-        .bottom(px(4.0))
-        .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx)));
+        let trigger = div().absolute().right_0().bottom(px(4.0)).child(
+            Button::glass(
+                "addon-preview",
+                if previewing { "Checking" } else { "Preview" },
+            )
+            .compact()
+            .busy(previewing)
+            .reduced_motion(view.reduced)
+            .focus(&preview_focus, view.keyboard)
+            .tab_stop(view.active)
+            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+        );
         let input = div()
             .relative()
             .mt(px(16.0))
@@ -199,10 +199,9 @@ impl Addons {
                     .children(types),
             );
         let block = div()
-            .p(px(24.0))
-            .border_1()
-            .border_color(theme.rule)
-            .bg(theme.canvas)
+            .px(px(24.0))
+            .py(px(20.0))
+            .bg(theme.surface)
             .flex()
             .flex_col()
             .child(
@@ -218,20 +217,15 @@ impl Addons {
                     .flex()
                     .items_center()
                     .gap(px(16.0))
-                    .child(self.install_button(installing, view, window, cx))
+                    .child(self.install_button(installing, view, cx))
                     .when(!installing, |row| {
                         let focus = self.handle(Slot::Cancel, cx);
                         row.child(
-                            text_button(
-                                "addon-cancel",
-                                "Cancel",
-                                None,
-                                theme.ink,
-                                &focus,
-                                view,
-                                window,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_preview(cx))),
+                            Button::glass("addon-cancel", "Cancel")
+                                .compact()
+                                .focus(&focus, view.keyboard)
+                                .tab_stop(view.active)
+                                .on_click(cx.listener(|this, _, _, cx| this.cancel_preview(cx))),
                         )
                     }),
             );
@@ -260,116 +254,21 @@ impl Addons {
             )
     }
 
-    fn install_button(
-        &mut self,
-        installing: bool,
-        view: View,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
-        let theme = view.theme;
-        let label = if installing {
-            "Installing"
-        } else {
-            "Install addon"
-        };
-        let press = self.press.value(Instant::now(), view.reduced);
-        let mut font = window.text_style().font();
-        crate::assets::weighted(&mut font, FontWeight::MEDIUM);
-        let text = f32::from(
-            window
-                .text_system()
-                .shape_line(
-                    label.into(),
-                    px(14.0),
-                    &[gpui::TextRun {
-                        len: label.len(),
-                        font,
-                        ..Default::default()
-                    }],
-                    None,
-                )
-                .width,
-        );
-        let width = text + 40.0 + if installing { 22.0 } else { 0.0 };
+    fn install_button(&mut self, installing: bool, view: View, cx: &mut Context<Self>) -> Button {
         let focus = self.handle(Slot::Install, cx);
-        focus_ring(
-            div()
-                .id("addon-install")
-                .w(px(width))
-                .h(px(44.0))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .role(gpui::Role::Button)
-                .aria_label(label)
-                .when(!installing, |button| button.cursor_pointer())
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
-                        if !installing {
-                            this.press.retarget(
-                                0.97,
-                                std::time::Duration::from_millis(120),
-                                Some(EASE_OUT),
-                                Instant::now(),
-                            );
-                            cx.notify();
-                        }
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| this.release(cx)),
-                )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| this.release(cx)),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if !installing {
-                        this.confirm_install(cx);
-                    }
-                }))
-                .child(
-                    div()
-                        .w(px(width * press))
-                        .h(px(44.0 * press))
-                        .bg(theme.ink)
-                        .text_color(theme.inverse)
-                        .text_size(px(14.0 * press))
-                        .weight(FontWeight::MEDIUM)
-                        .line_height(relative(1.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(8.0))
-                        .opacity(if installing { 0.6 } else { 1.0 })
-                        .id("addon-install-face")
-                        .when(!installing, |face| {
-                            face.hover(|style| style.bg(theme.ink.opacity(0.9)))
-                        })
-                        .when(installing, |face| {
-                            face.child(spinner(14.0, theme.inverse, view))
-                        })
-                        .child(label),
-                ),
-            &focus,
-            theme,
-            view.active && !installing,
-            view.keyboard,
-            window,
+        Button::primary(
+            "addon-install",
+            if installing {
+                "Installing"
+            } else {
+                "Install addon"
+            },
         )
-    }
-
-    fn release(&mut self, cx: &mut Context<Self>) {
-        self.press.retarget(
-            1.0,
-            std::time::Duration::from_millis(120),
-            Some(EASE_OUT),
-            Instant::now(),
-        );
-        cx.notify();
+        .compact()
+        .busy(installing)
+        .reduced_motion(view.reduced)
+        .focus(&focus, view.keyboard)
+        .tab_stop(view.active)
+        .on_click(cx.listener(|this, _, _, cx| this.confirm_install(cx)))
     }
 }
