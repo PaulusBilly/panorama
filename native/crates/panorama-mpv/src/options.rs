@@ -10,8 +10,10 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     ("target-colorspace-hint", "auto", false),
     ("hwdec", "d3d11va,auto-safe", false),
     ("cache", "yes", false),
+    // ponytail: 60 s ahead (~100 MB at 13 Mbps); max-bytes still caps high-bitrate remuxes.
+    ("cache-secs", "60", false),
     ("demuxer-max-bytes", "512MiB", false),
-    ("demuxer-max-back-bytes", "64MiB", false),
+    ("demuxer-max-back-bytes", "32MiB", false),
     ("cache-pause", "yes", false),
     ("cache-pause-wait", "2", false),
     ("cache-on-disk", "no", false),
@@ -35,8 +37,10 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     ("hwdec", "auto-safe", false),
     ("gpu-hwdec-interop", "auto", false),
     ("cache", "yes", false),
+    // ponytail: 60 s ahead (~100 MB at 13 Mbps); max-bytes still caps high-bitrate remuxes.
+    ("cache-secs", "60", false),
     ("demuxer-max-bytes", "512MiB", false),
-    ("demuxer-max-back-bytes", "64MiB", false),
+    ("demuxer-max-back-bytes", "32MiB", false),
     ("cache-pause", "yes", false),
     ("cache-pause-wait", "2", false),
     ("cache-on-disk", "no", false),
