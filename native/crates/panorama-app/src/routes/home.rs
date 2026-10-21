@@ -241,24 +241,21 @@ impl GridHost for Home {
     ) {
         self.step_card(index, forward, window, cx);
     }
-    /// Open the card's opaque film identifier in the existing router.
-    fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        open_film(&self.state, &self.shell, &self.grid, id, window, cx);
+    fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
+        open_film(&self.state, &self.shell, film, window, cx);
     }
 }
 
-/// Hand the card's film to Film as its preview, then navigate there.
+/// Hand the film to Film as its preview, then navigate there.
 pub(crate) fn open_film<V: 'static>(
     state: &Entity<AppState>,
     shell: &WeakEntity<AppShell>,
-    grid: &FilmGrid,
-    id: String,
+    film: FilmDetails,
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    state.update(cx, |state, _| {
-        state.film_preview = grid.films.iter().find(|film| film.id == id).cloned()
-    });
+    let id = film.id.clone();
+    state.update(cx, |state, _| state.film_preview = Some(film));
     let _ = shell.update(cx, |shell, cx| {
         shell.navigate(Route::Film { id }, window, cx)
     });

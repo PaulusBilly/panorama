@@ -190,7 +190,7 @@ pub fn render<V: GridHost>(
                 )
                 .child(credits),
         );
-        let id = film.id.clone();
+        let target = film.clone();
         let button = focus_ring(
             div()
                 .id(("film-card", index))
@@ -213,7 +213,7 @@ pub fn render<V: GridHost>(
                     cx.notify();
                 }))
                 .on_click(cx.listener(move |host: &mut V, _, window, cx| {
-                    host.open_film(id.clone(), window, cx)
+                    host.open_film(target.clone(), window, cx)
                 })),
             props.focus,
             theme,

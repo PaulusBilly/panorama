@@ -30,8 +30,8 @@ pub trait GridHost: Sized + 'static {
         window: &mut Window,
         cx: &mut Context<Self>,
     );
-    /// Open the card's opaque film identifier.
-    fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>);
+    /// Open the card's film.
+    fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
 }
 
 /// Virtualised film-card grid with focus handles and hover tweens. Owned per entity; no sharing.

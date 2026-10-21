@@ -18,7 +18,7 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use panorama_core::{
-    addons::{FailureKind, ResourceEvent},
+    addons::{FailureKind, FilmDetails, ResourceEvent},
     stremio::Descriptor,
 };
 use std::sync::Arc;
@@ -289,8 +289,8 @@ impl GridHost for Search {
         cx.stop_propagation();
         cx.notify();
     }
-    fn open_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        super::home::open_film(&self.state, &self.shell, &self.grid, id, window, cx);
+    fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
+        super::home::open_film(&self.state, &self.shell, film, window, cx);
     }
 }
 
