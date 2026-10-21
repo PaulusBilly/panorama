@@ -63,6 +63,8 @@ pub struct AppState {
     pub loading_more: bool,
     /// The single 160 MiB renderer cache shared across retained Home entries.
     pub images: gpui::Entity<crate::image_cache::ImageCache>,
+    /// Films in progress, shared by every Home entry.
+    pub continue_watching: gpui::Entity<crate::continue_watching::ContinueWatching>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
     /// Stream groups for a film; Film keeps this current so an open Player follows late addons.
@@ -92,8 +94,11 @@ impl AppState {
             Err(StartupError::Failed(message)) => (None, Some(message)),
         };
         let images = cx.new(crate::image_cache::ImageCache::new);
+        let continue_watching =
+            cx.new(|cx| crate::continue_watching::ContinueWatching::new(services.clone(), cx));
         let mut state = Self {
             images,
+            continue_watching,
             film_preview: None,
             streams: None,
             playback: None,
@@ -430,8 +435,11 @@ impl AppState {
                     state.reload = None;
                     match result {
                         Ok(services) => {
-                            state.services = Some(services);
+                            state.services = Some(services.clone());
                             state.runtime_error = None;
+                            state
+                                .continue_watching
+                                .update(cx, |watching, cx| watching.restart(Some(services), cx));
                             state.subscribe(cx);
                             state.load(false, cx);
                         }
