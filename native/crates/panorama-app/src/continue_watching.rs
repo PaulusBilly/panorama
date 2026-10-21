@@ -46,7 +46,6 @@ impl ContinueWatching {
         this
     }
 
-    /// Rebind to a fresh set of services after a reload.
     pub fn restart(&mut self, services: Option<Arc<Services>>, cx: &mut Context<Self>) {
         self.library = None;
         self.services = None;

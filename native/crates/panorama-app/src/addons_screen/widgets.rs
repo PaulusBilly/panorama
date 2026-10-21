@@ -65,7 +65,6 @@ pub fn panel(theme: Theme) -> Div {
     div().mt(px(16.0)).px(px(20.0)).bg(theme.surface)
 }
 
-/// A square logo, or the name's first letter on `surface_strong`.
 pub fn logo(size: f32, name: &str, image: Option<CachedImage>, large: bool, theme: Theme) -> Div {
     let letter = name
         .chars()

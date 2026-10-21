@@ -103,7 +103,6 @@ impl<K: Eq, V> ByteLru<K, V> {
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum Source {
     Remote(ImageUrl),
-    /// A still bundled in `fixtures::STILLS`, requested as `fixture://<name>`.
     Fixture(&'static str),
 }
 

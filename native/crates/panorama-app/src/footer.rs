@@ -2,7 +2,6 @@
 use crate::theme::{Column, Theme};
 use gpui::{Div, div, prelude::*, px, svg};
 
-/// Render the footer for a viewport width, in its content column.
 pub fn footer(theme: Theme, viewport: f32) -> Div {
     let col = Column::at(viewport);
     let container = col.width;

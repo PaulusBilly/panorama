@@ -18,7 +18,6 @@ pub const STILLS: [(&str, &[u8]); 3] = [
 /// title and still, and the bright one lands in the row.
 const FILM_STILLS: [usize; 9] = [2, 0, 1, 0, 1, 2, 1, 2, 0];
 
-/// The nine preview film records, each with a landscape still.
 pub fn films() -> Vec<FilmDetails> {
     (0..9)
         .map(|index| FilmDetails {
@@ -74,7 +73,6 @@ pub fn details(id: &str) -> Option<FilmDetails> {
     Some(film)
 }
 
-/// Three films in progress, newest first, at 20, 55 and 80 percent.
 pub fn continue_items() -> Vec<ContinueItem> {
     [("tmdb:101", 0.2), ("tmdb:105", 0.55), ("tmdb:106", 0.8)]
         .into_iter()

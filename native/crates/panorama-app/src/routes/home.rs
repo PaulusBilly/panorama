@@ -40,9 +40,7 @@ pub struct Home {
     pub(crate) grid: FilmGrid,
     hero: HeroFocus,
     row: ContinueRow,
-    /// Height of the first viewport, set each render; the catalog starts here.
     fold: f32,
-    /// The hero film whose watchlist state `saved` reflects, and its library subscription.
     flags: Option<(String, Task<()>)>,
     saved: bool,
     save_task: Option<Task<()>>,
@@ -200,7 +198,6 @@ impl Home {
         });
         self.open_film(film, window, cx);
     }
-    /// Follow the hero film's watchlist state; a new hero drops the old subscription.
     fn track_saved(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
         if self.flags.as_ref().map(|(tracked, _)| tracked.as_str()) == id {
             return;
@@ -341,7 +338,6 @@ impl GridHost for Home {
     }
 }
 
-/// Hand the film to Film as its preview, then navigate there.
 pub(crate) fn open_film<V: 'static>(
     state: &Entity<AppState>,
     shell: &WeakEntity<AppShell>,

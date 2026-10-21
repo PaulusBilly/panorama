@@ -1,4 +1,3 @@
-//! Home's first viewport: the featured film's backdrop, its scrims and the title block over them.
 use crate::{
     button::{Button, Icon},
     film_card::fade_in,
@@ -15,22 +14,14 @@ use crate::{
 use gpui::{Context, Div, FocusHandle, RenderImage, Window, div, img, prelude::*, px, relative};
 use std::sync::Arc;
 
-/// Top of the hero block at its tallest, clear of the titlebar.
 const TOP: f32 = 72.0;
-/// Title to credits.
 const CREDITS_GAP: f32 = 12.0;
-/// Credits to actions.
 const ACTIONS_GAP: f32 = 32.0;
-/// Hero block to the Continue row.
 pub const ROW_GAP: f32 = 56.0;
-/// Hero block to the fold when there is no Continue row.
 const BARE_GAP: f32 = 96.0;
-/// Continue row to the fold.
 pub const FOLD_PAD: f32 = 48.0;
-/// Largest logo image, in logical pixels.
 pub const LOGO: (f32, f32) = (310.0, 128.0);
 
-/// Focus handles for the hero's three actions; one set per Home entry.
 pub struct HeroFocus {
     pub primary: FocusHandle,
     pub info: FocusHandle,
@@ -51,9 +42,7 @@ impl HeroFocus {
     }
 }
 
-/// What the hero shows besides the film.
 pub struct HeroState {
-    /// The film's logo, once loaded.
     pub logo: Option<CachedImage>,
     /// A logo is on its way, so the text title is held back rather than swapped.
     pub logo_pending: bool,
@@ -120,7 +109,6 @@ pub fn scrims(theme: Theme, col: Column, width: f32) -> Div {
         .child(scrim(theme, Edge::Bottom, relative(0.6), 1.0))
 }
 
-/// Title (logo if present, else display caps), credits and the action row, left on the column.
 pub fn render(
     featured: Featured<'_>,
     state: HeroState,
@@ -196,7 +184,6 @@ pub fn render(
             .on_click(cx.listener(move |home, _, _, cx| home.toggle_saved(&target, cx))),
         )
     });
-    // Tab leaves the hero from its last action into the Continue row or the catalog.
     let last = |button: Button| {
         div()
             .key_context("PanoramaCard")

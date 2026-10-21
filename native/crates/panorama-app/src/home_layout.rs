@@ -1,7 +1,6 @@
 /// Space between tiles, the same across columns and rows.
 pub const GAP: f32 = 4.0;
 
-/// Fixed-size tiles packed into the content column.
 #[derive(Clone, Copy, Debug)]
 pub struct Grid {
     /// Columns in each virtualized row.
@@ -26,7 +25,6 @@ impl Grid {
     pub fn height(self) -> f32 {
         self.width * 245.0 / 404.0
     }
-    /// Total row width, including column gaps.
     pub fn total_width(self) -> f32 {
         self.width * self.columns as f32 + GAP * self.columns.saturating_sub(1) as f32
     }

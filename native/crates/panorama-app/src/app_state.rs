@@ -70,7 +70,6 @@ pub struct AppState {
     pub loading_more: bool,
     /// The single 160 MiB renderer cache shared across retained Home entries.
     pub images: gpui::Entity<crate::image_cache::ImageCache>,
-    /// Films in progress, shared by every Home entry.
     pub continue_watching: gpui::Entity<crate::continue_watching::ContinueWatching>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,

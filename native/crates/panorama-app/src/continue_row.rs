@@ -1,4 +1,3 @@
-//! Home's Continue row: films in progress after the hero's, as landscape cards with progress.
 use crate::{
     continue_watching::ContinueCard,
     film_card::fade_in,
@@ -21,14 +20,11 @@ use std::sync::Arc;
 
 /// 16:9, fixed so nothing jumps when details arrive.
 pub const CARD: (f32, f32) = (300.0, 168.75);
-/// Between cards.
 const GAP: f32 = 12.0;
-/// Heading to cards.
 const HEADING_GAP: f32 = 14.0;
 /// Room around the cards inside the scroll area, which clips, for the outer focus ring.
 const RING: f32 = 4.0;
 
-/// Horizontal scroll and card focus, per Home entry.
 #[derive(Default)]
 pub struct ContinueRow {
     pub scroll: ScrollHandle,
@@ -36,21 +32,14 @@ pub struct ContinueRow {
 }
 
 impl ContinueRow {
-    /// Keep one focus handle per card.
     pub fn sync(&mut self, len: usize, cx: &mut App) {
-        self.cards.truncate(len);
-        while self.cards.len() < len {
-            self.cards.push(cx.focus_handle());
-        }
+        self.cards.resize_with(len, || cx.focus_handle());
     }
 
-    /// Heading plus cards.
     pub fn height() -> f32 {
         SECTION.size * SECTION.line_height + HEADING_GAP + CARD.1
     }
 
-    /// "CONTINUE" at the column's left edge, then a row that starts there and bleeds to the
-    /// window's right edge, scrolling sideways when it overflows.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
@@ -72,10 +61,7 @@ impl ContinueRow {
             .w(px(view.width - col.left + RING))
             .overflow_x_scroll()
             .track_scroll(&self.scroll);
-        for (index, card) in cards.iter().enumerate() {
-            let Some(focus) = self.cards.get(index) else {
-                break;
-            };
+        for (index, (card, focus)) in cards.iter().zip(&self.cards).enumerate() {
             let (image, poster, _) =
                 artwork(images, services, &card.film, CARD, visible, window, cx);
             row = row.child(self.card(
@@ -190,7 +176,7 @@ impl ContinueRow {
                             .child(
                                 div()
                                     .h_full()
-                                    .w(relative(card.progress.clamp(0.0, 1.0)))
+                                    .w(relative(card.progress))
                                     .bg(theme.progress_fill),
                             ),
                     ),

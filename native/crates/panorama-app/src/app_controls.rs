@@ -12,7 +12,6 @@ impl AppShell {
         }
         cx.notify();
     }
-    /// Release the closed dialog and restore focus to the account avatar.
     pub fn finish_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.login = None;
         self.sidebar.account.focus(window, cx);

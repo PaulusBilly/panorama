@@ -1,7 +1,6 @@
 use super::*;
 
 impl Home {
-    /// Leave the hero's last action: into the Continue row, else the catalog.
     pub(crate) fn focus_below_hero(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.row.cards.is_empty() {
             self.focus_first(window, cx);
@@ -10,8 +9,6 @@ impl Home {
         }
         cx.stop_propagation();
     }
-    /// Focus the control just above the catalog: the last Continue card, else the hero's last
-    /// action, scrolled back up to it.
     pub(crate) fn focus_above_catalog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(last) = self.row.cards.len().checked_sub(1) {
             self.focus_row(last, window, cx);
@@ -24,7 +21,6 @@ impl Home {
         cx.stop_propagation();
         cx.notify();
     }
-    /// Focus Continue card `index`, revealed both sideways and on the page.
     fn focus_row(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(card) = self.row.cards.get(index) else {
             return;
@@ -41,7 +37,6 @@ impl Home {
         );
         cx.notify();
     }
-    /// Tab through the Continue row: back into the hero, on into the catalog.
     pub(crate) fn step_row(
         &mut self,
         index: usize,
@@ -61,7 +56,6 @@ impl Home {
         self.tick(window, cx);
         cx.stop_propagation();
     }
-    /// Move keyboard focus from the hero or Continue row into the visible first catalog row.
     pub(crate) fn focus_first(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.switcher_visible(cx) {
             self.focus_switcher(window, cx);

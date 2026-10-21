@@ -1,4 +1,3 @@
-//! Search: its own field, results grid and request lifetime.
 use crate::{
     alert_row::AlertRow,
     app::AppShell,
@@ -6,7 +5,7 @@ use crate::{
     args::Args,
     assets::Weighted,
     film_grid::{FilmGrid, GridHost, reveal},
-    home_layout::ViewSettings,
+    home_layout::{Grid, ViewSettings},
     image_cache::ImageCache,
     router::Route,
     theme::Typography,
@@ -25,14 +24,10 @@ use std::sync::Arc;
 
 /// Space above the field, level with the Addons title.
 const TOP: f32 = 56.0;
-/// Field underline gap.
 const FIELD_PAD: f32 = 12.0;
-/// Status line block, including its top margin.
 const STATUS: f32 = 16.0 + 20.0;
-/// Gap between the status line and the first card row.
 const GRID_GAP: f32 = 32.0;
 
-/// One Search history entry.
 pub struct Search {
     shell: WeakEntity<AppShell>,
     state: Entity<AppState>,
@@ -117,12 +112,10 @@ impl Search {
         search
     }
 
-    /// Called by `AppShell::go(Search)` when Search is already current, and on mount.
     pub fn focus_field(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.focus_handle(cx).focus(window, cx);
     }
 
-    /// PressEnter: an empty field clears the results; otherwise record the query and search.
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.input.read(cx).value().trim().to_string();
         if value.is_empty() {
@@ -135,7 +128,6 @@ impl Search {
         self.focus_field(window, cx);
     }
 
-    /// Empty the field and the results, keeping focus in the field.
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.input
             .update(cx, |input, cx| input.set_value("", window, cx));
@@ -148,7 +140,6 @@ impl Search {
         cx.notify();
     }
 
-    /// Keep this history entry's route in step with the submitted query.
     fn record(&mut self, query: String, cx: &mut Context<Self>) {
         self.query.clone_from(&query);
         let id = self.id;
@@ -229,12 +220,10 @@ impl Search {
         }
     }
 
-    /// Field type size: the display scale, so the query reads as the page title.
     fn field_size(width: f32) -> f32 {
         (width * 0.05).clamp(36.0, 52.0)
     }
 
-    /// Top of the results grid in scroll content.
     fn grid_top(width: f32) -> f32 {
         TOP + Self::field_size(width) * 1.2 + FIELD_PAD + 2.0 + STATUS + GRID_GAP
     }
@@ -281,7 +270,7 @@ impl GridHost for Search {
         } else {
             let next = if forward { index + 1 } else { index - 1 };
             let y = Self::grid_top(view.width) + FilmGrid::row_top(next, col);
-            reveal(&self.scroll, y, FilmGrid::layout(col).height(), view.height);
+            reveal(&self.scroll, y, Grid::fit(col.width).height(), view.height);
             if let Some(card) = self.grid.focus(next) {
                 card.focus(window, cx);
             }
@@ -401,7 +390,6 @@ impl Render for Search {
             .track_scroll(&self.scroll)
             .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
             .capture_key_down(cx.listener(|search, event: &KeyDownEvent, window, cx| {
-                // Esc clears a non-empty query and otherwise does nothing.
                 if event.keystroke.key == "escape"
                     && (!search.query.is_empty() || !search.input.read(cx).value().is_empty())
                 {

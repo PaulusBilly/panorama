@@ -1,4 +1,3 @@
-//! Which film Home features, and which films the Continue row lists.
 use crate::continue_watching::ContinueCard;
 use panorama_core::addons::FilmDetails;
 

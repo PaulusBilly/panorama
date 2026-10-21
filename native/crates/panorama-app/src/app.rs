@@ -49,7 +49,6 @@ pub struct AppShell {
     pub state: Entity<AppState>,
     /// Account popup retained during its exit animation.
     pub menu: AccountMenu,
-    /// Destination and account navigation, drawn once over the routes.
     pub(crate) sidebar: Sidebar,
     login: Option<Entity<LoginDialog>>,
     args: Args,

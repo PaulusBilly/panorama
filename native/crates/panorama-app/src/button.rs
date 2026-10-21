@@ -1,4 +1,3 @@
-//! The one pill and round button every screen uses.
 use crate::theme::{Theme, caps, focus_ring, typography::BUTTON};
 use gpui::{
     Animation, AnimationExt, App, ClickEvent, ElementId, FocusHandle, IntoElement, RenderOnce,
@@ -6,21 +5,16 @@ use gpui::{
 };
 use std::{rc::Rc, time::Duration};
 
-/// Fill and hover family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Variant {
     /// Accent fill: the one main action of a screen.
     Primary,
-    /// Translucent white over artwork or canvas.
     Glass,
 }
 
-/// Height of the control.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Size {
-    /// 52 px.
     Regular,
-    /// 40 px.
     Compact,
 }
 impl Size {
@@ -32,7 +26,6 @@ impl Size {
     }
 }
 
-/// Glyphs a button can carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     Play,
@@ -49,7 +42,6 @@ pub enum Icon {
     Close,
 }
 impl Icon {
-    /// Asset path, as registered in `assets.rs`.
     pub fn path(self) -> &'static str {
         match self {
             Self::Play => "player-play-filled.svg",
@@ -121,7 +113,6 @@ impl Button {
     pub fn primary(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
         Self::new(id, Variant::Primary, Face::Label { leading: None }, label)
     }
-    /// A translucent pill.
     pub fn glass(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
         Self::new(id, Variant::Glass, Face::Label { leading: None }, label)
     }
@@ -141,7 +132,6 @@ impl Button {
         self.aria_label = Some(label.into());
         self
     }
-    /// Use the 40 px height.
     pub fn compact(mut self) -> Self {
         self.size = Size::Compact;
         self
@@ -171,7 +161,6 @@ impl Button {
         self.tab_stop = tab_stop;
         self
     }
-    /// Hold the busy spinner still.
     pub fn reduced_motion(mut self, reduced: bool) -> Self {
         self.reduced_motion = reduced;
         self

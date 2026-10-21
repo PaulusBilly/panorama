@@ -1,7 +1,6 @@
 //! Pure navigation history and debug route syntax.
 use crate::button::Icon;
 
-/// A top-level place the sidebar can take the user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Destination {
     Search,
@@ -20,7 +19,6 @@ impl Destination {
             Self::Addons => "Addons",
         }
     }
-    /// Sidebar glyph.
     pub fn icon(self) -> Icon {
         match self {
             Self::Search => Icon::Search,

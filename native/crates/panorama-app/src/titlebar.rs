@@ -1,4 +1,3 @@
-//! Window chrome: an overlay drag strip, plus caption buttons off macOS.
 use crate::theme::Theme;
 #[cfg(not(target_os = "macos"))]
 use crate::theme::focus_ring;
@@ -161,7 +160,6 @@ impl Titlebar {
     }
 }
 
-/// The transparent band the chrome draws in.
 fn strip() -> Div {
     div().absolute().top_0().left_0().w_full().h(px(SAFE_TOP))
 }

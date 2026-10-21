@@ -1,22 +1,17 @@
-//! Films in progress, read from the core's library.
-
 use stremio_core::types::library::LibraryItem;
 
 use super::{CoreSession, FilmMeta, ResumePoint, progress::resume_point};
 
 const CAP: usize = 20;
 
-/// A film in progress.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContinueItem {
-    /// The film, as the watchlist represents it.
     pub film: FilmMeta,
     /// Where to resume; already past the resume rule.
     pub resume: ResumePoint,
 }
 
 impl ContinueItem {
-    /// Fraction watched, for the progress bar.
     pub fn progress(&self) -> f32 {
         (self.resume.offset_secs / self.resume.duration_secs) as f32
     }

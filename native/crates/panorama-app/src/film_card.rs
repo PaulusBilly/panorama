@@ -65,7 +65,6 @@ pub fn shimmer(view: ViewSettings, phase: f32) -> Div {
     )
 }
 
-/// Opacity of an image fading in since it finished loading.
 pub fn fade_in(image: &CachedImage, reduced: bool) -> f32 {
     if reduced {
         return 1.0;

@@ -8,7 +8,6 @@ use crate::{
 use gpui::{Div, Render, div};
 
 impl Home {
-    /// Backdrop, scrims, hero block and Continue row, at least one window tall. Sets `fold`.
     fn first_viewport(
         &mut self,
         view: ViewSettings,

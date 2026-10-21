@@ -1,12 +1,9 @@
-//! Responsive layout rules.
-
 /// Width of the navigation sidebar every route except the player reserves.
 pub const SIDEBAR_WIDTH: f32 = 80.0;
 
 /// The content column every route aligns to. Left-aligned after the sidebar, not centred.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Column {
-    /// Distance from the window's left edge.
     pub left: f32,
     /// Usable width, at most 1500.
     pub width: f32,

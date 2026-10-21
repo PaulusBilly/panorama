@@ -106,7 +106,6 @@ impl Film {
             .child(watchlist)
             .child(crate::a11y::status("film-primary-status", label))
     }
-    /// Return to the previous route, or Home when Film opened the window.
     pub(super) fn back(&self, view: ViewSettings, cx: &mut Context<Self>) -> Button {
         Button::round("film-back", Icon::ArrowLeft, "Back")
             .compact()

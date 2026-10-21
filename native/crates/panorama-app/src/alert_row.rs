@@ -1,11 +1,9 @@
-//! The message row with one action, shared by Home and Addons.
 use crate::{
     button::Button,
     theme::{Theme, Typography},
 };
 use gpui::{App, ClickEvent, Div, FocusHandle, Window, div, prelude::*, px};
 
-/// A hairline-bounded message with a single button.
 pub struct AlertRow<'a> {
     /// Plain-text message.
     pub message: String,

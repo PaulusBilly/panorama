@@ -1,4 +1,3 @@
-//! The icon sidebar: drawn once by the shell over every route but the player.
 pub use crate::theme::SIDEBAR_WIDTH;
 use crate::{
     app::AppShell,
@@ -14,22 +13,16 @@ use gpui::{
     point, prelude::*, px, size, svg,
 };
 
-/// Destination hit target; the hover circle.
 const ITEM: f32 = 48.0;
-/// Destination glyph.
 const GLYPH: f32 = 24.0;
-/// Width of the four-bar mark at the top.
 const LOGO: f32 = 32.0;
 
-/// Retained focus for the destinations and the account avatar.
 pub struct Sidebar {
     items: [FocusHandle; Destination::ALL.len()],
-    /// The avatar, refocused when the account menu or sign-in closes.
     pub(crate) account: FocusHandle,
 }
 
 impl Sidebar {
-    /// Allocate focus once for the shell's lifetime.
     pub fn new(cx: &mut Context<AppShell>) -> Self {
         Self {
             items: std::array::from_fn(|_| cx.focus_handle()),
@@ -179,7 +172,6 @@ impl Sidebar {
                     .aria_expanded(menu_open)
                     .on_click(cx.listener(|shell, event: &gpui::ClickEvent, window, cx| {
                         shell.menu.set_open(!shell.menu.open);
-                        // Opened from the keyboard, focus moves into the menu.
                         if shell.menu.open && matches!(event, gpui::ClickEvent::Keyboard(_)) {
                             shell.menu.focus_first(window, cx);
                         }

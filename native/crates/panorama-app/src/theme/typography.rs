@@ -82,7 +82,7 @@ pub const BUTTON: TypeStyle = TypeStyle {
     line_height: 1.0,
 };
 
-/// GPUI has no text-transform; uppercase is applied to the string, with the original kept for a11y.
+/// GPUI has no text-transform, so uppercase is applied to the string.
 pub fn caps(text: &str) -> SharedString {
     text.to_uppercase().into()
 }

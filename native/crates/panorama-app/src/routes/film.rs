@@ -49,7 +49,6 @@ pub struct Film {
     watchlist: FocusHandle,
     retry_details: FocusHandle,
     retry_sources: FocusHandle,
-    /// Opened from Home's play button: play once a source is ready.
     autoplay: bool,
     launched: Instant,
     debug_step: usize,

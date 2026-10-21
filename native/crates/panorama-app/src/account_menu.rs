@@ -11,7 +11,6 @@ use gpui::{
 };
 use std::time::Instant;
 
-/// Popup width.
 const WIDTH: f32 = 224.0;
 
 /// One row of the account popup.
@@ -108,7 +107,6 @@ impl AccountMenu {
     pub fn visible(&self, reduced: bool) -> bool {
         self.open || self.moving(reduced)
     }
-    /// Move keyboard focus to the first entry, for menus opened from the keyboard.
     pub fn focus_first(&self, window: &mut Window, cx: &mut Context<AppShell>) {
         if let Some(first) = self.focus.first() {
             first.focus(window, cx);
@@ -132,7 +130,6 @@ impl AccountMenu {
                 cx.notify();
             }))
     }
-    /// Render beside the avatar: `left = SIDEBAR_WIDTH + 8`, bottom aligned with the avatar.
     pub fn render(
         &self,
         view: crate::home_layout::ViewSettings,

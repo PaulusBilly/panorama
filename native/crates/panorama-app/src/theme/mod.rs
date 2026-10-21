@@ -1,4 +1,3 @@
-//! Panorama design tokens: one dark palette.
 pub mod color;
 mod component;
 mod focus;
@@ -16,7 +15,6 @@ pub use motion::{DURATION_DELIBERATE, DURATION_FAST, DURATION_STANDARD, EASE_EDI
 use std::sync::OnceLock;
 pub use typography::{Typography, caps, credits};
 
-/// The one Panorama palette. Dark only; there is no light theme and no theme flag.
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
     /// Page background.

@@ -69,7 +69,6 @@ impl Film {
             "tmdb:102" | "tmdb:105" | "tmdb:108" => 3201,
             _ => 2485,
         });
-        // One line of facts: rating first, then what kind of film and how it will play.
         let mut facts = LABEL
             .apply(div())
             .flex()
@@ -282,7 +281,6 @@ impl Render for Film {
         } else if let Some(meta) = &metadata {
             content = content.child(self.metadata_content(meta, view, window, cx));
         } else {
-            // Placeholders in the shape of the loaded page: title, credits, synopsis, actions.
             let bar = |width: f32, height: f32| div().w(px(width)).max_w_full().h(px(height));
             content = content.child(
                 div()

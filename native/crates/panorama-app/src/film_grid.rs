@@ -1,4 +1,3 @@
-//! The virtualised film-card grid Home and Search share.
 use crate::{
     film_card::{self, CardProps},
     home_layout::{GAP, Grid, ViewSettings},
@@ -15,12 +14,10 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 
-/// Skeleton tiles shown while the first page loads.
 const SKELETONS: usize = 9;
 
 /// A view that owns a `FilmGrid`; card listeners call back into it.
 pub trait GridHost: Sized + 'static {
-    /// The hosted grid.
     fn film_grid(&mut self) -> &mut FilmGrid;
     /// Move focus off card `index`, forward or backward, wrapping at the grid's ends.
     fn focus_card(
@@ -30,13 +27,11 @@ pub trait GridHost: Sized + 'static {
         window: &mut Window,
         cx: &mut Context<Self>,
     );
-    /// Open the card's film.
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
 }
 
 /// Virtualised film-card grid with focus handles and hover tweens. Owned per entity; no sharing.
 pub struct FilmGrid {
-    /// Films in display order.
     pub films: Arc<[FilmDetails]>,
     cards: Vec<FocusHandle>,
     spare: FocusHandle,
@@ -59,31 +54,21 @@ impl FilmGrid {
     }
     /// Replace the films, keeping one focus handle per card.
     pub fn set_films(&mut self, films: Arc<[FilmDetails]>, cx: &mut App) {
-        self.cards.truncate(films.len());
-        while self.cards.len() < films.len() {
-            self.cards.push(cx.focus_handle());
-        }
+        self.cards.resize_with(films.len(), || cx.focus_handle());
         self.films = films;
     }
-    /// Columns and tile size for a content column.
-    pub fn layout(col: Column) -> Grid {
-        Grid::fit(col.width)
-    }
-    /// Card `index`'s focus handle.
     pub fn focus(&self, index: usize) -> Option<&FocusHandle> {
         self.cards.get(index)
     }
-    /// Number of focusable cards.
     pub fn len(&self) -> usize {
         self.cards.len()
     }
-    /// Whether the grid has no cards.
     pub fn is_empty(&self) -> bool {
         self.cards.is_empty()
     }
     /// Top of card `index`'s row, relative to the grid's top edge.
     pub fn row_top(index: usize, col: Column) -> f32 {
-        let grid = Self::layout(col);
+        let grid = Grid::fit(col.width);
         (index / grid.columns) as f32 * grid.stride()
     }
     /// Retarget a card's image expansion without changing tile layout.
@@ -98,7 +83,6 @@ impl FilmGrid {
                 Instant::now(),
             );
     }
-    /// Whether a hover tween needs more frames.
     pub fn moving(&self, reduced: bool) -> bool {
         let now = Instant::now();
         self.hovered.values().any(|t| t.moving(now, reduced))
@@ -116,7 +100,7 @@ impl FilmGrid {
         window: &Window,
         cx: &mut Context<V>,
     ) -> Div {
-        let grid = Self::layout(view.column());
+        let grid = Grid::fit(view.column().width);
         let count = if skeletons && self.films.is_empty() {
             SKELETONS
         } else {

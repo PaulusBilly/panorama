@@ -17,13 +17,11 @@ impl AppShell {
         self.history.retitle(id, route);
     }
 
-    /// Focus the sidebar item for the current destination.
     pub(crate) fn focus_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sidebar
             .focus(self.history.current().destination(), window, cx);
     }
 
-    /// The mounted view of the current entry, if it is a `T`.
     fn current_view<T: 'static>(&self) -> Option<Entity<T>> {
         let id = self.history.current_id();
         self.cache
