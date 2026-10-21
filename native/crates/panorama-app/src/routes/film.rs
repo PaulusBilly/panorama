@@ -7,7 +7,7 @@ use crate::{
     services::Job,
 };
 use gpui::{
-    Context, Entity, FocusHandle, RenderImage, ScrollHandle, Subscription, Task, WeakEntity, Window,
+    Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window,
 };
 use panorama_core::addons::{FilmDetails, StreamGroup};
 use std::{sync::Arc, time::Instant};
@@ -43,15 +43,15 @@ pub struct Film {
     watchlist_error: bool,
     account: Account,
     installed: Vec<panorama_core::stremio::Descriptor>,
+    back: FocusHandle,
     primary: FocusHandle,
+    restart: FocusHandle,
     watchlist: FocusHandle,
     retry_details: FocusHandle,
     retry_sources: FocusHandle,
     launched: Instant,
     debug_step: usize,
     images: Entity<ImageCache>,
-    overlay: Option<Arc<RenderImage>>,
-    overlay_size: (u32, u32),
     details_task: Option<Task<()>>,
     sources_task: Option<Task<()>>,
     library_task: Option<Task<()>>,
@@ -59,7 +59,6 @@ pub struct Film {
     _state: Subscription,
     _shell: Subscription,
     _images: Subscription,
-    _release: Subscription,
 }
 impl Film {
     /// Start details and sources together, with the clicked card as a placeholder.
@@ -105,11 +104,6 @@ impl Film {
             .map(|shell| cx.observe(&shell, |_, _, cx| cx.notify()))
             .unwrap_or_else(|| cx.on_release(|_, _| {}));
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
-        let release = cx.on_release(|film, cx| {
-            if let Some(image) = film.overlay.take() {
-                cx.drop_image(image, None);
-            }
-        });
         let mut film = Self {
             shell,
             state,
@@ -131,15 +125,15 @@ impl Film {
             watchlist_error: false,
             account,
             installed,
+            back: cx.focus_handle(),
             primary: cx.focus_handle(),
+            restart: cx.focus_handle(),
             watchlist: cx.focus_handle(),
             retry_details: cx.focus_handle(),
             retry_sources: cx.focus_handle(),
             launched: Instant::now(),
             debug_step: 0,
             images,
-            overlay: None,
-            overlay_size: (0, 0),
             details_task: None,
             sources_task: None,
             library_task: None,
@@ -147,7 +141,6 @@ impl Film {
             _state: observer,
             _shell: shell_observer,
             _images: image_observer,
-            _release: release,
         };
         film.load_details(cx);
         film.load_sources(cx);

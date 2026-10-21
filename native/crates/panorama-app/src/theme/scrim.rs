@@ -9,6 +9,8 @@ pub enum Edge {
     Left,
     /// Darkest at the bottom, clearing upward.
     Bottom,
+    /// Darkest at the top, clearing downward; keeps window controls legible on bright stills.
+    Top,
 }
 
 /// Darken `extent` of the parent inward from `edge`, `strength` being the opacity at the edge.
@@ -24,7 +26,8 @@ pub fn scrim(theme: Theme, edge: Edge, extent: impl Into<DefiniteLength>, streng
         a: alpha,
         ..theme.scrim
     };
-    // GPUI follows CSS: 0deg runs bottom to top, 90deg left to right; the first stop is the edge.
+    // GPUI follows CSS: 0deg runs bottom to top, 90deg left to right, 180deg top to bottom; the
+    // first stop is the edge.
     let (angle, frame) = match edge {
         Edge::Left => (90.0, div().left_0().top_0().h_full().w(extent).flex()),
         Edge::Bottom => (
@@ -36,6 +39,10 @@ pub fn scrim(theme: Theme, edge: Edge, extent: impl Into<DefiniteLength>, streng
                 .h(extent)
                 .flex()
                 .flex_col_reverse(),
+        ),
+        Edge::Top => (
+            180.0,
+            div().left_0().top_0().w_full().h(extent).flex().flex_col(),
         ),
     };
     let half = |from: f32, to: f32| {

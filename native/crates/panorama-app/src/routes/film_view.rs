@@ -3,7 +3,12 @@ use crate::assets::Weighted;
 use crate::{
     film_display::{Quality, rating, rating_count},
     hero,
-    theme::Typography,
+    theme::{
+        Typography, caps,
+        scrim::{Edge, scrim},
+        typography::{BODY, DISPLAY, LABEL},
+    },
+    titlebar::SAFE_TOP,
 };
 use gpui::{Div, FontWeight, Render, div, img, point, prelude::*, px, relative, svg};
 
@@ -33,11 +38,10 @@ impl Film {
             );
         } else if logo.is_none() || logo.as_ref().is_some_and(|(_, failed)| *failed) {
             title = title.child(
-                div()
-                    .text_size(px(32.0))
-                    .weight(FontWeight::MEDIUM)
-                    .line_height(relative(0.9))
-                    .child(meta.name.to_uppercase()),
+                DISPLAY
+                    .apply(div())
+                    .text_size(px((view.width * 0.05).clamp(36.0, DISPLAY.size)))
+                    .child(caps(&meta.name)),
             );
         }
         let quality = self
@@ -49,67 +53,111 @@ impl Film {
             })
             .map(Quality::from_source)
             .unwrap_or_default();
-        let mut left = div()
-            .w(px(310.0))
-            .max_w_full()
-            .flex_shrink_0()
+        let mut column = div()
+            .w_full()
+            .max_w(px(640.0))
             .flex()
             .flex_col()
-            .gap(px(12.0))
-            .text_size(px(13.0))
-            .line_height(relative(1.5))
-            .text_color(theme.ink);
+            .text_color(theme.ink)
+            .child(title);
         if !meta.director.is_empty() || meta.origin_country.is_some() || meta.release_info.is_some()
         {
-            left = left.child(crate::theme::credits(meta, theme));
+            column = column.child(crate::theme::credits(meta, theme).mt(px(16.0)));
+        }
+        let votes = self.args.fixtures.then_some(match self.id.as_str() {
+            "tmdb:101" | "tmdb:104" | "tmdb:107" => 1824,
+            "tmdb:102" | "tmdb:105" | "tmdb:108" => 3201,
+            _ => 2485,
+        });
+        // One line of facts: rating first, then what kind of film and how it will play.
+        let mut facts = LABEL
+            .apply(div())
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_x(px(16.0))
+            .gap_y(px(8.0))
+            .text_color(theme.ink_muted)
+            .font_features(gpui::FontFeatures(Arc::new(vec![
+                ("tnum".into(), 1),
+                ("kern".into(), 1),
+            ])));
+        let mut any = false;
+        if let Some(score) = rating(meta.imdb_rating.as_deref(), votes) {
+            any = true;
+            facts = facts.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .child(
+                        svg()
+                            .path("star-filled.svg")
+                            .size(px(14.0))
+                            .text_color(theme.ink),
+                    )
+                    .child(div().text_color(theme.ink).child(score))
+                    .when_some(votes, |row, votes| row.child(rating_count(votes))),
+            );
         }
         if !meta.genres.is_empty() {
-            left = left.child(div().child(meta.genres.join(", ")));
+            any = true;
+            facts = facts.child(meta.genres.join(", "));
         }
-        let mut badges = div().flex().items_center().gap(px(12.0));
+        if let Some(runtime) = &meta.runtime {
+            any = true;
+            facts = facts.child(runtime.clone());
+        }
         for badge in quality
             .video
             .into_iter()
             .chain(quality.surround.then_some("5.1"))
         {
-            badges = badges.child(
+            any = true;
+            facts = facts.child(
                 div()
                     .border_1()
                     .border_color(theme.ink_muted)
                     .px(px(6.0))
-                    .py(px(2.0))
+                    .py(px(1.0))
                     .text_size(px(11.0))
                     .weight(FontWeight::BOLD)
-                    .line_height(relative(1.5))
+                    .line_height(relative(1.4))
+                    .text_color(theme.ink)
                     .child(badge),
             );
         }
-        if let Some(runtime) = &meta.runtime {
-            badges = badges.child(
-                div()
-                    .font_features(gpui::FontFeatures(Arc::new(vec![
-                        ("tnum".into(), 1),
-                        ("kern".into(), 1),
-                    ])))
-                    .child(runtime.clone()),
-            );
+        if any {
+            column = column.child(facts.mt(px(12.0)));
         }
-        if quality.video.is_some() || quality.surround || meta.runtime.is_some() {
-            left = left.child(badges);
-        }
-        left = left.child(self.actions(view, cx));
+        column = column.child(
+            BODY.apply(div())
+                .mt(px(20.0))
+                .text_size(px(15.0))
+                .text_color(theme.ink)
+                .child(
+                    meta.description
+                        .clone()
+                        .filter(|text| !text.trim().is_empty())
+                        .unwrap_or_else(|| "No synopsis is available for this film.".into()),
+                ),
+        );
+        column = column.child(self.actions(view, cx).mt(px(28.0)));
         if matches!(self.account, Account::SignedIn(_))
             && !self.sources_loading
             && self.selected.is_none()
         {
-            left = left.child(
-                div()
+            column = column.child(
+                LABEL
+                    .apply(div())
                     .id("film-source-status")
                     .role(gpui::Role::Status)
+                    .mt(px(20.0))
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(12.0))
+                    .gap(px(16.0))
+                    .text_color(theme.ink_muted)
                     .child(if self.sources_error {
                         "Sources could not be loaded."
                     } else {
@@ -119,47 +167,17 @@ impl Film {
             );
         }
         if self.watchlist_error {
-            left = left.child(
-                div()
+            column = column.child(
+                LABEL
+                    .apply(div())
                     .id("film-watchlist-error")
                     .role(gpui::Role::Alert)
+                    .mt(px(12.0))
+                    .text_color(theme.danger)
                     .child("Could not update your Watchlist. Try again."),
             );
         }
-        let synopsis = div()
-            .flex_1()
-            .min_w_0()
-            .max_w(px(650.0))
-            .child(
-                div()
-                    .text_size(px(14.0))
-                    .weight(FontWeight::BOLD)
-                    .line_height(relative(1.0))
-                    .child("SYNOPSIS"),
-            )
-            .child(
-                div()
-                    .mt(px(8.0))
-                    .text_size(px(15.0))
-                    .line_height(relative(1.48))
-                    .text_color(theme.ink)
-                    .child(
-                        meta.description
-                            .clone()
-                            .filter(|text| !text.trim().is_empty())
-                            .unwrap_or_else(|| "No synopsis is available for this film.".into()),
-                    ),
-            );
-        div().child(title).child(
-            div()
-                .mt(px(20.0))
-                .flex()
-                .items_start()
-                .gap(px(70.0))
-                .when(view.width <= 900.0, |row| row.flex_col().gap(px(24.0)))
-                .child(left)
-                .child(synopsis),
-        )
+        column
     }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.settings(window, cx);
@@ -180,7 +198,7 @@ impl Render for Film {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.settings(window, cx);
         let theme = view.theme;
-        self.ensure_overlay(view, window, cx);
+        let col = view.column();
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         }
@@ -189,126 +207,96 @@ impl Render for Film {
             .relative()
             .w_full()
             .min_h(px(view.height))
-            .bg(if self.metadata.is_none() && self.loading {
-                theme.surface
-            } else {
-                theme.artwork_empty
-            })
+            .bg(theme.canvas)
             .text_color(theme.ink);
+        // The still fills the first viewport only; the bottom scrim lands on canvas, so a page
+        // taller than the window continues without a seam.
         if let Some(art) = artwork {
-            page = page.child(hero::cover(
-                art.image,
-                (view.width, view.height),
-                poster,
-                1.0,
-            ));
-        }
-        if let Some(overlay) = &self.overlay {
             page = page.child(
-                img(overlay.clone())
+                div()
                     .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(gpui::ObjectFit::Fill),
+                    .top_0()
+                    .left_0()
+                    .w_full()
+                    .h(px(view.height))
+                    .bg(theme.artwork_empty)
+                    .child(hero::cover(
+                        art.image,
+                        (view.width, view.height),
+                        poster,
+                        1.0,
+                    ))
+                    .child(scrim(theme, Edge::Top, relative(0.3), 0.6))
+                    .child(scrim(theme, Edge::Left, relative(0.65), 0.92))
+                    .child(scrim(theme, Edge::Bottom, relative(0.45), 1.0)),
             );
         }
         let metadata = self.metadata.clone();
-        if let Some(meta) = &metadata {
-            let votes = self.args.fixtures.then_some(match self.id.as_str() {
-                "tmdb:101" | "tmdb:104" | "tmdb:107" => 1824,
-                "tmdb:102" | "tmdb:105" | "tmdb:108" => 3201,
-                _ => 2485,
-            });
-            if let Some(score) = rating(meta.imdb_rating.as_deref(), votes) {
-                let mut rating = div()
-                    .absolute()
-                    .top(px(if view.width <= 700.0 { 80.0 } else { 96.0 }))
-                    .left(px(view.column().left))
-                    .w(px(view.column().width))
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .child(
-                        div()
-                            .flex()
-                            .items_baseline()
-                            .gap(px(4.0))
-                            .line_height(relative(1.0))
-                            .weight(FontWeight::MEDIUM)
-                            .child(
-                                svg()
-                                    .path("star-filled.svg")
-                                    .size(px(19.0))
-                                    .text_color(theme.ink),
-                            )
-                            .child(div().text_size(px(22.0)).child(score))
-                            .child(div().text_size(px(12.0)).text_color(theme.ink).child("/10")),
-                    );
-                if let Some(votes) = votes {
-                    rating = rating.child(
-                        div()
-                            .mt(px(4.0))
-                            .text_size(px(12.0))
-                            .line_height(relative(1.5))
-                            .text_color(theme.ink)
-                            .font_features(gpui::FontFeatures(Arc::new(vec![
-                                ("tnum".into(), 1),
-                                ("kern".into(), 1),
-                            ])))
-                            .child(rating_count(votes)),
-                    );
-                }
-                page = page.child(rating);
-            }
-        }
+        let narrow = view.width <= 700.0;
         let mut content = div()
             .relative()
-            .w(px(view.column().width))
-            .ml(px(view.column().left))
+            .w(px(col.width))
+            .ml(px(col.left))
             .min_h(px(view.height))
-            .pt(px(if view.width <= 700.0 {
-                176.0
-            } else {
-                (view.height * 0.12).clamp(112.0, 144.0)
-            }))
-            .pb(px(40.0))
+            .pt(px(SAFE_TOP + 72.0))
+            .pb(px(if narrow { 40.0 } else { 64.0 }))
             .flex()
             .flex_col()
-            .justify_end();
+            .justify_end()
+            .child(
+                div()
+                    .absolute()
+                    .top(px(SAFE_TOP + 2.0))
+                    .left_0()
+                    .child(self.back(view, cx)),
+            );
         if self.details_error {
             content = content.child(
                 div()
-                    .max_w(px(512.0))
-                    .bg(theme.player_canvas.opacity(0.7))
-                    .p(px(20.0))
-                    .body()
-                    .child("Unable to load film details. Check your connection and try again.")
+                    .w_full()
+                    .max_w(px(520.0))
+                    .bg(theme.surface)
+                    .px(px(24.0))
+                    .py(px(20.0))
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap(px(16.0))
                     .child(
                         div()
-                            .mt(px(16.0))
-                            .text_size(px(14.0))
-                            .child(self.retry(true, view, cx)),
-                    ),
+                            .id("film-details-error")
+                            .role(gpui::Role::Alert)
+                            .body()
+                            .child(
+                                "Unable to load film details. Check your connection and try again.",
+                            ),
+                    )
+                    .child(self.retry(true, view, cx)),
             );
         } else if let Some(meta) = &metadata {
             content = content.child(self.metadata_content(meta, view, window, cx));
         } else {
+            // Placeholders in the shape of the loaded page: title, credits, synopsis, actions.
+            let bar = |width: f32, height: f32| div().w(px(width)).max_w_full().h(px(height));
             content = content.child(
                 div()
                     .id("film-loading")
                     .role(gpui::Role::Status)
                     .aria_label("Loading film metadata")
                     .w_full()
-                    .max_w(px(576.0))
-                    .child(div().h(px(40.0)).w(relative(2.0 / 3.0)).bg(theme.glass))
+                    .max_w(px(640.0))
+                    .flex()
+                    .flex_col()
+                    .child(bar(420.0, 44.0).bg(theme.surface))
+                    .child(bar(220.0, 14.0).mt(px(20.0)).bg(theme.surface))
+                    .child(bar(560.0, 14.0).mt(px(28.0)).bg(theme.surface))
+                    .child(bar(380.0, 14.0).mt(px(10.0)).bg(theme.surface))
                     .child(
-                        div()
-                            .mt(px(16.0))
-                            .h(px(16.0))
-                            .w(relative(1.0 / 3.0))
-                            .bg(theme.glass),
-                    )
-                    .child(div().mt(px(40.0)).h(px(80.0)).w_full().bg(theme.rule)),
+                        bar(176.0, 52.0)
+                            .mt(px(32.0))
+                            .rounded_full()
+                            .bg(theme.surface),
+                    ),
             );
         }
         page = page.child(content);

@@ -15,7 +15,6 @@ pub mod debug;
 pub mod film_card;
 pub mod film_display;
 pub mod film_grid;
-pub mod film_overlay;
 pub mod fixtures;
 pub mod footer;
 pub mod hero;
