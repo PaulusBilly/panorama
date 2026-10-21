@@ -135,7 +135,7 @@ pub fn render<V: GridHost>(
             .flex()
             .min_w_0()
             .gap(px(4.0))
-            .text_size(px((view.width * 0.009).clamp(9.0, 11.0)))
+            .text_size(px((grid.width * 0.032).clamp(10.0, 12.0)))
             .line_height(relative(1.25))
             .when(!film.director.is_empty(), |row| {
                 row.child(
@@ -177,7 +177,7 @@ pub fn render<V: GridHost>(
                 .left_0()
                 .w_full()
                 .px(px(18.0))
-                .pb(px(14.0))
+                .pb(px(16.0))
                 .pt(px(28.0))
                 .flex()
                 .flex_col()
@@ -185,8 +185,8 @@ pub fn render<V: GridHost>(
                 .text_color(theme.ink)
                 .child(
                     div()
-                        .text_size(px((view.width * 0.018).clamp(16.0, 24.0)))
-                        .weight(FontWeight::BOLD)
+                        .text_size(px((grid.width * 0.06).clamp(16.0, 24.0)))
+                        .weight(FontWeight::MEDIUM)
                         .line_height(relative(1.18))
                         .line_clamp(2)
                         .child(film.name.to_uppercase()),
