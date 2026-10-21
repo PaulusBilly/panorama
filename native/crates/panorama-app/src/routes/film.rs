@@ -51,6 +51,8 @@ pub struct Film {
     retry_sources: FocusHandle,
     autoplay: bool,
     launched: Instant,
+    /// When details, backdrop and logo were first all ready; the page shimmers until then.
+    revealed: Option<Instant>,
     debug_step: usize,
     images: Entity<ImageCache>,
     details_task: Option<Task<()>>,
@@ -137,6 +139,7 @@ impl Film {
             retry_sources: cx.focus_handle(),
             autoplay: intent.is_some(),
             launched: Instant::now(),
+            revealed: None,
             debug_step: 0,
             images,
             details_task: None,

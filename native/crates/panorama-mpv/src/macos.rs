@@ -1,6 +1,7 @@
 use crate::{MpvError, PhysicalRect, RawWindow};
 use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
 use objc2_app_kit::{NSView, NSWindowOrderingMode};
+use objc2_core_graphics::CGColor;
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use objc2_quartz_core::CAMetalLayer;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -120,6 +121,9 @@ impl VideoSurface {
         let content = unsafe { sibling.superview() }.ok_or(MpvError::Window)?;
         let layer = CAMetalLayer::new();
         layer.setOpaque(true);
+        // Until mpv presents its first frame the layer has no contents; without a colour the
+        // window would show whatever sits behind it while a film starts.
+        layer.setBackgroundColor(Some(&CGColor::new_srgb(0.0, 0.0, 0.0, 1.0)));
         layer.setWantsExtendedDynamicRangeContent(true);
         let view = NSView::initWithFrame(NSView::alloc(mtm), NSRect::ZERO);
         view.setLayer(Some(&layer));

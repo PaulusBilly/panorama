@@ -120,3 +120,16 @@ fn defaults_and_configuration_errors() {
     options.cache_dir = file;
     assert!(matches!(ImageLoader::new(options), Err(ImageError::Cache)));
 }
+
+#[test]
+fn tmdb_originals_shrink_to_the_smallest_covering_width() {
+    let sized = |url: &str, width| ImageUrl::parse(url).unwrap().sized(width).0.to_string();
+    let original = "https://image.tmdb.org/t/p/original/abc.jpg";
+    assert_eq!(sized(original, 640), "https://image.tmdb.org/t/p/w780/abc.jpg");
+    assert_eq!(sized(original, 300), "https://image.tmdb.org/t/p/w300/abc.jpg");
+    assert_eq!(sized(original, 2880), original);
+    let other = "https://image.tmdb.org/t/p/w600_and_h900_bestv2/abc.jpg";
+    assert_eq!(sized(other, 64), other);
+    let elsewhere = "https://example.com/t/p/original/abc.jpg";
+    assert_eq!(sized(elsewhere, 64), elsewhere);
+}

@@ -46,6 +46,23 @@ impl ImageUrl {
         url.set_fragment(None);
         Ok(Self(url))
     }
+
+    /// TMDB `original` artwork is often 4K; ask its CDN for the smallest width that still
+    /// covers `width` so a 640 px card never downloads and decodes a 25 MB bitmap.
+    pub(super) fn sized(&self, width: u32) -> Self {
+        let Some(file) = (self.0.host_str() == Some("image.tmdb.org"))
+            .then(|| self.0.path().strip_prefix("/t/p/original/"))
+            .flatten()
+        else {
+            return self.clone();
+        };
+        let Some(size) = [300, 500, 780, 1280, 1920].into_iter().find(|&s| s >= width) else {
+            return self.clone();
+        };
+        let mut url = self.0.clone();
+        url.set_path(&format!("/t/p/w{size}/{file}"));
+        Self(url)
+    }
 }
 
 fn valid_url(url: &reqwest::Url) -> bool {

@@ -25,23 +25,25 @@ impl Film {
         });
         (image, false)
     }
+    /// The backdrop (or poster fallback), whether it is the poster, and whether it is still loading.
     pub(super) fn artwork(
         &self,
         view: ViewSettings,
         window: &Window,
         cx: &mut Context<Self>,
-    ) -> (Option<CachedImage>, bool) {
+    ) -> (Option<CachedImage>, bool, bool) {
         let Some(meta) = &self.metadata else {
-            return (None, false);
+            return (None, false, false);
         };
         for (url, poster) in [(&meta.background, false), (&meta.poster, true)] {
             if let Some(url) = url {
                 let (image, failed) = self.image(url, (view.width, view.height), view, window, cx);
                 if !failed {
-                    return (image, poster);
+                    let pending = image.is_none();
+                    return (image, poster, pending);
                 }
             }
         }
-        (None, false)
+        (None, false, false)
     }
 }

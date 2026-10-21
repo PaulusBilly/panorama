@@ -1,14 +1,16 @@
 use super::*;
 use crate::assets::Weighted;
 use crate::{
+    film_card,
     film_display::{Quality, rating, rating_count},
     hero,
     theme::{
-        Typography, caps,
+        DURATION_STANDARD, EASE_EDITORIAL, SHIMMER, Typography, caps,
         scrim::{Edge, scrim},
         typography::{BODY, DISPLAY, LABEL},
     },
     titlebar::SAFE_TOP,
+    transition::bezier,
 };
 use gpui::{Div, FontWeight, Render, div, img, point, prelude::*, px, relative, svg};
 
@@ -207,7 +209,33 @@ impl Render for Film {
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         }
-        let (artwork, poster) = self.artwork(view, window, cx);
+        // The card's preview metadata seeds the page, but its artwork differs from the details',
+        // so nothing paints until the details, backdrop and logo are all in; then it fades in once.
+        let (artwork, poster, art_pending) = if self.loading && self.revealed.is_none() {
+            (None, false, true)
+        } else {
+            self.artwork(view, window, cx)
+        };
+        if self.revealed.is_none() {
+            let logo = self.metadata.as_ref().and_then(|meta| meta.logo.clone());
+            let logo_pending = logo.is_some_and(|url| {
+                matches!(
+                    self.image(&url, (310.0, 128.0), view, window, cx),
+                    (None, false)
+                )
+            });
+            if view.active && !art_pending && !logo_pending {
+                self.revealed = Some(Instant::now());
+            }
+        }
+        let reveal = match self.revealed {
+            Some(at) if !view.reduced => bezier(
+                (at.elapsed().as_secs_f32() / DURATION_STANDARD.as_secs_f32()).min(1.0),
+                EASE_EDITORIAL,
+            ),
+            Some(_) => 1.0,
+            None => 0.0,
+        };
         let mut page = div()
             .relative()
             .w_full()
@@ -216,10 +244,11 @@ impl Render for Film {
             .text_color(theme.ink);
         // The still fills the first viewport only; the bottom scrim lands on canvas, so a page
         // taller than the window continues without a seam.
-        if let Some(art) = artwork {
+        if let Some(art) = artwork.filter(|_| self.revealed.is_some()) {
             page = page.child(
                 div()
                     .absolute()
+                    .opacity(reveal)
                     .top_0()
                     .left_0()
                     .w_full()
@@ -278,10 +307,27 @@ impl Render for Film {
                     )
                     .child(self.retry(true, view, cx)),
             );
-        } else if let Some(meta) = &metadata {
-            content = content.child(self.metadata_content(meta, view, window, cx));
+        } else if let Some(meta) = metadata.as_ref().filter(|_| self.revealed.is_some()) {
+            content = content.child(
+                self.metadata_content(meta, view, window, cx)
+                    .opacity(reveal),
+            );
         } else {
-            let bar = |width: f32, height: f32| div().w(px(width)).max_w_full().h(px(height));
+            let phase = if view.reduced {
+                0.0
+            } else {
+                (self.launched.elapsed().as_secs_f32() / SHIMMER.duration.as_secs_f32()) % 1.0
+            };
+            let bar = |width: f32, height: f32| {
+                div()
+                    .relative()
+                    .w(px(width))
+                    .max_w_full()
+                    .h(px(height))
+                    .overflow_hidden()
+                    .bg(theme.surface_strong)
+                    .child(film_card::shimmer(view, phase))
+            };
             content = content.child(
                 div()
                     .id("film-loading")
@@ -291,16 +337,11 @@ impl Render for Film {
                     .max_w(px(640.0))
                     .flex()
                     .flex_col()
-                    .child(bar(420.0, 44.0).bg(theme.surface))
-                    .child(bar(220.0, 14.0).mt(px(20.0)).bg(theme.surface))
-                    .child(bar(560.0, 14.0).mt(px(28.0)).bg(theme.surface))
-                    .child(bar(380.0, 14.0).mt(px(10.0)).bg(theme.surface))
-                    .child(
-                        bar(176.0, 52.0)
-                            .mt(px(32.0))
-                            .rounded_full()
-                            .bg(theme.surface),
-                    ),
+                    .child(bar(420.0, 44.0))
+                    .child(bar(220.0, 14.0).mt(px(20.0)))
+                    .child(bar(560.0, 14.0).mt(px(28.0)))
+                    .child(bar(380.0, 14.0).mt(px(10.0)))
+                    .child(bar(176.0, 52.0).mt(px(32.0))),
             );
         }
         page = page.child(content);
@@ -308,6 +349,7 @@ impl Render for Film {
             self.images.update(cx, |images, _| images.finish_frame());
         }
         if self.sources_loading && !view.reduced
+            || reveal < 1.0 && !view.reduced
             || view.active && self.images.read(cx).moving()
             || self.debug_step < self.args.scroll.len()
         {

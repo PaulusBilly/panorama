@@ -74,6 +74,7 @@ pub struct Player {
     model: PlaybackModel,
     mounted: bool,
     surface_shown: bool,
+    awake: crate::awake::Awake,
     focus: Focuses,
     motion: [ControlMotion; Control::COUNT],
     emphasis: [Tween; 2],
@@ -169,6 +170,7 @@ impl Player {
             model,
             mounted: false,
             surface_shown: false,
+            awake: Default::default(),
             focus: Focuses::new(cx),
             motion: [ControlMotion::new(); Control::COUNT],
             emphasis: [Tween::fixed(0.0); 2],
@@ -403,6 +405,12 @@ impl Player {
             }
         }
         self.rect = Some(rect);
+        self.awake.set(
+            matches!(
+                self.model.status,
+                crate::playback::model::Status::Ready | crate::playback::model::Status::Buffering
+            ) && !self.model.paused,
+        );
     }
 
     fn sync_shell(&self, cx: &mut gpui::App) {
@@ -426,6 +434,7 @@ impl Player {
         self.ui.select = None;
         self.ui.color_open = false;
         self.send(Command::Stop, cx);
+        self.awake.set(false);
         #[cfg(any(windows, target_os = "macos"))]
         if let Some(surface) = self.surface.take() {
             surface.hide();
