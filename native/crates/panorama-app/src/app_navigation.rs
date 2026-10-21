@@ -6,7 +6,8 @@ impl AppShell {
     pub fn go(&mut self, to: Destination, window: &mut Window, cx: &mut Context<Self>) {
         if self.history.go(to) {
             self.changed(window, cx);
-        } else if to == Destination::Search {
+        }
+        if to == Destination::Search {
             self.focus_search(window, cx);
         }
     }
@@ -79,8 +80,6 @@ impl AppShell {
         self.menu.dismiss();
         window.focus(&self.focus, cx);
         self.present(window, cx);
-        // A revisited Search takes the caret back; a new one focuses itself on mount.
-        self.focus_search(window, cx);
         cx.notify();
     }
 
