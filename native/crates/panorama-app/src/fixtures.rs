@@ -1,6 +1,17 @@
-use panorama_core::addons::{
-    AddonKey, FilmDetails, StreamGroup, StreamSource, StreamState, StreamsEvent,
+use panorama_core::{
+    addons::{AddonKey, FilmDetails, StreamGroup, StreamSource, StreamState, StreamsEvent},
+    stremio::{ContinueItem, FilmMeta, ResumePoint},
 };
+
+/// Bundled stills served for `fixture://<name>` image URLs; one is deliberately bright.
+pub const STILLS: [(&str, &[u8]); 3] = [
+    ("dusk.jpg", include_bytes!("../assets/fixtures/dusk.jpg")),
+    ("night.jpg", include_bytes!("../assets/fixtures/night.jpg")),
+    (
+        "bright.jpg",
+        include_bytes!("../assets/fixtures/bright.jpg"),
+    ),
+];
 
 /// The nine preview film records.
 pub fn films() -> Vec<FilmDetails> {
@@ -42,6 +53,15 @@ pub fn search(query: &str) -> Vec<FilmDetails> {
 /// The film-details fixture, with the selected card's opaque identifier.
 pub fn details(id: &str) -> Option<FilmDetails> {
     let mut film = films().into_iter().find(|film| film.id == id)?;
+    let still = STILLS[id
+        .strip_prefix("tmdb:")?
+        .parse::<usize>()
+        .ok()?
+        .checked_sub(100)?
+        / 3
+        % 3]
+    .0;
+    film.background = url::Url::parse(&format!("fixture://{still}")).ok();
     film.runtime = Some("102 min".into());
     film.genres = vec!["Drama".into()];
     film.description = Some("A quiet, observant portrait shaped by memory and time.".into());
@@ -55,6 +75,28 @@ pub fn details(id: &str) -> Option<FilmDetails> {
         .into(),
     );
     Some(film)
+}
+
+/// Three films in progress, newest first, at 20, 55 and 80 percent.
+pub fn continue_items() -> Vec<ContinueItem> {
+    [("tmdb:101", 0.2), ("tmdb:104", 0.55), ("tmdb:107", 0.8)]
+        .into_iter()
+        .filter_map(|(id, fraction)| {
+            let film = films().into_iter().find(|film| film.id == id)?;
+            let duration_secs = 6600.0;
+            Some(ContinueItem {
+                film: FilmMeta {
+                    id: film.id,
+                    name: film.name,
+                    poster: film.poster,
+                },
+                resume: ResumePoint {
+                    offset_secs: duration_secs * fraction,
+                    duration_secs,
+                },
+            })
+        })
+        .collect()
 }
 
 /// One fixture addon with a single HD, 5.1 source, or none when `empty`.

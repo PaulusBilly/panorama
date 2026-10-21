@@ -98,9 +98,18 @@ impl<K: Eq, V> ByteLru<K, V> {
     }
 }
 
+/// Where an image comes from. Fixture stills are matched here, before `ImageUrl::parse`, so
+/// the core's https-only rule stays as it is.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Source {
+    Remote(ImageUrl),
+    /// A still bundled in `fixtures::STILLS`, requested as `fixture://<name>`.
+    Fixture(&'static str),
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
-    url: ImageUrl,
+    url: Source,
     width: u32,
     height: u32,
 }
@@ -171,8 +180,12 @@ impl ImageCache {
         })
     }
     fn key(url: &str, bounds: (f32, f32), scale: f32) -> Option<Key> {
+        let url = match url.strip_prefix("fixture://") {
+            Some(name) => Source::Fixture(crate::fixtures::STILLS.iter().find(|s| s.0 == name)?.0),
+            None => Source::Remote(ImageUrl::parse(url).ok()?),
+        };
         Some(Key {
-            url: ImageUrl::parse(url).ok()?,
+            url,
             width: bucket(bounds.0, scale),
             height: bucket(bounds.1, scale),
         })
@@ -205,24 +218,46 @@ impl ImageCache {
         {
             return stale;
         }
-        let loader = services.images.clone()?;
-        let request = ImageRequest {
-            url: key.url.clone(),
-            target: ImageTarget {
-                max_width: key.width,
-                max_height: key.height,
-            },
-        };
         let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.spawn(async move {
-            let result = match loader.load(request).await {
-                Ok(decoded) => tokio::task::spawn_blocking(move || render_image(decoded))
+        let job = match &key.url {
+            Source::Remote(url) => {
+                let loader = services.images.clone()?;
+                let request = ImageRequest {
+                    url: url.clone(),
+                    target: ImageTarget {
+                        max_width: key.width,
+                        max_height: key.height,
+                    },
+                };
+                Job(services.runtime.spawn(async move {
+                    let result = match loader.load(request).await {
+                        Ok(decoded) => tokio::task::spawn_blocking(move || render_image(decoded))
+                            .await
+                            .unwrap_or(Err(ImageError::Decode)),
+                        Err(error) => Err(error),
+                    };
+                    let _ = sender.unbounded_send(result);
+                }))
+            }
+            Source::Fixture(name) => {
+                let bytes = crate::fixtures::STILLS.iter().find(|s| s.0 == *name)?.1;
+                Job(services.runtime.spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        let rgba = image::load_from_memory(bytes)
+                            .map_err(|_| ImageError::Decode)?
+                            .into_rgba8();
+                        render_image(DecodedImage {
+                            width: rgba.width(),
+                            height: rgba.height(),
+                            rgba: rgba.into_raw(),
+                        })
+                    })
                     .await
-                    .unwrap_or(Err(ImageError::Decode)),
-                Err(error) => Err(error),
-            };
-            let _ = sender.unbounded_send(result);
-        }));
+                    .unwrap_or(Err(ImageError::Decode));
+                    let _ = sender.unbounded_send(result);
+                }))
+            }
+        };
         let completed = key.clone();
         let task = cx.spawn_in(window, async move |entity, cx| {
             let _job = job;
@@ -313,6 +348,13 @@ mod tests {
         cache.clear(|v| dropped.push(v));
         assert_eq!(cache.bytes, 0);
         assert_eq!(dropped, ["two", "one", "oversized", "three", "replacement"]);
+    }
+    #[test]
+    fn fixture_urls_skip_the_https_only_parser() {
+        let key = |url| ImageCache::key(url, (100.0, 100.0), 1.0);
+        assert!(key("fixture://dusk.jpg").is_some());
+        assert!(key("fixture://missing.jpg").is_none());
+        assert!(key("http://dusk.jpg").is_none());
     }
     #[test]
     fn alpha_is_straight_and_channels_are_bgra() {
