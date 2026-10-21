@@ -2,7 +2,7 @@ use super::*;
 use futures::{StreamExt, channel::mpsc};
 use panorama_core::{
     addons::{ResourceEvent, StreamState, StreamsEvent},
-    stremio::{CoreChange, FilmMeta},
+    stremio::FilmMeta,
 };
 
 impl Film {
@@ -13,34 +13,25 @@ impl Film {
         self.loading = true;
         self.details_error = false;
         let id = self.id.clone();
-        let addons = self.installed.clone();
         let hold = self.args.fixtures && self.args.film_loading;
-        let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.clone().spawn(async move {
-            if hold {
-                return;
-            }
-            if let Some(client) = &services.addons {
-                let mut events = client.details(&addons, &id, None);
-                while let Some(event) = events.next().await {
-                    if sender
-                        .unbounded_send((event, client.metadata_base(&addons, &id).await))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            } else {
-                let event = crate::fixtures::details(&id).map_or(
-                    ResourceEvent::Failed(panorama_core::addons::FailureKind::InvalidInput),
-                    ResourceEvent::Fresh,
-                );
-                let _ = sender.unbounded_send((event, None));
-            }
-        }));
+        let (job, mut receiver) = if hold {
+            let (_held, receiver) = mpsc::unbounded();
+            (None, receiver)
+        } else {
+            let (job, receiver) = services.details(id.clone());
+            (Some(job), receiver)
+        };
         self.details_task = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
-            while let Some((event, meta_base)) = receiver.next().await {
+            while let Some(event) = receiver.next().await {
+                let meta_base = {
+                    let (services, id) = (services.clone(), id.clone());
+                    let lookup = services
+                        .runtime
+                        .clone()
+                        .spawn(async move { services.metadata_base(&id).await });
+                    lookup.await.ok().flatten()
+                };
                 if entity
                     .update(cx, |film, cx| {
                         film.meta_base = meta_base;
@@ -133,7 +124,7 @@ impl Film {
         let Some(services) = self.state.read(cx).services.clone() else {
             return;
         };
-        let Some(session) = services.session.clone() else {
+        if services.session.is_none() {
             if self.args.film_resume {
                 self.resume = Some(panorama_core::stremio::ResumePoint {
                     offset_secs: 1200.0,
@@ -141,29 +132,8 @@ impl Film {
                 });
             }
             return;
-        };
-        let id = self.id.clone();
-        let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.spawn(async move {
-            let mut events = session.lock().await.subscribe();
-            loop {
-                let (saved, resume) = {
-                    let session = session.lock().await;
-                    (session.in_library(&id), session.resume(&id))
-                };
-                if sender.unbounded_send((saved, resume)).is_err() {
-                    break;
-                }
-                loop {
-                    match events.recv().await {
-                        Ok(CoreChange::LibraryChanged | CoreChange::ProfileChanged)
-                        | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
-                        _ => {}
-                    }
-                }
-            }
-        }));
+        }
+        let (job, mut receiver) = services.library_flags(self.id.clone());
         self.library_task = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
             while let Some((saved, resume)) = receiver.next().await {
