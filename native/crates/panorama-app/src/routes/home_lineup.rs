@@ -87,6 +87,32 @@ mod tests {
     }
 
     #[test]
+    fn fixture_hero_never_repeats_in_the_row() {
+        let catalog = crate::fixtures::films();
+        let cards = crate::fixtures::continue_items()
+            .into_iter()
+            .map(|item| {
+                card(
+                    catalog
+                        .iter()
+                        .find(|f| f.id == item.film.id)
+                        .unwrap()
+                        .clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let lineup = lineup(true, &cards, &catalog);
+        let names = |cards: &[ContinueCard]| {
+            cards
+                .iter()
+                .map(|c| c.film.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lineup.hero.unwrap().film().name, "Perfect Days");
+        assert_eq!(names(lineup.row), ["Past Lives", "Aftersun"]);
+    }
+
+    #[test]
     fn signed_out_ignores_continue_cards() {
         let catalog = crate::fixtures::films();
         let cards = vec![card(catalog[1].clone())];

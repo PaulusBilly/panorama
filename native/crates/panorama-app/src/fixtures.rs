@@ -14,7 +14,8 @@ pub const STILLS: [(&str, &[u8]); 3] = [
 ];
 
 /// Which still each preview film uses. The catalog pick (tmdb:100) gets the bright one so the
-/// signed-out hero exercises the scrims on it; the Continue films (101, 104, 107) differ.
+/// signed-out hero exercises the scrims on it. The Continue films (101, 105, 106) differ in
+/// title and still, and the bright one lands in the row.
 const FILM_STILLS: [usize; 9] = [2, 0, 1, 0, 1, 2, 1, 2, 0];
 
 /// The nine preview film records, each with a landscape still.
@@ -75,7 +76,7 @@ pub fn details(id: &str) -> Option<FilmDetails> {
 
 /// Three films in progress, newest first, at 20, 55 and 80 percent.
 pub fn continue_items() -> Vec<ContinueItem> {
-    [("tmdb:101", 0.2), ("tmdb:104", 0.55), ("tmdb:107", 0.8)]
+    [("tmdb:101", 0.2), ("tmdb:105", 0.55), ("tmdb:106", 0.8)]
         .into_iter()
         .filter_map(|(id, fraction)| {
             let film = films().into_iter().find(|film| film.id == id)?;
@@ -151,6 +152,14 @@ mod search_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn continue_films_are_told_apart_on_screen() {
+        let names = continue_items()
+            .into_iter()
+            .map(|item| item.film.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Perfect Days", "Past Lives", "Aftersun"]);
+    }
     #[test]
     fn preview_films() {
         let films = films();
