@@ -19,7 +19,6 @@ use crate::{
     app::AppShell,
     app_state::{Account, AppState},
     args::Args,
-    footer::footer,
     image_cache::ImageCache,
     theme::{Column, Typography, typography::caps},
     transition::Tween,
@@ -348,6 +347,5 @@ impl Render for Addons {
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             .child(page)
-            .child(footer(theme, view.width))
     }
 }
