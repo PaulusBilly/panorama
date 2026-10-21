@@ -45,6 +45,10 @@ async fn no_peers_then_keep_waiting_returns_to_finding_peers_and_plays() {
     ]);
     let mut selection = torrent_selection();
     selection.start = StartMode::Resume(30.0);
+    // The only source, so no-peers is shown with "Keep waiting" instead of falling back.
+    if let panorama_core::addons::StreamState::Ready(streams) = &mut selection.groups[0].state {
+        streams.truncate(1);
+    }
     runner.control(Command::Headless(Box::new(selection))).await;
     resolve(&mut runner).await;
     assert_eq!(runner.model.status, Status::NoPeers);

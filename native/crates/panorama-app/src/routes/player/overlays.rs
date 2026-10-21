@@ -30,6 +30,8 @@ impl Player {
                 let caption = self.model.torrent_caption();
                 let label = if self.model.status == Status::Buffering {
                     self.health.buffering_label()
+                } else if self.model.falling_back {
+                    "Trying another source".into()
                 } else if self.model.finding_peers() {
                     "Finding peers".into()
                 } else if matches!(self.model.status, Status::Preparing(Stage::LoadingVideo)) {

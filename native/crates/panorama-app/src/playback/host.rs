@@ -127,6 +127,14 @@ struct Runner {
     last_link: Option<Instant>,
     /// When the current torrent source started.
     torrent_since: Option<Instant>,
+    /// When the current source started, to notice one stuck before its first frame.
+    source_since: Option<Instant>,
+    /// Sources this play has started, so a fallback never repeats one.
+    tried: Vec<SourceRef>,
+    /// Automatic moves to another source this play.
+    fallbacks: u8,
+    /// A failure held back because another source can be tried; acted on by `fall_back`.
+    fallback_due: Option<super::model::PlaybackError>,
     link_interval: Duration,
     origin: Instant,
     /// The latest subtitle and output settings, replayed onto every new player.
@@ -159,6 +167,10 @@ impl Runner {
             last_presence: None,
             last_link: None,
             torrent_since: None,
+            source_since: None,
+            tried: Vec::new(),
+            fallbacks: 0,
+            fallback_due: None,
             link_interval,
             origin: Instant::now(),
             subtitles: None,
@@ -169,6 +181,10 @@ impl Runner {
     fn emit(&mut self, event: HostEvent) {
         if let HostEvent::Failed(error) = &event {
             crate::debug::log(format!("player error={error:?}"));
+            if self.can_fall_back(*error) {
+                self.fallback_due = Some(*error);
+                return;
+            }
         }
         self.model.apply(event.clone());
         let _ = self.events.unbounded_send(event);
@@ -204,7 +220,10 @@ impl Runner {
         continuing: bool,
     ) {
         self.stop().await;
+        self.fallback_due = None;
         if !continuing {
+            self.tried.clear();
+            self.fallbacks = 0;
             self.model = PlaybackModel::new(selection.film.name.clone(), selection.source);
             self.emit(HostEvent::Closed);
             self.emit(HostEvent::Volume(100));
@@ -227,6 +246,10 @@ impl Runner {
             self.emit(HostEvent::Torrent(
                 super::torrent_ui::TorrentHealth::connecting(),
             ));
+        }
+        self.source_since = Some(Instant::now());
+        if !self.tried.contains(&selection.source) {
+            self.tried.push(selection.source);
         }
         self.selection = Some(selection.clone());
         let generation = self.generation;
@@ -366,6 +389,9 @@ impl Runner {
                 Some((generation, result)) = self.pending.next(), if !self.pending.is_empty() => self.opened(generation, result).await,
                 _ = poll.tick() => self.tick().await,
                 _ = stats.tick() => self.poll_stats(),
+            }
+            if self.fallback_due.is_some() {
+                self.fall_back().await;
             }
         }
         self.stop().await;

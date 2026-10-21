@@ -1,5 +1,10 @@
 use super::*;
 
+/// Automatic source changes allowed in one play before its failure is shown.
+const MAX_FALLBACKS: u8 = 3;
+/// How long a source may go without a first frame before the next one is tried.
+const STUCK_AFTER: Duration = Duration::from_secs(45);
+
 impl Runner {
     pub(super) async fn player_command(&mut self, command: Command) {
         if matches!(command, Command::Seek(value) | Command::SeekRelative(value) if !value.is_finite())
@@ -158,10 +163,61 @@ impl Runner {
         self.presence();
     }
 
+    /// Whether `error` should move playback to another source instead of being shown: only
+    /// before the first frame, for failures another source can avoid, within the try budget.
+    pub(super) fn can_fall_back(&self, error: PlaybackError) -> bool {
+        use PlaybackError::*;
+        !self.begun
+            && self.fallbacks < MAX_FALLBACKS
+            && matches!(
+                error,
+                SourceUnavailable | SourceExpired | NoPeers | NoVideoFile | Network | Decode
+            )
+            && self.next_source().is_some()
+    }
+
+    fn next_source(&self) -> Option<SourceRef> {
+        let selection = self.selection.as_ref()?;
+        crate::playback::selection::ranked(&selection.groups)
+            .into_iter()
+            .find(|source| !self.tried.contains(source))
+    }
+
+    /// Start the next ranked source in place of a failed one, or show the failure when none
+    /// is left. The play keeps its resume point.
+    pub(super) async fn fall_back(&mut self) {
+        let Some(error) = self.fallback_due.take() else {
+            return;
+        };
+        let (Some(mut selection), Some(source)) = (self.selection.clone(), self.next_source())
+        else {
+            self.emit(HostEvent::Failed(error));
+            return;
+        };
+        crate::debug::log(format!("player fallback after={error:?}"));
+        self.fallbacks += 1;
+        selection.source = source;
+        self.start(selection, self.window.clone(), true).await;
+        self.emit(HostEvent::FallingBack);
+    }
+
     /// Once a second: a transport failure, or else the torrent's health. The engine reports
     /// `Stalled` and `NoPeers` only together with an error, so an error replaces the reading.
     pub(super) fn poll_stats(&mut self) {
         if self.model.status == Status::NoPeers {
+            return;
+        }
+        // Still no first frame long after starting: treat the source as unplayable, but only
+        // when there is somewhere to go; otherwise keep waiting as before.
+        if !self.begun
+            && self.fallback_due.is_none()
+            && self
+                .source_since
+                .is_some_and(|since| since.elapsed() >= STUCK_AFTER)
+            && matches!(self.model.status, Status::Preparing(_) | Status::Buffering)
+            && self.can_fall_back(PlaybackError::SourceUnavailable)
+        {
+            self.fallback_due = Some(PlaybackError::SourceUnavailable);
             return;
         }
         let Some(active) = self.active.as_ref() else {
