@@ -21,7 +21,7 @@ gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 
 const SKELETONS: usize = 9;
 /// How long the pointer rests on a card before its preview opens.
-const DWELL: Duration = Duration::from_millis(1500);
+const DWELL: Duration = Duration::from_millis(500);
 /// The preview's artwork grows by this fraction of the tile.
 const LIFT: f32 = 0.08;
 
@@ -431,19 +431,19 @@ mod tests {
         let ms = |n| start + Duration::from_millis(n);
 
         let resting = Preview::Closed.hover(2, true, start);
-        assert_eq!(resting.tick(ms(1499)).open(), None);
-        assert_eq!(resting.tick(ms(1500)).open(), Some(2));
+        assert_eq!(resting.tick(ms(499)).open(), None);
+        assert_eq!(resting.tick(ms(500)).open(), Some(2));
 
-        let passed_over = resting.hover(2, false, ms(400)).tick(ms(2000));
+        let passed_over = resting.hover(2, false, ms(300)).tick(ms(2000));
         assert_eq!(passed_over.open(), None);
 
-        let moved_on = resting.hover(3, true, ms(1000));
-        assert_eq!(moved_on.tick(ms(1500)).open(), None);
-        assert_eq!(moved_on.tick(ms(2500)).open(), Some(3));
+        let moved_on = resting.hover(3, true, ms(300));
+        assert_eq!(moved_on.tick(ms(700)).open(), None);
+        assert_eq!(moved_on.tick(ms(800)).open(), Some(3));
 
-        let open = resting.tick(ms(1500));
-        assert_eq!(open.hover(2, false, ms(1600)).open(), Some(2), "card under preview");
-        assert_eq!(open.hover(2, true, ms(1700)).open(), Some(2));
+        let open = resting.tick(ms(500));
+        assert_eq!(open.hover(2, false, ms(600)).open(), Some(2), "card under preview");
+        assert_eq!(open.hover(2, true, ms(700)).open(), Some(2));
         assert_eq!(open.leave(3).open(), Some(2));
         assert_eq!(open.leave(2).open(), None);
     }
