@@ -4,7 +4,9 @@
 const RESUME_BUFFER_SECONDS: f64 = 5.0;
 const RATE_SAMPLES: usize = 10;
 const HEAVY_MIN_SAMPLES: usize = 8;
-const HEAVY_RATIO: f64 = 0.9;
+/// Only a clear, repeated shortfall warrants the notice; brief dips recover on their own.
+const HEAVY_RATIO: f64 = 0.6;
+const HEAVY_MIN_REBUFFERS: u32 = 3;
 /// With more media ready than this the downloader idles by design, so its rate says nothing.
 const DEMAND_BUFFER_SECONDS: f64 = 30.0;
 
@@ -39,12 +41,12 @@ pub fn estimate_buffer_wait(
     Some(missing * source / download)
 }
 
-/// A source is too heavy once playback has stalled and the sustained rate stays below its need.
+/// A source is too heavy once playback has stalled repeatedly and the sustained rate stays well below its need.
 pub fn is_source_too_heavy(samples: &[f64], source_mbps: Option<f64>, rebuffers: u32) -> bool {
     let Some(source) = source_mbps else {
         return false;
     };
-    if rebuffers == 0 || samples.len() < HEAVY_MIN_SAMPLES {
+    if rebuffers < HEAVY_MIN_REBUFFERS || samples.len() < HEAVY_MIN_SAMPLES {
         return false;
     }
     average_rate(samples).is_some_and(|rate| rate < source * HEAVY_RATIO)
@@ -150,13 +152,13 @@ mod tests {
     }
 
     #[test]
-    fn a_source_is_heavy_only_after_a_stall_with_a_sustained_shortfall() {
+    fn a_source_is_heavy_only_after_repeated_stalls_with_a_sustained_shortfall() {
         let slow = [1.4; 10];
-        assert!(is_source_too_heavy(&slow, Some(37.6), 1));
-        assert!(!is_source_too_heavy(&slow, Some(37.6), 0));
-        assert!(!is_source_too_heavy(&slow[..4], Some(37.6), 1));
-        assert!(!is_source_too_heavy(&[40.0; 10], Some(37.6), 2));
-        assert!(!is_source_too_heavy(&slow, None, 1));
+        assert!(is_source_too_heavy(&slow, Some(37.6), 3));
+        assert!(!is_source_too_heavy(&slow, Some(37.6), 2));
+        assert!(!is_source_too_heavy(&slow[..4], Some(37.6), 3));
+        assert!(!is_source_too_heavy(&[30.0; 10], Some(37.6), 5));
+        assert!(!is_source_too_heavy(&slow, None, 3));
     }
 
     #[test]
@@ -190,7 +192,7 @@ mod tests {
         health.observe(link, true, Some(4.5), 0);
         assert_eq!(health.buffering_label(), "Buffering");
         for _ in 0..8 {
-            health.observe(link, false, Some(1.0), 1);
+            health.observe(link, false, Some(1.0), 3);
         }
         assert!(health.too_heavy);
         assert_eq!(health.wait_seconds, None);

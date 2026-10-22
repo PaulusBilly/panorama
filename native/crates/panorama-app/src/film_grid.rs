@@ -4,12 +4,12 @@ use crate::{
     home_layout::{GAP, Grid, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
-    theme::{Column, Typography, motion::*},
+    theme::{Column, Theme, Typography, motion::*},
     transition::Tween,
 };
 use gpui::{
-    App, Context, Div, Entity, FocusHandle, ScrollHandle, Window, div, linear_color_stop,
-    linear_gradient, point, prelude::*, px, relative,
+    App, Context, Div, Entity, FocusHandle, PathBuilder, Pixels, Point, ScrollHandle, Window, div,
+    linear_color_stop, linear_gradient, point, prelude::*, px, relative,
 };
 use panorama_core::addons::FilmDetails;
 use std::{
@@ -304,9 +304,21 @@ impl FilmGrid {
         let width = grid.width * (1.0 + LIFT * lift);
         let height = width * 9.0 / 16.0;
         let x = (index % grid.columns) as f32 * (grid.width + GAP) - (width - grid.width) / 2.0;
-        let y = (index / grid.columns) as f32 * grid.stride() - (height - grid.height()) / 2.0;
-        let inset = (width * 0.055).clamp(16.0, 28.0);
-        let (image, poster, _) = artwork(images, services, film, (width, height), true, window, cx);
+        // The artwork grows upward so its bottom stays on the row's baseline, like the tiles beside it.
+        let y = (index / grid.columns) as f32 * grid.stride() - (height - grid.height());
+        // Details are laid out once at the open size and pinned there, so the synopsis never
+        // rewraps or slides while the card grows; artwork is requested at that size for the same reason.
+        let full = grid.width * (1.0 + LIFT);
+        let inset = (full * 0.055).clamp(16.0, 28.0);
+        let (image, poster, _) = artwork(
+            images,
+            services,
+            film,
+            (full, full * 9.0 / 16.0),
+            true,
+            window,
+            cx,
+        );
 
         let mut art = div()
             .id(("film-preview-art", index))
@@ -325,6 +337,22 @@ impl FilmGrid {
             ));
         }
         let open = film.clone();
+        // The tile's own scrim, then, as the card lifts, the artwork melts into the details
+        // panel like a ticket stub: a long soft darkening and a short run to solid surface.
+        let fade = |share: f32, alpha: f32| {
+            div()
+                .absolute()
+                .bottom_0()
+                .left_0()
+                .w_full()
+                .h(relative(share))
+                .bg(linear_gradient(
+                    180.0,
+                    linear_color_stop(theme.surface.opacity(0.0), 0.0),
+                    linear_color_stop(theme.surface.opacity(alpha * lift), 1.0),
+                ))
+        };
+        let scrim = theme.scrim.opacity(0.58);
         let art = art
             .child(
                 div()
@@ -332,14 +360,16 @@ impl FilmGrid {
                     .bottom_0()
                     .left_0()
                     .w_full()
-                    .h(relative(0.5))
+                    .h(relative(0.46))
                     .bg(linear_gradient(
                         180.0,
-                        linear_color_stop(theme.scrim.opacity(0.0), 0.0),
-                        linear_color_stop(theme.scrim.opacity(0.7), 1.0),
+                        linear_color_stop(scrim.opacity(0.0), 0.0),
+                        linear_color_stop(scrim, 1.0),
                     )),
             )
-            .child(film_card::caption(film, width, theme))
+            .child(fade(0.75, 0.8))
+            .child(fade(0.3, 1.0))
+            .child(film_card::caption(film, theme))
             .on_click(cx.listener(move |host: &mut V, _, window, cx| {
                 host.open_film(open.clone(), window, cx)
             }));
@@ -352,9 +382,11 @@ impl FilmGrid {
                 .map(|score| format!("IMDb {score}")),
         ];
         let details = div()
+            .w(px(full))
+            .ml(px(-(full - width) / 2.0))
             .px(px(inset))
-            .pt(px(inset))
-            .pb(px(inset))
+            .pt(px(perforation(full) + 24.0))
+            .pb(px(inset + full * WAVE_DEPTH))
             .flex()
             .flex_col()
             .gap(px(16.0))
@@ -404,7 +436,7 @@ impl FilmGrid {
             .left(px(x))
             .top(px(y))
             .w(px(width))
-            .bg(theme.surface)
+            .overflow_hidden()
             .shadow(vec![gpui::BoxShadow {
                 color: gpui::black().opacity(0.7 * lift),
                 offset: point(px(0.0), px(0.0)),
@@ -423,9 +455,101 @@ impl FilmGrid {
                     },
                 ))
             })
-            .child(art)
+            .child(
+                art.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .border_1()
+                        .border_b_0()
+                        .border_color(theme.image_outline),
+                ),
+            )
+            .child(stub(height, theme, lift))
             .child(details)
     }
+}
+
+/// Ticket proportions measured from A24's AAA24 tickets, as fractions of the card's width.
+/// Notch radius: a semicircle bitten out of each side at the perforation.
+const NOTCH: f32 = 0.04;
+/// Depth of each bite along the bottom edge.
+const WAVE_DEPTH: f32 = 0.016;
+/// Bite spacing along the bottom edge: this many pitches across the card.
+const BITES: usize = 15;
+/// Share of each pitch a bite spans; the rest is flat land.
+const BITE_CHORD: f32 = 0.78;
+
+/// Perforation line, measured down from the top of the details panel. The notch sits wholly
+/// below the artwork, which GPUI cannot cut.
+fn perforation(width: f32) -> f32 {
+    width * NOTCH + 6.0
+}
+
+/// The details panel drawn as a ticket stub under the artwork: side notches on a dashed
+/// perforation and a bitten bottom edge, filled with surface and outlined like the tiles.
+/// It spans the card's current width, so the shape grows with the lift while the text holds still.
+fn stub(top: f32, theme: Theme, lift: f32) -> impl IntoElement {
+    let fill = theme.surface.opacity(lift);
+    let outline = theme.image_outline.opacity(lift);
+    let dash = theme.ink_muted.opacity(0.35 * lift);
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let at = |x: f32, y: f32| bounds.origin + point(px(x), px(y));
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            let (notch, depth, line) = (w * NOTCH, w * WAVE_DEPTH, perforation(w));
+            // Down the left side, along the bottom, up the right; every bite curves into the
+            // panel. `e` insets the path so a 1 px stroke lands inside the card's clip.
+            let edge = |path: &mut PathBuilder, e: f32| {
+                let (left, right, bottom) = (e, w - e, h - e);
+                let bite = |path: &mut PathBuilder, x: f32, from: f32, to: f32| {
+                    path.line_to(at(x, from));
+                    path.arc_to(point(px(notch), px(notch)), px(0.0), false, true, at(x, to));
+                };
+                bite(path, left, line - notch, line + notch);
+                // Round bites cut up into a straight edge, flat land between them, and half a
+                // bite at each corner. Each is a shallow arc of a circle whose centre sits below.
+                let pitch = (right - left) / BITES as f32;
+                let half = pitch * BITE_CHORD / 2.0;
+                let r = (half * half + depth * depth) / (2.0 * depth);
+                let arc = |path: &mut PathBuilder, to: Point<Pixels>| {
+                    path.arc_to(point(px(r), px(r)), px(0.0), false, true, to);
+                };
+                path.line_to(at(left, bottom - depth));
+                arc(path, at(left + half, bottom));
+                for i in 1..BITES {
+                    let x = left + i as f32 * pitch;
+                    path.line_to(at(x - half, bottom));
+                    arc(path, at(x + half, bottom));
+                }
+                path.line_to(at(right - half, bottom));
+                arc(path, at(right, bottom - depth));
+                bite(path, right, line + notch, line - notch);
+                path.line_to(at(right, 0.0));
+            };
+            let mut body = PathBuilder::fill();
+            body.move_to(at(0.0, 0.0));
+            edge(&mut body, 0.0);
+            body.close();
+            let mut rim = PathBuilder::stroke(px(1.0));
+            rim.move_to(at(0.5, 0.0));
+            edge(&mut rim, 0.5);
+            let mut perforation = PathBuilder::stroke(px(1.0)).dash_array(&[px(4.0), px(4.0)]);
+            perforation.move_to(at(notch + 8.0, line));
+            perforation.line_to(at(w - notch - 8.0, line));
+            for (path, color) in [(body, fill), (rim, outline), (perforation, dash)] {
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+            }
+        },
+    )
+    .absolute()
+    .top(px(top))
+    .left_0()
+    .right_0()
+    .bottom_0()
 }
 
 /// Pick a film's backdrop, falling back to its poster, and request it when `visible`.

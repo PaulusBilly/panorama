@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use futures::{FutureExt, SinkExt, StreamExt, stream};
 use stremio_core::types::addon::{ExtraValue, ResourcePath};
 
-use super::{AddonClient, FailureKind, ResourceEvent, SearchStream, delivery, sanitize};
+use super::{
+    AddonClient, FailureKind, FilmDetails, ResourceEvent, SearchStream, delivery, sanitize,
+};
 use crate::{store::Key, stremio::Descriptor};
 
 impl AddonClient {
@@ -104,32 +106,21 @@ impl AddonClient {
                 {
                     return;
                 }
+                let searched = items.clone();
                 let thin = items
                     .iter()
                     .take(20)
                     .enumerate()
-                    .filter(|(_, film)| {
-                        film.poster.is_none()
-                            || film.name.trim().is_empty()
-                            || film.release_info.is_none()
-                    })
-                    .map(|(index, film)| {
-                        (
-                            index,
-                            film.id.clone(),
-                            film.name.trim().is_empty(),
-                            film.poster.is_none(),
-                            film.release_info.is_none(),
-                        )
-                    })
+                    .filter(|(_, film)| thin(film))
+                    .map(|(index, film)| (index, film.id.clone()))
                     .collect::<Vec<_>>();
-                let fill = thin.into_iter().map(|(index, id, name, poster, release)| {
+                let fill = thin.into_iter().map(|(index, id)| {
                     client
                         .details(&addons, &id, None)
-                        .map(move |event| (index, name, poster, release, event))
+                        .map(move |event| (index, event))
                 });
                 let mut fill = stream::iter(fill).flatten_unordered(4);
-                while let Some((index, name, poster, release, event)) = fill.next().await {
+                while let Some((index, event)) = fill.next().await {
                     let details = match event {
                         ResourceEvent::Fresh(details) | ResourceEvent::CacheHit(details) => details,
                         ResourceEvent::Failed(FailureKind::Offline) => {
@@ -138,16 +129,10 @@ impl AddonClient {
                         }
                         _ => continue,
                     };
-                    let film = &mut items[index];
-                    if name {
-                        film.name = details.name;
-                    }
-                    if poster {
-                        film.poster = details.poster;
-                    }
-                    if release {
-                        film.release_info = details.release_info;
-                    }
+                    // Fill from the card as searched, so fresh details replace cached ones.
+                    let mut film = searched[index].clone();
+                    fill_gaps(&mut film, details);
+                    items[index] = film;
                     if sender
                         .send(ResourceEvent::Fresh(
                             items
@@ -170,5 +155,90 @@ impl AddonClient {
             }
             .boxed()
         })
+    }
+}
+
+/// Whether a search card lacks what Home's cards show: title, artwork, credits or year.
+fn thin(film: &FilmDetails) -> bool {
+    film.name.trim().is_empty()
+        || film.poster.is_none()
+        || film.background.is_none()
+        || film.director.is_empty()
+        || film.origin_country.is_none()
+        || film.release_info.is_none()
+}
+
+/// Copy into `film` only the fields it is missing, keeping what the search result had.
+/// Called on the card as searched each time, so later details replace earlier ones.
+fn fill_gaps(film: &mut FilmDetails, details: FilmDetails) {
+    if film.name.trim().is_empty() {
+        film.name = details.name;
+    }
+    film.poster = film.poster.take().or(details.poster);
+    film.background = film.background.take().or(details.background);
+    if film.director.is_empty() {
+        film.director = details.director;
+    }
+    film.origin_country = film.origin_country.take().or(details.origin_country);
+    film.release_info = film.release_info.take().or(details.release_info);
+    if film.description.is_none() {
+        film.description = details.description;
+    }
+    if film.runtime.is_none() {
+        film.runtime = details.runtime;
+    }
+    if film.genres.is_empty() {
+        film.genres = details.genres;
+    }
+    if film.imdb_rating.is_none() {
+        film.imdb_rating = details.imdb_rating;
+    }
+}
+
+#[cfg(test)]
+mod enrichment {
+    use super::*;
+
+    fn film(name: &str) -> FilmDetails {
+        FilmDetails {
+            id: "tt1".into(),
+            name: name.into(),
+            release_info: None,
+            runtime: None,
+            genres: Vec::new(),
+            description: None,
+            director: Vec::new(),
+            origin_country: None,
+            cast: Vec::new(),
+            poster: None,
+            background: None,
+            logo: None,
+            imdb_rating: None,
+            links: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn details_fill_only_what_the_search_card_lacks() {
+        let url = |path: &str| Some(url::Url::parse(&format!("https://img.test/{path}")).unwrap());
+        let mut card = FilmDetails {
+            poster: url("search-poster.jpg"),
+            ..film("Aftersun")
+        };
+        assert!(thin(&card));
+        let details = FilmDetails {
+            poster: url("details-poster.jpg"),
+            background: url("backdrop.jpg"),
+            director: vec!["Charlotte Wells".into()],
+            origin_country: Some("United Kingdom".into()),
+            release_info: Some("2022".into()),
+            ..film("Aftersun (2022)")
+        };
+        fill_gaps(&mut card, details);
+        assert_eq!(card.name, "Aftersun");
+        assert_eq!(card.poster, url("search-poster.jpg"));
+        assert_eq!(card.background, url("backdrop.jpg"));
+        assert_eq!(card.director, ["Charlotte Wells"]);
+        assert!(!thin(&card));
     }
 }

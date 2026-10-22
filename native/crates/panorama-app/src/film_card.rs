@@ -25,7 +25,10 @@ pub struct CardProps<'a> {
     pub(crate) shimmer: f32,
 }
 
-/// Moving CSS surface gradient for unloaded artwork and skeleton cards.
+/// Moving surface highlight for unloaded artwork and skeleton cards. The band is two tiles
+/// wide with its peak in the middle, so the peak travels from one tile-width before the left
+/// edge to one past the right: each cycle starts and ends with the band wholly off the tile,
+/// and the loop has no seam.
 pub fn shimmer(view: ViewSettings, phase: f32) -> Div {
     let phase = bezier(phase, SHIMMER.easing);
     div().absolute().inset_0().overflow_hidden().child(
@@ -34,7 +37,7 @@ pub fn shimmer(view: ViewSettings, phase: f32) -> Div {
             .top_0()
             .bottom_0()
             .w(gpui::relative(2.0))
-            .left(gpui::relative(-1.0 + 2.0 * phase))
+            .left(gpui::relative(-2.0 + 3.0 * phase))
             .child(
                 div()
                     .absolute()
@@ -123,7 +126,7 @@ pub fn render<V: GridHost>(
             )),
     );
     if let Some(film) = props.film {
-        tile = tile.child(caption(film, grid.width, theme));
+        tile = tile.child(caption(film, theme));
         let target = film.clone();
         let button = focus_ring(
             div()
@@ -186,13 +189,13 @@ pub fn render<V: GridHost>(
     tile
 }
 
-/// Title and credits pinned to the bottom of a tile, sized to its `width`.
-pub fn caption(film: &FilmDetails, width: f32, theme: Theme) -> Div {
+/// Title and credits pinned to the bottom of a tile, at fixed sizes like MUBI's cards.
+pub fn caption(film: &FilmDetails, theme: Theme) -> Div {
     let credits = div()
         .flex()
         .min_w_0()
         .gap(px(4.0))
-        .text_size(px((width * 0.029).clamp(10.0, 14.0)))
+        .text_size(px(12.0))
         .line_height(relative(1.25))
         .when(!film.director.is_empty(), |row| {
             row.child(
@@ -232,8 +235,8 @@ pub fn caption(film: &FilmDetails, width: f32, theme: Theme) -> Div {
         .bottom_0()
         .left_0()
         .w_full()
-        .px(px((width * 0.055).clamp(16.0, 28.0)))
-        .pb(px((width * 0.05).clamp(14.0, 26.0)))
+        .px(px(20.0))
+        .pb(px(16.0))
         .pt(px(28.0))
         .flex()
         .flex_col()
@@ -241,9 +244,9 @@ pub fn caption(film: &FilmDetails, width: f32, theme: Theme) -> Div {
         .text_color(theme.ink)
         .child(
             div()
-                .text_size(px((width * 0.062).clamp(16.0, 30.0)))
+                .text_size(px(22.0))
                 .weight(FontWeight::MEDIUM)
-                .line_height(relative(1.18))
+                .line_height(relative(1.05))
                 .line_clamp(2)
                 .child(film.name.to_uppercase()),
         )

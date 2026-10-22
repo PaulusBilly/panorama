@@ -96,6 +96,8 @@ impl std::fmt::Debug for Track {
 #[derive(Clone, PartialEq)]
 pub struct PlaybackModel {
     pub status: Status,
+    /// The host moved on from a failed or stuck source by itself; cleared by any source change.
+    pub falling_back: bool,
     pub has_reached_playable: bool,
     pub title: String,
     pub time: Option<f64>,
@@ -134,6 +136,8 @@ pub enum HostEvent {
     Failed(PlaybackError),
     Mpv(PlayerEvent),
     SourceChanged(SourceRef),
+    /// The host is trying the next ranked source after the previous one failed or stuck.
+    FallingBack,
     Closed,
     Volume(u8),
     Muted(bool),
@@ -153,6 +157,7 @@ impl std::fmt::Debug for HostEvent {
             Self::SourceChanged(source) => f.debug_tuple("SourceChanged").field(source).finish(),
             Self::Resolving => f.write_str("Resolving"),
             Self::Loading => f.write_str("Loading"),
+            Self::FallingBack => f.write_str("FallingBack"),
             Self::Closed => f.write_str("Closed"),
             Self::Volume(volume) => f.debug_tuple("Volume").field(volume).finish(),
             Self::Muted(muted) => f.debug_tuple("Muted").field(muted).finish(),
@@ -167,6 +172,7 @@ impl PlaybackModel {
     pub fn new(title: String, source: SourceRef) -> Self {
         Self {
             status: Status::Idle,
+            falling_back: false,
             has_reached_playable: false,
             title,
             time: None,
@@ -218,7 +224,11 @@ impl PlaybackModel {
             }
             HostEvent::Failed(PlaybackError::NoPeers) => self.status = Status::NoPeers,
             HostEvent::Failed(error) => self.status = Status::Error(error),
-            HostEvent::SourceChanged(source) => self.source = source,
+            HostEvent::SourceChanged(source) => {
+                self.source = source;
+                self.falling_back = false;
+            }
+            HostEvent::FallingBack => self.falling_back = true,
             HostEvent::Closed => {
                 let (title, source, fullscreen) =
                     (self.title.clone(), self.source, self.fullscreen);

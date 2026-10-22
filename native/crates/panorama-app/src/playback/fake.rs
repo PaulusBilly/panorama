@@ -176,8 +176,10 @@ impl Backend for FakeBackend {
                     FixtureState::Heavy => {
                         // A stall only counts once this load has moved.
                         events.push(PlayerEvent::TimePos(Some(1201.0)));
-                        events.push(PlayerEvent::PausedForCache(true));
-                        events.push(PlayerEvent::PausedForCache(false));
+                        for _ in 0..3 {
+                            events.push(PlayerEvent::PausedForCache(true));
+                            events.push(PlayerEvent::PausedForCache(false));
+                        }
                     }
                     _ => {}
                 }

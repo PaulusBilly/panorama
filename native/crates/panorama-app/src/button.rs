@@ -1,4 +1,4 @@
-use crate::theme::{Theme, caps, focus_ring, typography::BUTTON};
+use crate::theme::{Theme, focus_ring, typography::BUTTON};
 use gpui::{
     Animation, AnimationExt, App, ClickEvent, ElementId, FocusHandle, IntoElement, RenderOnce,
     SharedString, Transformation, Window, div, prelude::*, px, svg,
@@ -18,10 +18,10 @@ pub enum Size {
     Compact,
 }
 impl Size {
-    fn height(self) -> f32 {
+    pub fn height(self) -> f32 {
         match self {
-            Self::Regular => 52.0,
-            Self::Compact => 40.0,
+            Self::Regular => 40.0,
+            Self::Compact => 32.0,
         }
     }
 }
@@ -63,6 +63,20 @@ impl Icon {
 enum Face {
     Label { leading: Option<Icon> },
     Round(Icon),
+}
+
+/// "Start over" -> "Start Over". GPUI has no text-transform, so it is applied to the string.
+pub fn title_case(text: &str) -> SharedString {
+    text.split(' ')
+        .map(|word| {
+            let mut chars = word.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(chars).collect()
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .into()
 }
 
 type OnClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
@@ -109,7 +123,7 @@ impl Button {
             on_click: None,
         }
     }
-    /// An accent pill. Pass the label in sentence case; it is shown in caps.
+    /// An accent pill. Pass the label in sentence case; it is shown in title case.
     pub fn primary(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
         Self::new(id, Variant::Primary, Face::Label { leading: None }, label)
     }
@@ -189,7 +203,7 @@ impl RenderOnce for Button {
                 .flex_shrink_0()
                 .text_color(theme.ink)
         };
-        let icon_size = if regular { 20.0 } else { 16.0 };
+        let icon_size = if regular { 16.0 } else { 14.0 };
         let spinner = self.busy.then(|| {
             let spinner = glyph("loader-2.svg", icon_size);
             if self.reduced_motion {
@@ -233,12 +247,12 @@ impl RenderOnce for Button {
                 .child(spinner.unwrap_or_else(|| glyph(icon.path(), icon_size).into_any_element())),
             Face::Label { leading } => BUTTON
                 .apply(button)
-                .px(px(if regular { 28.0 } else { 20.0 }))
-                .gap(px(if regular { 10.0 } else { 8.0 }))
+                .px(px(if regular { 26.0 } else { 20.0 }))
+                .gap(px(if regular { 8.0 } else { 6.0 }))
                 .children(spinner.or_else(|| {
                     leading.map(|icon| glyph(icon.path(), icon_size).into_any_element())
                 }))
-                .child(caps(&self.label))
+                .child(title_case(&self.label))
                 .when_some(self.progress, |button, fraction| {
                     button.child(
                         div()
@@ -303,7 +317,8 @@ mod tests {
         }
     }
     #[test]
-    fn labels_are_shown_in_caps() {
-        assert_eq!(caps("Load more").as_ref(), "LOAD MORE");
+    fn labels_are_shown_in_title_case() {
+        assert_eq!(title_case("Load more").as_ref(), "Load More");
+        assert_eq!(title_case("Reload Panorama").as_ref(), "Reload Panorama");
     }
 }

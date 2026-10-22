@@ -357,3 +357,67 @@ async fn subtitle_and_output_setup_replay_onto_every_new_player() {
         "the newest setup replays onto the second player"
     );
 }
+#[tokio::test]
+async fn a_failing_source_falls_back_to_the_next_before_the_first_frame() {
+    let (mut runner, backend, _) = setup();
+    lock(&backend.scripts).extend([
+        Script {
+            error: Some(PlaybackError::SourceExpired),
+            ..Default::default()
+        },
+        Script::default(),
+    ]);
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    runner.fall_back().await;
+    assert_eq!(runner.model.source.stream, 1);
+    assert!(runner.model.falling_back);
+    resolve(&mut runner).await;
+    assert_eq!(runner.model.status, Status::Ready);
+}
+#[tokio::test]
+async fn fallback_shows_the_error_once_every_source_failed() {
+    let (mut runner, backend, _) = setup();
+    for _ in 0..2 {
+        lock(&backend.scripts).push_back(Script {
+            error: Some(PlaybackError::SourceUnavailable),
+            ..Default::default()
+        });
+    }
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    runner.fall_back().await;
+    resolve(&mut runner).await;
+    runner.fall_back().await;
+    assert_eq!(
+        runner.model.status,
+        Status::Error(PlaybackError::SourceUnavailable)
+    );
+    assert!(runner.pending.is_empty());
+}
+#[tokio::test]
+async fn a_failure_after_the_first_frame_is_shown_not_skipped() {
+    let (mut runner, backend, _) = setup();
+    lock(&backend.scripts).push_back(Script {
+        events: vec![
+            PlayerEvent::Duration(Some(600.0)),
+            PlayerEvent::TimePos(Some(42.0)),
+            PlayerEvent::Error(panorama_mpv::MpvError::Loading),
+        ],
+        ..Default::default()
+    });
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    runner.fall_back().await;
+    assert_eq!(runner.model.source.stream, 0);
+    assert_eq!(
+        runner.model.status,
+        Status::Error(PlaybackError::SourceUnavailable)
+    );
+}

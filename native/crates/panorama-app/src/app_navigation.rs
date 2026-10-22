@@ -49,8 +49,15 @@ impl AppShell {
         }
     }
 
+    /// Swap the active entry for `route`, leaving no history entry behind.
+    pub fn redirect(&mut self, route: Route, window: &mut Window, cx: &mut Context<Self>) {
+        if self.history.replace(route) {
+            self.changed(window, cx);
+        }
+    }
+
     pub fn back_to_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        if self.history.replace(Route::Film { id }) {
+        if self.history.leave_for(Route::Film { id }) {
             self.changed(window, cx);
         }
     }

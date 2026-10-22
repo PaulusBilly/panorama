@@ -201,6 +201,7 @@ impl Render for Home {
         let changing = self.switcher.moving(Instant::now(), view.reduced)
             || (!view.reduced && self.images.read(cx).moving())
             || self.grid.moving(view.reduced)
+            || self.row.moving(view.reduced)
             || self.state.read(cx).loading
             || self.args.bench_scroll
             || self.debug_step < self.args.scroll.len()
@@ -217,6 +218,9 @@ impl Render for Home {
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
+            // Sideways swipes belong to the Continue row; without this the page turns them
+            // into vertical scrolling.
+            .restrict_scroll_to_axis()
             .on_scroll_wheel(cx.listener(|_, _, window, cx| {
                 cx.on_next_frame(window, |home, window, cx| home.tick(window, cx));
                 // request_animation_frame panics outside render; notify schedules the frame instead.
@@ -224,5 +228,6 @@ impl Render for Home {
             }))
             .child(first)
             .child(section)
+            .child(crate::home_layout::footer())
     }
 }
