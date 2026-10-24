@@ -2,17 +2,33 @@ use super::*;
 use crate::assets::Weighted;
 use crate::{
     film_card,
-    film_display::{Quality, rating, rating_count},
+    film_display::{self, Quality},
     hero,
     theme::{
         DURATION_STANDARD, EASE_EDITORIAL, SHIMMER, Typography, caps,
         scrim::{Edge, scrim},
-        typography::{BODY, DISPLAY, LABEL},
+        typography::{BODY, CREDIT_PLACE, LABEL},
     },
     titlebar::SAFE_TOP,
     transition::bezier,
 };
 use gpui::{Div, FontWeight, Render, div, img, point, prelude::*, px, relative, svg};
+
+/// Space above and below the genre line, so it sits centred between origin and quality.
+const GENRE_GAP: f32 = 12.0;
+/// Windows wider than this split the synopsis into its own column, as MUBI does.
+const SPLIT_MIN: f32 = 960.0;
+const SPLIT_GAP: f32 = 64.0;
+use crate::hero::FILM_LOGO;
+/// Width of the left column when the synopsis is split out.
+fn info_width(view: ViewSettings) -> f32 {
+    (view.column().width * 0.3).clamp(380.0, 460.0)
+}
+const SYNOPSIS_WIDTH: f32 = 620.0;
+/// Quality badge height; the clock's visible disc matches it.
+const BADGE: f32 = 18.0;
+/// The clock glyph's disc is 20 of the icon's 24 units, so the icon is drawn this much larger.
+const CLOCK_INSET: f32 = 24.0 / 20.0;
 
 impl Film {
     fn metadata_content(
@@ -26,12 +42,12 @@ impl Film {
         let logo = meta
             .logo
             .as_ref()
-            .map(|url| self.image(url, (310.0, 128.0), view, window, cx));
+            .map(|url| self.image(url, FILM_LOGO, view, window, cx));
         let mut title = div();
         if let Some((Some(logo), false)) = logo.as_ref() {
             let size = logo.image.size(0);
-            let ratio = (310.0 / size.width.0 as f32)
-                .min(128.0 / size.height.0 as f32)
+            let ratio = (FILM_LOGO.0 / size.width.0 as f32)
+                .min(FILM_LOGO.1 / size.height.0 as f32)
                 .min(1.0 / window.scale_factor());
             title = title.child(
                 img(logo.image.clone())
@@ -40,9 +56,9 @@ impl Film {
             );
         } else if logo.is_none() || logo.as_ref().is_some_and(|(_, failed)| *failed) {
             title = title.child(
-                DISPLAY
+                hero::title_style(view.width)
                     .apply(div())
-                    .text_size(px((view.width * 0.05).clamp(36.0, DISPLAY.size)))
+                    .line_clamp(2)
                     .child(caps(&meta.name)),
             );
         }
@@ -61,22 +77,23 @@ impl Film {
             .flex()
             .flex_col()
             .text_color(theme.ink)
-            .child(title);
-        if !meta.director.is_empty() || meta.origin_country.is_some() || meta.release_info.is_some()
-        {
-            column = column.child(crate::theme::credits(meta, theme).mt(px(16.0)));
-        }
-        let votes = self.args.fixtures.then_some(match self.id.as_str() {
-            "tmdb:101" | "tmdb:104" | "tmdb:107" => 1824,
-            "tmdb:102" | "tmdb:105" | "tmdb:108" => 3201,
-            _ => 2485,
-        });
+            .child(title)
+            .child(hero::byline(meta))
+            .when(!meta.genres.is_empty(), |column| {
+                column.child(
+                    CREDIT_PLACE
+                        .apply(div())
+                        .mt(px(GENRE_GAP))
+                        .text_color(theme.ink_muted)
+                        .child(meta.genres.join(", ")),
+                )
+            });
         let mut facts = LABEL
             .apply(div())
             .flex()
             .flex_wrap()
             .items_center()
-            .gap_x(px(16.0))
+            .gap_x(px(8.0))
             .gap_y(px(8.0))
             .text_color(theme.ink_muted)
             .font_features(gpui::FontFeatures(Arc::new(vec![
@@ -84,31 +101,6 @@ impl Film {
                 ("kern".into(), 1),
             ])));
         let mut any = false;
-        if let Some(score) = rating(meta.imdb_rating.as_deref(), votes) {
-            any = true;
-            facts = facts.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .child(
-                        svg()
-                            .path("star-filled.svg")
-                            .size(px(14.0))
-                            .text_color(theme.ink),
-                    )
-                    .child(div().text_color(theme.ink).child(score))
-                    .when_some(votes, |row, votes| row.child(rating_count(votes))),
-            );
-        }
-        if !meta.genres.is_empty() {
-            any = true;
-            facts = facts.child(meta.genres.join(", "));
-        }
-        if let Some(runtime) = &meta.runtime {
-            any = true;
-            facts = facts.child(runtime.clone());
-        }
         for badge in quality
             .video
             .into_iter()
@@ -117,56 +109,71 @@ impl Film {
             any = true;
             facts = facts.child(
                 div()
+                    .h(px(BADGE))
+                    .flex()
+                    .items_center()
                     .border_1()
                     .border_color(theme.ink_muted)
                     .px(px(6.0))
-                    .py(px(1.0))
                     .text_size(px(11.0))
-                    .weight(FontWeight::BOLD)
-                    .line_height(relative(1.4))
-                    .text_color(theme.ink)
+                    .weight(FontWeight::MEDIUM)
+                    .line_height(relative(1.0))
                     .child(badge),
             );
         }
-        if any {
-            column = column.child(facts.mt(px(12.0)));
-        }
-        column = column.child(
-            BODY.apply(div())
-                .mt(px(20.0))
-                .text_size(px(15.0))
-                .text_color(theme.ink)
-                .child(
-                    meta.description
-                        .clone()
-                        .filter(|text| !text.trim().is_empty())
-                        .unwrap_or_else(|| "No synopsis is available for this film.".into()),
-                ),
-        );
-        column = column.child(self.actions(view, cx).mt(px(28.0)));
-        if matches!(self.account, Account::SignedIn(_))
-            && !self.sources_loading
-            && self.selected.is_none()
-        {
-            column = column.child(
-                LABEL
-                    .apply(div())
-                    .id("film-source-status")
-                    .role(gpui::Role::Status)
-                    .mt(px(20.0))
+        if let Some(runtime) = &meta.runtime {
+            any = true;
+            facts = facts.child(
+                div()
                     .flex()
-                    .flex_wrap()
                     .items_center()
-                    .gap(px(16.0))
-                    .text_color(theme.ink_muted)
-                    .child(if self.sources_error {
-                        "Sources could not be loaded."
-                    } else {
-                        "No playable source is available from your addons."
-                    })
-                    .child(self.retry(false, view, cx)),
+                    .gap(px(5.0))
+                    .child(
+                        svg()
+                            .path("clock-filled.svg")
+                            .size(px(BADGE * CLOCK_INSET))
+                            .text_color(theme.ink_muted),
+                    )
+                    .child(film_display::runtime(runtime)),
             );
         }
+        if any {
+            column = column.child(facts.mt(px(GENRE_GAP)));
+        }
+        let synopsis = BODY
+            .apply(div())
+            .text_size(px(15.0))
+            .text_color(theme.ink)
+            .child(
+                meta.description
+                    .clone()
+                    .filter(|text| !text.trim().is_empty())
+                    .unwrap_or_else(|| "No synopsis is available for this film.".into()),
+            );
+        // Wide windows give the synopsis its own column from the middle of the page, bottom
+        // aligned with the actions; narrow ones keep it in the single column.
+        let split = view.width > SPLIT_MIN;
+        if !split {
+            column = column.child(synopsis.mt(px(20.0)));
+            return self.finish_column(column, view, cx);
+        }
+        let column = self.finish_column(column, view, cx);
+        div()
+            .w_full()
+            .flex()
+            .items_end()
+            .gap(px(SPLIT_GAP))
+            .child(column.flex_none().w(px(info_width(view))))
+            .child(synopsis.flex_1().max_w(px(SYNOPSIS_WIDTH)))
+    }
+    fn finish_column(
+        &mut self,
+        mut column: Div,
+        view: ViewSettings,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let theme = view.theme;
+        column = column.child(self.actions(view, cx).mt(px(28.0)));
         if self.watchlist_error {
             column = column.child(
                 LABEL
@@ -199,11 +206,12 @@ impl Render for Film {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.settings(window, cx);
         if self.autoplay
-            && (self.selected.is_some() || !matches!(self.account, Account::SignedIn(_)))
+            && ((self.selected.is_some() && self.subtitles.is_some())
+                || !matches!(self.account, Account::SignedIn(_)))
         {
             self.autoplay = false;
             cx.defer_in(window, |film, window, cx| {
-                film.primary_action(false, true, window, cx)
+                film.primary_action(true, window, cx)
             });
         }
         let theme = view.theme;
@@ -221,12 +229,11 @@ impl Render for Film {
         if self.revealed.is_none() {
             let logo = self.metadata.as_ref().and_then(|meta| meta.logo.clone());
             let logo_pending = logo.is_some_and(|url| {
-                matches!(
-                    self.image(&url, (310.0, 128.0), view, window, cx),
-                    (None, false)
-                )
+                matches!(self.image(&url, FILM_LOGO, view, window, cx), (None, false))
             });
-            if view.active && !art_pending && !logo_pending {
+            // Hold the shimmer until the sources are in too, so the quality badges and the
+            // primary action arrive with everything else instead of popping in after.
+            if view.active && !art_pending && !logo_pending && !self.sources_loading {
                 self.revealed = Some(Instant::now());
             }
         }
@@ -268,21 +275,23 @@ impl Render for Film {
             );
         }
         let metadata = self.metadata.clone();
-        let narrow = view.width <= 700.0;
         let mut content = div()
             .relative()
             .w(px(col.width))
             .ml(px(col.left))
             .min_h(px(view.height))
             .pt(px(SAFE_TOP + 72.0))
-            .pb(px(if narrow { 40.0 } else { 64.0 }))
+            // The actions sit level with the avatar, as the back button sits level with the logo.
+            .pb(px(crate::sidebar::AVATAR_INSET))
             .flex()
             .flex_col()
             .justify_end()
             .child(
                 div()
                     .absolute()
-                    .top(px(SAFE_TOP + 2.0))
+                    .top(px(
+                        crate::sidebar::LOGO_CENTER - crate::button::Size::Regular.height() * 0.5
+                    ))
                     .left_0()
                     .child(self.back(view, cx)),
             );
@@ -307,7 +316,7 @@ impl Render for Film {
                                 "Unable to load film details. Check your connection and try again.",
                             ),
                     )
-                    .child(self.retry(true, view, cx)),
+                    .child(self.retry(view, cx)),
             );
         } else if let Some(meta) = metadata.as_ref().filter(|_| self.revealed.is_some()) {
             content = content.child(
@@ -320,6 +329,8 @@ impl Render for Film {
             } else {
                 (self.launched.elapsed().as_secs_f32() / SHIMMER.duration.as_secs_f32()) % 1.0
             };
+            let split = view.width > SPLIT_MIN;
+            let skeleton_info = if split { info_width(view) } else { col.width };
             let bar = |width: f32, height: f32| {
                 div()
                     .relative()
@@ -336,14 +347,35 @@ impl Render for Film {
                     .role(gpui::Role::Status)
                     .aria_label("Loading film metadata")
                     .w_full()
-                    .max_w(px(640.0))
                     .flex()
-                    .flex_col()
-                    .child(bar(420.0, 44.0))
-                    .child(bar(220.0, 14.0).mt(px(20.0)))
-                    .child(bar(560.0, 14.0).mt(px(28.0)))
-                    .child(bar(380.0, 14.0).mt(px(10.0)))
-                    .child(bar(176.0, 52.0).mt(px(32.0))),
+                    .items_end()
+                    .gap(px(SPLIT_GAP))
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(skeleton_info))
+                            .flex()
+                            .flex_col()
+                            .child(bar(420.0, 44.0))
+                            .child(bar(220.0, 14.0).mt(px(20.0)))
+                            .child(bar(160.0, 14.0).mt(px(GENRE_GAP)))
+                            .when(!split, |column| {
+                                column
+                                    .child(bar(560.0, 14.0).mt(px(28.0)))
+                                    .child(bar(380.0, 14.0).mt(px(10.0)))
+                            })
+                            .child(bar(176.0, 52.0).mt(px(32.0))),
+                    )
+                    .when(split, |row| {
+                        row.child(
+                            div()
+                                .flex_1()
+                                .max_w(px(SYNOPSIS_WIDTH))
+                                .pb(px(16.0))
+                                .child(bar(560.0, 14.0))
+                                .child(bar(380.0, 14.0).mt(px(10.0))),
+                        )
+                    }),
             );
         }
         page = page.child(content);

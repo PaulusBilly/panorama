@@ -16,6 +16,10 @@ use gpui::{
 const ITEM: f32 = 48.0;
 const GLYPH: f32 = 24.0;
 const LOGO: f32 = 32.0;
+const LOGO_TOP: f32 = SAFE_TOP + 14.0;
+const LOGO_HEIGHT: f32 = LOGO * 197.0 / 366.0;
+/// Vertical centre of the wordmark, so top-bar controls on routes can line up with it.
+pub const LOGO_CENTER: f32 = LOGO_TOP + LOGO_HEIGHT * 0.5;
 
 pub struct Sidebar {
     items: [FocusHandle; Destination::ALL.len()],
@@ -133,10 +137,10 @@ impl Sidebar {
                 svg()
                     .path("icon.svg")
                     .absolute()
-                    .top(px(SAFE_TOP + 14.0))
+                    .top(px(LOGO_TOP))
                     .left(px((SIDEBAR_WIDTH - LOGO) * 0.5))
                     .w(px(LOGO))
-                    .h(px(LOGO * 197.0 / 366.0))
+                    .h(px(LOGO_HEIGHT))
                     .text_color(theme.ink),
             )
             .child(
@@ -178,9 +182,8 @@ impl Sidebar {
                         cx.notify();
                     }))
                     .map(|avatar| match initial {
-                        Some(initial) => {
-                            avatar.child(LABEL.apply(div()).weight(FontWeight::BOLD).child(initial))
-                        }
+                        Some(initial) => avatar
+                            .child(LABEL.apply(div()).weight(FontWeight::MEDIUM).child(initial)),
                         None => avatar.child(
                             svg()
                                 .path(crate::button::Icon::Person.path())
@@ -198,6 +201,9 @@ impl Sidebar {
     }
 }
 
+/// Gap between the avatar and the window's bottom edge.
+pub const AVATAR_INSET: f32 = 24.0;
+
 /// The one source of the avatar geometry. The sidebar paints the avatar here and the account
 /// menu anchors to it.
 pub fn avatar_bounds(viewport: Size<Pixels>) -> Bounds<Pixels> {
@@ -205,7 +211,7 @@ pub fn avatar_bounds(viewport: Size<Pixels>) -> Bounds<Pixels> {
     bounds(
         point(
             px((SIDEBAR_WIDTH - diameter) * 0.5),
-            viewport.height - px(24.0 + diameter),
+            viewport.height - px(AVATAR_INSET + diameter),
         ),
         size(px(diameter), px(diameter)),
     )

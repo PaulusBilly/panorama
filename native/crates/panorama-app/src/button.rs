@@ -160,7 +160,7 @@ impl Button {
         self.busy = busy;
         self
     }
-    /// Append a played-fraction bar after the label, for resume actions.
+    /// Put a played-fraction bar between the icon and the label, for resume actions.
     pub fn progress(mut self, fraction: f32) -> Self {
         self.progress = Some(fraction.clamp(0.0, 1.0));
         self
@@ -252,11 +252,9 @@ impl RenderOnce for Button {
                 .children(spinner.or_else(|| {
                     leading.map(|icon| glyph(icon.path(), icon_size).into_any_element())
                 }))
-                .child(title_case(&self.label))
                 .when_some(self.progress, |button, fraction| {
                     button.child(
                         div()
-                            .ml(px(4.0))
                             .w(px(64.0))
                             .h(px(4.0))
                             .rounded_full()
@@ -270,7 +268,8 @@ impl RenderOnce for Button {
                                     .bg(theme.progress_fill),
                             ),
                     )
-                }),
+                })
+                .child(title_case(&self.label)),
         };
         if let Some(on_click) = self.on_click.filter(|_| enabled) {
             button = button.on_click(move |event, window, cx| on_click(event, window, cx));

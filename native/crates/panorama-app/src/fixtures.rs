@@ -26,6 +26,7 @@ pub fn films() -> Vec<FilmDetails> {
             release_info: Some((2022 + index % 3).to_string()),
             director: vec![["Charlotte Wells", "Wim Wenders", "Celine Song"][index % 3].into()],
             origin_country: (index % 3 == 1).then(|| "Japan".into()),
+            original_name: (index % 3 == 1).then(|| "パーフェクト・デイズ".into()),
             runtime: Some("102 min".into()),
             genres: vec!["Drama".into()],
             description: Some("A quiet, observant portrait shaped by memory and time.".into()),
@@ -170,7 +171,10 @@ mod tests {
                 Some("A quiet, observant portrait shaped by memory and time.")
             );
             assert_eq!(film.runtime.as_deref(), Some("102 min"));
-            assert_eq!(film.imdb_rating.as_deref(), Some(["7.6", "7.9", "7.8"][index % 3]));
+            assert_eq!(
+                film.imdb_rating.as_deref(),
+                Some(["7.6", "7.9", "7.8"][index % 3])
+            );
             assert!(film.background.is_some());
         }
     }

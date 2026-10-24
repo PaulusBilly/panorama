@@ -19,7 +19,7 @@ mod range;
 mod range_view;
 mod settings_view;
 mod stepper_view;
-mod subtitles;
+pub(crate) mod subtitles;
 mod subtitles_view;
 mod time;
 mod view;
@@ -90,6 +90,10 @@ pub struct Player {
     chrome_fade: Tween,
     chrome_wake: Option<Task<()>>,
     keyboard_active: bool,
+    /// The centre play/pause mark: whether it shows play, and when the toggle happened.
+    flash: Option<(bool, Instant)>,
+    /// The film's logo, drawn in place of its name in the bottom bar.
+    logo: Option<url::Url>,
     pointer: pointer::Hider,
     reduced: bool,
     panels: Panels,
@@ -115,6 +119,7 @@ pub struct Player {
     _shell: Subscription,
     _state: Subscription,
     _release: Subscription,
+    _images: Subscription,
 }
 
 fn current_selection(state: &AppState, id: &str, args: &Args) -> Option<PlaybackSelection> {
@@ -147,6 +152,7 @@ impl Player {
             })
             .unwrap_or_else(|| cx.on_release(|_, _| {}));
         let release = cx.on_release(|player, cx| player.unmount(cx));
+        let images = cx.observe(&state.read(cx).images.clone(), |_, _, cx| cx.notify());
         let streams = cx.observe(&state, |player, _, cx| player.sync_groups(cx));
         let selection = current_selection(state.read(cx), &id, &args);
         let mut model = PlaybackModel::new(
@@ -188,6 +194,10 @@ impl Player {
             chrome_fade: Tween::fixed(1.0),
             chrome_wake: None,
             keyboard_active: false,
+            flash: None,
+            logo: selection
+                .as_ref()
+                .and_then(|selection| selection.film.logo.clone()),
             pointer: pointer::Hider::default(),
             reduced: true,
             panels: Panels::default(),
@@ -216,7 +226,15 @@ impl Player {
             _shell: observer,
             _state: streams,
             _release: release,
+            _images: images,
         }
+    }
+
+    /// Pause or resume, flashing the new state in the middle of the picture.
+    fn toggle_pause(&mut self, cx: &mut Context<Self>) {
+        self.flash = Some((self.model.paused, Instant::now()));
+        self.send(Command::TogglePause, cx);
+        cx.notify();
     }
 
     fn send(&self, command: Command, cx: &gpui::App) {
@@ -277,6 +295,9 @@ impl Player {
         if tracks || source_changed {
             self.sync_subtitles(cx);
         }
+        if tracks {
+            self.restore_language(cx);
+        }
         if devices {
             self.reconcile_devices(cx);
         }
@@ -303,6 +324,7 @@ impl Player {
             return;
         };
         self.model.title.clone_from(&selection.film.name);
+        self.logo.clone_from(&selection.film.logo);
         self.load_prefs(cx);
         let fixture = if self.args.play_file.is_none()
             && self.args.play_url.is_none()

@@ -11,7 +11,6 @@ impl Film {
     /// only passed through here to pick a source.
     pub(super) fn primary_action(
         &mut self,
-        from_start: bool,
         redirect: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -20,6 +19,15 @@ impl Film {
             self.sign_in(window, cx);
             return;
         }
+        if self.selected.is_none() {
+            if !self.sources_loading {
+                self.load_sources(cx);
+            }
+            return;
+        }
+        let Some(subtitles) = self.subtitles.clone() else {
+            return;
+        };
         if let (Some(source), Some(film)) = (self.selected, self.metadata.clone()) {
             let id = self.id.clone();
             let selection = crate::playback::selection::PlaybackSelection {
@@ -28,11 +36,11 @@ impl Film {
                 source,
                 start: self
                     .resume
-                    .filter(|_| !from_start)
                     .map_or(crate::playback::selection::StartMode::Restart, |point| {
                         crate::playback::selection::StartMode::Resume(point.offset_secs)
                     }),
                 meta_base: self.meta_base.clone(),
+                subtitles,
             };
             self.state
                 .update(cx, |state, _| state.playback = Some(selection));
@@ -58,26 +66,34 @@ impl Film {
             .and_then(|point| {
                 crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
             });
-        let label = remaining.as_ref().map_or_else(
-            || primary.label().to_owned(),
-            |time| format!("Continue, {time} left"),
-        );
-        // The bar carries how far in; the pill names the action, as the Home hero does.
-        let mut button = Button::primary(
-            "film-primary",
-            if remaining.is_some() {
-                "Continue"
-            } else {
-                primary.label()
-            },
-        )
+        let label = match (&remaining, primary) {
+            (Some(time), _) => format!("Continue, {time} left"),
+            (None, Primary::Unavailable) if self.sources_error => {
+                "Sources could not be loaded. Retry sources".to_owned()
+            }
+            (None, Primary::Unavailable) => {
+                "No playable source from your addons. Retry sources".to_owned()
+            }
+            (None, primary) => primary.label().to_owned(),
+        };
+        // Resuming, the pill reads play, how far in, then the time left, as the Home hero does.
+        // With nothing to play the pill turns grey and retries, so no extra status row is needed.
+        let text = remaining
+            .clone()
+            .unwrap_or_else(|| primary.label().to_owned());
+        let mut button = if primary == Primary::Unavailable {
+            Button::glass("film-primary", text).leading(Icon::Retry)
+        } else {
+            Button::primary("film-primary", text)
+        }
         .aria_label(label.clone())
-        .busy(primary == Primary::Loading)
+        // Playable, but still waiting on the subtitle files: the pill spins until they arrive.
+        .busy(primary == Primary::Loading || (primary == Primary::Play && self.subtitles.is_none()))
         .disabled(!primary.enabled())
         .reduced_motion(view.reduced)
         .focus(&self.primary, view.keyboard)
         .tab_stop(view.active)
-        .on_click(cx.listener(|film, _, window, cx| film.primary_action(false, false, window, cx)));
+        .on_click(cx.listener(|film, _, window, cx| film.primary_action(false, window, cx)));
         if primary == Primary::Play {
             button = button.leading(Icon::Play);
         }
@@ -99,27 +115,17 @@ impl Film {
         .focus(&self.watchlist, view.keyboard)
         .tab_stop(view.active)
         .on_click(cx.listener(|film, _, window, cx| film.toggle_watchlist(window, cx)));
-        let restart = remaining.is_some().then(|| {
-            Button::glass("film-restart", "Start over")
-                .focus(&self.restart, view.keyboard)
-                .tab_stop(view.active)
-                .on_click(
-                    cx.listener(|film, _, window, cx| film.primary_action(true, false, window, cx)),
-                )
-        });
         div()
             .flex()
             .flex_wrap()
             .items_center()
             .gap(px(12.0))
             .child(button)
-            .children(restart)
             .child(watchlist)
             .child(crate::a11y::status("film-primary-status", label))
     }
     pub(super) fn back(&self, view: ViewSettings, cx: &mut Context<Self>) -> Button {
         Button::round("film-back", Icon::ArrowLeft, "Back")
-            .compact()
             .focus(&self.back, view.keyboard)
             .tab_stop(view.active)
             .on_click(cx.listener(|film, _, window, cx| {
@@ -132,35 +138,12 @@ impl Film {
                 });
             }))
     }
-    pub(super) fn retry(
-        &self,
-        details: bool,
-        view: ViewSettings,
-        cx: &mut Context<Self>,
-    ) -> Button {
-        let label = if details {
-            "Retry details"
-        } else {
-            "Retry sources"
-        };
-        Button::glass(label, label)
+    pub(super) fn retry(&self, view: ViewSettings, cx: &mut Context<Self>) -> Button {
+        Button::glass("Retry details", "Retry details")
             .compact()
             .leading(Icon::Retry)
-            .focus(
-                if details {
-                    &self.retry_details
-                } else {
-                    &self.retry_sources
-                },
-                view.keyboard,
-            )
+            .focus(&self.retry_details, view.keyboard)
             .tab_stop(view.active)
-            .on_click(cx.listener(move |film, _, _, cx| {
-                if details {
-                    film.load_details(cx);
-                } else {
-                    film.load_sources(cx);
-                }
-            }))
+            .on_click(cx.listener(|film, _, _, cx| film.load_details(cx)))
     }
 }

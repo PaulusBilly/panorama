@@ -30,6 +30,8 @@ pub struct PlaybackSelection {
     pub source: SourceRef,
     pub start: StartMode,
     pub meta_base: Option<Url>,
+    /// The addons' subtitle files for the film, looked up before Play.
+    pub subtitles: Vec<panorama_core::addons::SubtitleSource>,
 }
 
 impl PlaybackSelection {

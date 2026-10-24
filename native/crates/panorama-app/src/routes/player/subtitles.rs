@@ -12,6 +12,20 @@ pub enum Lang {
 }
 
 impl Lang {
+    /// The stored code.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::Id => "id",
+        }
+    }
+    pub fn parse(code: &str) -> Option<Self> {
+        match code {
+            "en" => Some(Self::En),
+            "id" => Some(Self::Id),
+            _ => None,
+        }
+    }
     /// `subtitleLanguageName`.
     pub fn name(self) -> &'static str {
         match self {
@@ -152,6 +166,20 @@ pub struct State {
 }
 
 impl State {
+    /// Turn on `lang` for tracks that just arrived, unless a choice was made for this source
+    /// or a track is already on. Returns the track to select.
+    pub fn restore(&mut self, lang: Lang, tracks: &[Track]) -> Option<i64> {
+        if self.choice.is_some() || Self::selected(tracks).is_some() {
+            return None;
+        }
+        let id = tracks
+            .iter()
+            .find(|track| track_lang(track) == Some(lang))?
+            .id;
+        self.choice = Some(Choice::Lang(lang));
+        Some(id)
+    }
+
     /// Forget the choice and the remembered tracks (a new source).
     pub fn reset(&mut self) {
         self.choice = None;
@@ -182,10 +210,18 @@ impl State {
                 .enumerate()
                 .filter(|(_, track)| track_lang(track) == Some(lang))
                 .collect();
+            // An addon's file is named after the addon (its mpv title); a built-in track by
+            // its position in the video.
             let labels = number_repeats(
                 of_language
                     .iter()
-                    .map(|(index, track)| source_label(*index, track.codec.as_deref()))
+                    .map(|(index, track)| {
+                        if track.external {
+                            track.label.clone()
+                        } else {
+                            source_label(*index, track.codec.as_deref())
+                        }
+                    })
                     .collect(),
             );
             for ((_, track), label) in of_language.into_iter().zip(labels) {
@@ -193,7 +229,7 @@ impl State {
                     id: track.id,
                     label,
                     description: Some(track.label.clone())
-                        .filter(|text| !text.is_empty() && text != lang.name()),
+                        .filter(|text| !track.external && !text.is_empty() && text != lang.name()),
                     selected: track.selected,
                 });
             }

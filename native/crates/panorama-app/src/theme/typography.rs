@@ -1,8 +1,6 @@
 //! Atomic type styles.
-use super::Theme;
 use crate::assets::Weighted;
-use gpui::{Div, FontWeight, SharedString, Styled, div, prelude::*, px, relative};
-use panorama_core::addons::FilmDetails;
+use gpui::{FontWeight, SharedString, Styled, px, relative};
 
 /// Font size, weight and line height applied as one style.
 #[derive(Clone, Copy, Debug)]
@@ -57,22 +55,41 @@ pub const TEXT_3XL: TypeStyle = TypeStyle {
     weight: 500.0,
     line_height: 1.05,
 };
-/// Film titles over artwork. Aspekta ships 400, 500 and 700 only.
+/// Film titles over artwork. The interface never goes above medium (500); the 700 face is
+/// bundled only for subtitles.
 pub const DISPLAY: TypeStyle = TypeStyle {
     size: 52.0,
-    weight: 700.0,
+    weight: 500.0,
     line_height: 1.0,
 };
 /// Row and section headings.
 pub const SECTION: TypeStyle = TypeStyle {
     size: 16.0,
-    weight: 700.0,
+    weight: 500.0,
     line_height: 1.2,
 };
 /// Director, origin and year lines.
 pub const CREDIT: TypeStyle = TypeStyle {
     size: 13.0,
     weight: 500.0,
+    line_height: 1.3,
+};
+/// Lead-in before a credited name: "Directed by".
+pub const CREDIT_LEAD: TypeStyle = TypeStyle {
+    size: 14.0,
+    weight: 400.0,
+    line_height: 1.3,
+};
+/// A credited name, and the original-language title under a display title.
+pub const CREDIT_NAME: TypeStyle = TypeStyle {
+    size: 16.0,
+    weight: 500.0,
+    line_height: 1.3,
+};
+/// Origin and year under a credited name: "Japan, 2023". Regular, so the name leads.
+pub const CREDIT_PLACE: TypeStyle = TypeStyle {
+    size: 14.0,
+    weight: 400.0,
     line_height: 1.3,
 };
 /// Pill button labels.
@@ -85,34 +102,6 @@ pub const BUTTON: TypeStyle = TypeStyle {
 /// GPUI has no text-transform, so uppercase is applied to the string.
 pub fn caps(text: &str) -> SharedString {
     text.to_uppercase().into()
-}
-
-/// "WONG KAR WAI  HONG KONG 2000": director in ink, origin and year in ink_muted.
-pub fn credits(film: &FilmDetails, theme: Theme) -> Div {
-    let place = [film.origin_country.as_deref(), film.release_info.as_deref()]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" ");
-    CREDIT
-        .apply(div())
-        .flex()
-        .flex_wrap()
-        .gap_x(px(12.0))
-        .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
-            ("tnum".into(), 1),
-            ("kern".into(), 1),
-        ])))
-        .when(!film.director.is_empty(), |row| {
-            row.child(
-                div()
-                    .text_color(theme.ink)
-                    .child(caps(&film.director.join(", "))),
-            )
-        })
-        .when(!place.is_empty(), |row| {
-            row.child(div().text_color(theme.ink_muted).child(caps(&place)))
-        })
 }
 
 impl TypeStyle {
@@ -157,3 +146,42 @@ pub trait Typography: Styled + Sized {
     }
 }
 impl<T: Styled> Typography for T {}
+
+#[cfg(test)]
+mod tests {
+    /// The interface stops at medium (500). Subtitles take their weight from a user preference
+    /// at runtime, so they never name a heavy weight in source.
+    #[test]
+    fn interface_never_uses_bold() {
+        let src = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
+        let found = heavy_weights(src);
+        assert!(found.is_empty(), "weights above medium: {found:?}");
+    }
+
+    fn heavy_weights(dir: &std::path::Path) -> Vec<String> {
+        // Assembled at runtime so this file does not match itself.
+        let banned: Vec<String> = ["SEMIBOLD", "BOLD", "EXTRA_BOLD", "BLACK"]
+            .iter()
+            .map(|name| format!("FontWeight::{name}"))
+            .chain(
+                ["600", "700", "800", "900"]
+                    .iter()
+                    .map(|w| format!("weight: {w}.0")),
+            )
+            .collect();
+        let mut found = vec![];
+        for path in std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                found.extend(heavy_weights(&path));
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).unwrap_or_default();
+            for (number, line) in source.lines().enumerate() {
+                if banned.iter().any(|b| line.contains(b.as_str())) {
+                    found.push(format!("{}:{}", path.display(), number + 1));
+                }
+            }
+        }
+        found
+    }
+}

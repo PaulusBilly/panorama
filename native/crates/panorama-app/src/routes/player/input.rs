@@ -249,6 +249,8 @@ impl Player {
             return None;
         }
         let key = event.keystroke.key.as_str();
+        // A control focused by a click is not where the keyboard is: keys go to the shortcuts.
+        let clicked = !self.keyboard_active;
         self.keyboard_active = true;
         self.panels.release_press();
         self.ui.select_pressed_closed = None;
@@ -290,20 +292,27 @@ impl Player {
         } else if self.focus.seek.is_focused(window) {
             FocusZone::Range(RangeId::Seek)
         } else if self.focus.button_focused(window) {
-            FocusZone::Button
+            if clicked {
+                // Let go of it, or the next Space would press it again.
+                window.blur(cx);
+                FocusZone::Nothing
+            } else {
+                FocusZone::Button
+            }
         } else {
             FocusZone::Nothing
         };
         match keyboard::route(key, zone, self.panels.active().is_some()) {
             Route::Panel => return self.panel_key(key, window, cx),
-            Route::Range(id) => {
-                return self.step_range(id, key, cx).then_some(KeyAction::Handled);
-            }
+            // Keys a range does not step, Space among them, fall through to the shortcuts.
+            Route::Range(id) if self.step_range(id, key, cx) => return Some(KeyAction::Handled),
+            Route::Range(_) => {}
             // The focused button activates itself when the key is released.
             Route::Button => return None,
             Route::Shortcut => {}
         }
         match keyboard::shortcut(key, &self.model)? {
+            Shortcut::Command(Command::TogglePause) => self.toggle_pause(cx),
             Shortcut::Command(command) => self.send(command, cx),
             Shortcut::Fullscreen => self.toggle_fullscreen(window, cx),
         }

@@ -84,7 +84,9 @@ impl Addons {
                         gpui::accesskit::Toggled::False
                     })
                     .min_h(px(52.0))
-                    .when(index != last, |row| row.border_b_1().border_color(theme.rule))
+                    .when(index != last, |row| {
+                        row.border_b_1().border_color(theme.rule)
+                    })
                     .flex()
                     .items_center()
                     .gap(px(14.0))

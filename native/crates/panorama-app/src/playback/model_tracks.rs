@@ -25,6 +25,7 @@ pub(super) fn track_value(track: &panorama_mpv::Track, index: usize) -> Track {
         lang: track.lang.clone(),
         codec: track.codec.clone(),
         selected: track.selected,
+        external: track.external,
     }
 }
 

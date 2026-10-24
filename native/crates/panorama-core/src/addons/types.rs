@@ -34,6 +34,9 @@ pub struct FilmDetails {
     pub id: String,
     /// Display name.
     pub name: String,
+    /// Original-language title, when the addon supplies one.
+    #[serde(default)]
+    pub original_name: Option<String>,
     /// Year or release information supplied by the addon.
     pub release_info: Option<String>,
     /// Display runtime supplied by the addon.
@@ -85,6 +88,8 @@ pub struct PreviewCredits {
     pub director: Vec<String>,
     /// Bounded origin country.
     pub country: Option<String>,
+    /// Bounded original-language title.
+    pub original_name: Option<String>,
 }
 
 /// Sanitized failures; never retain transport URLs, response bodies or raw errors.
@@ -148,6 +153,24 @@ pub struct StreamSource {
 impl fmt::Debug for StreamSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("StreamSource { .. }")
+    }
+}
+
+/// A subtitle file an addon offers, from its `subtitles` resource or inside a stream.
+/// Debug output is redacted: the URL can carry addon credentials.
+#[derive(Clone, Eq, PartialEq)]
+pub struct SubtitleSource {
+    /// An `http(s)` file URL.
+    pub url: url::Url,
+    /// Language as the addon names it, usually ISO 639-2 ("eng").
+    pub lang: String,
+    /// Display name of the addon that offered it.
+    pub addon: String,
+}
+
+impl fmt::Debug for SubtitleSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SubtitleSource {{ lang: {:?}, .. }}", self.lang)
     }
 }
 

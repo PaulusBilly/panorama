@@ -82,6 +82,8 @@ pub struct Track {
     pub lang: Option<String>,
     pub codec: Option<String>,
     pub selected: bool,
+    /// Added from a file (an addon's subtitles), not part of the video.
+    pub external: bool,
 }
 
 impl std::fmt::Debug for Track {

@@ -188,6 +188,8 @@ impl Backend for NativeBackend {
                 pending_seek: None,
                 reported_time: false,
                 close_started: None,
+                subtitles_due: Vec::new(),
+                file_loaded: false,
             });
             Ok(playback)
         })

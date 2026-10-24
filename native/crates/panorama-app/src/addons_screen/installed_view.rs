@@ -150,7 +150,9 @@ impl Addons {
                 div()
                     .min_h(px(76.0))
                     .py(px(16.0))
-                    .when(index != last, |row| row.border_b_1().border_color(theme.rule))
+                    .when(index != last, |row| {
+                        row.border_b_1().border_color(theme.rule)
+                    })
                     .flex()
                     .items_center()
                     .gap(px(16.0))
@@ -332,9 +334,7 @@ fn skeletons(view: View) -> gpui::Stateful<Div> {
             .bg(theme.surface_strong)
             .child(film_card::shimmer(settings, phase))
     };
-    let mut list = panel(theme)
-        .id("addon-skeleton")
-        .role(gpui::Role::Status);
+    let mut list = panel(theme).id("addon-skeleton").role(gpui::Role::Status);
     for index in 0..3 {
         list = list.child(
             div()

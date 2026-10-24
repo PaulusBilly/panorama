@@ -189,6 +189,15 @@ impl Player {
     pub fn set_subtitle_track(&self, id: Option<i64>) -> Result<(), MpvError> {
         self.track("sid", id)
     }
+    /// Adds a remote subtitle file to the loaded file without selecting it. Only `http(s)`
+    /// URLs are accepted, so an addon cannot point mpv at local files or other protocols.
+    /// Call after the file has loaded: mpv refuses tracks while nothing plays.
+    pub fn add_subtitle(&self, url: &str, title: &str, lang: &str) -> Result<(), MpvError> {
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            return Err(MpvError::InvalidArgument);
+        }
+        self.command(&["sub-add", url, "auto", title, lang])
+    }
     /// Queues volume in the inclusive range 0 through 100.
     pub fn set_volume(&self, volume: f64) -> Result<(), MpvError> {
         if !(0.0..=100.0).contains(&volume) {

@@ -9,7 +9,95 @@ const NO_PEERS_HEADING: &str = "No one is sharing this torrent right now.";
 const NO_PEERS_BODY: &str =
     "It may start if a peer comes online. You can keep waiting or choose another source.";
 
+/// The centre pause mark settles in over this long, then stays for as long as the film is paused.
+const FLASH_IN: std::time::Duration = std::time::Duration::from_millis(180);
+/// On resume the pause mark crossfades to the play mark over this long...
+const FLASH_SWAP: std::time::Duration = std::time::Duration::from_millis(150);
+/// ...which holds until this point...
+const FLASH_HOLD: std::time::Duration = std::time::Duration::from_millis(500);
+/// ...then swells and fades out, fully gone at this point.
+const FLASH_OUT: std::time::Duration = std::time::Duration::from_millis(700);
+
 impl Player {
+    /// Whether the centre mark still needs frames: entering after a pause, or anywhere in the
+    /// resume crossfade, hold and exit.
+    pub(super) fn flash_moving(&self, now: Instant) -> bool {
+        self.flash.is_some_and(|(play, at)| {
+            now.duration_since(at) < if play { FLASH_OUT } else { FLASH_IN }
+        })
+    }
+
+    /// The centre play/pause mark. Pausing settles a pause disc in and keeps it there while the
+    /// film stays paused; resuming crossfades it to a play mark that holds, then swells as it
+    /// fades. Reduced motion skips the scale and fades. Never takes clicks; the video layer below
+    /// handles them.
+    pub(super) fn pause_flash(&self, theme: Theme, reduced: bool, now: Instant) -> Option<Div> {
+        let (play, at) = self.flash?;
+        let elapsed = now.duration_since(at);
+        let ease_out = |t: f32| 1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3);
+        let ratio = |from: std::time::Duration, to: std::time::Duration| {
+            (elapsed.saturating_sub(from).as_secs_f32() / (to - from).as_secs_f32()).clamp(0.0, 1.0)
+        };
+        // (disc opacity, disc size, how far the icon has turned from pause to play)
+        let (opacity, size, swap) = if play {
+            if elapsed >= FLASH_OUT {
+                return None;
+            }
+            let out = ease_out(ratio(FLASH_HOLD, FLASH_OUT));
+            let swap = ease_out(ratio(std::time::Duration::ZERO, FLASH_SWAP));
+            if reduced {
+                (1.0, 72.0, 1.0)
+            } else {
+                (1.0 - out, 72.0 + 12.0 * out, swap)
+            }
+        } else {
+            // A resume from outside the toggle (a new source, the end of the film) clears the mark;
+            // the short grace covers the host confirming the pause a frame or two late.
+            if !self.model.paused && elapsed >= FLASH_IN {
+                return None;
+            }
+            let enter = ease_out(ratio(std::time::Duration::ZERO, FLASH_IN));
+            if reduced {
+                (1.0, 72.0, 0.0)
+            } else {
+                (enter, 64.0 + 8.0 * enter, 0.0)
+            }
+        };
+        let icon = |path: &'static str, opacity: f32| {
+            svg()
+                .absolute()
+                .path(path)
+                .size(px(size * 0.4))
+                .opacity(opacity)
+                .text_color(theme.ink)
+        };
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .relative()
+                        .size(px(size))
+                        .rounded_full()
+                        .bg(theme.player_canvas.opacity(0.35))
+                        .opacity(opacity)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(swap < 1.0, |disc| {
+                            disc.child(icon("player-pause-sharp.svg", 1.0 - swap))
+                        })
+                        .when(swap > 0.0, |disc| {
+                            disc.child(icon("player-play-sharp.svg", swap))
+                        }),
+                ),
+        )
+    }
+
     pub(super) fn overlays(
         &self,
         theme: Theme,

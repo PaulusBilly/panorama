@@ -23,11 +23,18 @@ impl AssetSource for Assets {
             "check.svg" => Some(include_bytes!("../assets/icons/check.svg")),
             "loader-2.svg" => Some(include_bytes!("../assets/icons/loader-2.svg")),
             "star-filled.svg" => Some(include_bytes!("../assets/icons/star-filled.svg")),
+            "clock-filled.svg" => Some(include_bytes!("../assets/icons/clock-filled.svg")),
             "player-play-filled.svg" => {
                 Some(include_bytes!("../assets/icons/player-play-filled.svg"))
             }
             "player-pause-filled.svg" => {
                 Some(include_bytes!("../assets/icons/player-pause-filled.svg"))
+            }
+            "player-play-sharp.svg" => {
+                Some(include_bytes!("../assets/icons/player-play-sharp.svg"))
+            }
+            "player-pause-sharp.svg" => {
+                Some(include_bytes!("../assets/icons/player-pause-sharp.svg"))
             }
             "volume-2.svg" => Some(include_bytes!("../assets/icons/volume-2.svg")),
             "volume-off.svg" => Some(include_bytes!("../assets/icons/volume-off.svg")),

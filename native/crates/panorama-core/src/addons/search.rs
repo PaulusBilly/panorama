@@ -209,6 +209,7 @@ mod enrichment {
             description: None,
             director: Vec::new(),
             origin_country: None,
+            original_name: None,
             cast: Vec::new(),
             poster: None,
             background: None,
@@ -231,6 +232,7 @@ mod enrichment {
             background: url("backdrop.jpg"),
             director: vec!["Charlotte Wells".into()],
             origin_country: Some("United Kingdom".into()),
+            original_name: None,
             release_info: Some("2022".into()),
             ..film("Aftersun (2022)")
         };

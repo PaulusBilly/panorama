@@ -40,5 +40,6 @@ pub fn selection(id: &str, args: &Args) -> Option<PlaybackSelection> {
         source: SourceRef::default(),
         start: StartMode::Restart,
         meta_base: None,
+        subtitles: vec![],
     })
 }

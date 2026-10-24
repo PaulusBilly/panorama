@@ -58,6 +58,13 @@ all = "warn"
 [patch."https://github.com/Stremio/stremio-core"]
 stremio-watched-bitfield = { path = "vendor/stremio-watched-bitfield" }
 
+# Line tables keep file:line in panics and backtraces without full debug info, which made each
+# stale copy of the app library ~280 MB and let target/debug grow past 35 GB.
+[profile.dev]
+debug = "line-tables-only"
+
 # Optimize dependencies (image decoding, JSON, GPUI) in dev builds; workspace crates stay fast to rebuild.
+# Dependencies carry no debug info: they are rarely stepped into and are most of the build.
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

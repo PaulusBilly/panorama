@@ -20,6 +20,22 @@ pub(super) struct NativePlayback {
     pub(super) pending_seek: Option<f64>,
     pub(super) reported_time: bool,
     pub(super) close_started: Option<tokio::time::Instant>,
+    /// Subtitle files waiting for the file to load; mpv refuses tracks before then.
+    pub(super) subtitles_due: Vec<panorama_core::addons::SubtitleSource>,
+    /// The file has loaded (its track list arrived), so subtitle files can be added.
+    pub(super) file_loaded: bool,
+}
+
+impl NativePlayback {
+    fn add_due_subtitles(&mut self) {
+        let Some(player) = self.player.as_ref().filter(|_| self.file_loaded) else {
+            return;
+        };
+        for file in self.subtitles_due.drain(..) {
+            // One refused file (a bad URL) never stops the rest.
+            let _ = player.add_subtitle(file.url.as_str(), &file.addon, &file.lang);
+        }
+    }
 }
 
 impl Playback for NativePlayback {
@@ -57,6 +73,11 @@ impl Playback for NativePlayback {
         if let Command::Seek(seconds) = command {
             self.pending_seek = Some(*seconds);
         }
+        if let Command::AddSubtitles(files) = command {
+            self.subtitles_due.extend(files.iter().cloned());
+            self.add_due_subtitles();
+            return Ok(());
+        }
         match command {
             Command::SetPaused(paused) => player.set_pause(*paused),
             Command::TogglePause => player.toggle_pause(),
@@ -83,6 +104,14 @@ impl Playback for NativePlayback {
             .as_ref()
             .map(|events| events.try_iter().collect())
             .unwrap_or_default();
+        if !self.file_loaded
+            && events
+                .iter()
+                .any(|event| matches!(event, PlayerEvent::TrackList(tracks) if !tracks.is_empty()))
+        {
+            self.file_loaded = true;
+            self.add_due_subtitles();
+        }
         for event in &events {
             if *event == PlayerEvent::Shutdown {
                 self.shutdown = true;

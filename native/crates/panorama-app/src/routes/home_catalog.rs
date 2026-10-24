@@ -120,7 +120,7 @@ impl Home {
                                 .min_w_0()
                                 .truncate()
                                 .title()
-                                .weight(gpui::FontWeight::BOLD)
+                                .weight(gpui::FontWeight::MEDIUM)
                                 .text_color(theme.ink)
                                 .border_b_1()
                                 .border_color(theme.canvas.opacity(0.0))

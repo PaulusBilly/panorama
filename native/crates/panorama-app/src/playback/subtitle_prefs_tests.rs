@@ -93,6 +93,7 @@ fn the_json_round_trips_without_the_session_delay() {
     let mut prefs = SubtitlePreferences {
         text_color: [0xff, 0xe0, 0x66],
         font_weight: FontWeight::Bold,
+        language: Some(crate::routes::player::subtitles::Lang::Id),
         ..Default::default()
     };
     prefs.set(Field::FontSize, 36.0);

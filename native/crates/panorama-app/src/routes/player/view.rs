@@ -74,6 +74,7 @@ impl Render for Player {
             || self.emphasis.iter().any(|tween| tween.moving(now, reduced))
             || self.chrome_fade.moving(now, reduced)
             || self.panel_motion.moving(now, reduced)
+            || self.flash_moving(now)
         {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
             window.request_animation_frame();
@@ -107,7 +108,7 @@ impl Render for Player {
                         if matches!(player.model.status, Status::Ready | Status::Buffering)
                             && !player.panels.swallows_click()
                         {
-                            player.send(Command::TogglePause, cx);
+                            player.toggle_pause(cx);
                         }
                     })),
             )
@@ -142,6 +143,9 @@ impl Render for Player {
                 let root = root
                     .when_some(cue, |root, cue| root.child(cue))
                     .child(self.overlays(theme, reduced, keyboard, window, cx))
+                    .when_some(self.pause_flash(theme, reduced, now), |root, flash| {
+                        root.child(flash)
+                    })
                     .when_some(notice, |root, notice| root.child(notice));
                 let root = if shown.top || fade > 0.001 {
                     root.child(self.top_bar(theme, keyboard, fade, window, cx))
