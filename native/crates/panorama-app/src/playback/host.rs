@@ -35,6 +35,8 @@ pub enum Command {
     SelectSubtitle(Option<i64>),
     /// Subtitle preferences and which renderer draws the selected track.
     Subtitles(Box<SubtitleSetup>),
+    /// Subtitle files to add to the loaded file; sent by the runner, not the UI.
+    AddSubtitles(Vec<panorama_core::addons::SubtitleSource>),
     /// Audio and video output properties (`audio-device`, `audio-channels`, ...).
     Output(Vec<(&'static str, String)>),
     Stop,
@@ -140,6 +142,8 @@ struct Runner {
     /// The latest subtitle and output settings, replayed onto every new player.
     subtitles: Option<SubtitleSetup>,
     output: Option<Vec<(&'static str, String)>>,
+    /// The addons' subtitle files for this film.
+    addon_subtitles: Vec<panorama_core::addons::SubtitleSource>,
 }
 
 impl Runner {
@@ -175,6 +179,7 @@ impl Runner {
             origin: Instant::now(),
             subtitles: None,
             output: None,
+            addon_subtitles: Vec::new(),
         }
     }
 
@@ -222,6 +227,7 @@ impl Runner {
         self.stop().await;
         self.fallback_due = None;
         if !continuing {
+            self.addon_subtitles.clone_from(&selection.subtitles);
             self.tried.clear();
             self.fallbacks = 0;
             self.model = PlaybackModel::new(selection.film.name.clone(), selection.source);
@@ -302,6 +308,19 @@ impl Runner {
         }
         if let Some(setup) = &self.subtitles {
             let _ = active.command(&Command::Subtitles(Box::new(setup.clone())));
+        }
+        // The source's own files first, then the addons'.
+        let mut files = self
+            .selection
+            .as_ref()
+            .and_then(|selection| {
+                let group = selection.groups.get(selection.source.group)?;
+                Some(selection.selected()?.subtitles(&group.name))
+            })
+            .unwrap_or_default();
+        files.extend(self.addon_subtitles.iter().cloned());
+        if !files.is_empty() {
+            let _ = active.command(&Command::AddSubtitles(files));
         }
     }
 

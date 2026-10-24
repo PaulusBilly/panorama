@@ -7,7 +7,7 @@ pub enum Primary {
     SignIn,
     /// Await sources; the control is disabled.
     Loading,
-    /// No source can play; the control is disabled.
+    /// No source can play; the control asks the addons again.
     Unavailable,
     /// Start playback using the selected source.
     Play,
@@ -30,13 +30,13 @@ impl Primary {
         match self {
             Self::SignIn => "Sign in to watch",
             Self::Loading => "Loading sources",
-            Self::Unavailable => "No playable source",
+            Self::Unavailable => "Retry sources",
             Self::Play => "Play",
         }
     }
     /// Whether activating this state can perform an action.
     pub fn enabled(self) -> bool {
-        matches!(self, Self::SignIn | Self::Play)
+        matches!(self, Self::SignIn | Self::Unavailable | Self::Play)
     }
 }
 
@@ -112,25 +112,47 @@ pub fn rating(score: Option<&str>, votes: Option<u64>) -> Option<String> {
     (score.is_finite() && score > 0.0 && votes != Some(0)).then(|| format!("{score:.1}"))
 }
 
-/// Locale-independent English vote-count display.
-pub fn rating_count(count: u64) -> String {
-    let text = count.to_string();
-    let mut grouped = String::new();
-    for (index, digit) in text.chars().enumerate() {
-        if index > 0 && (text.len() - index).is_multiple_of(3) {
-            grouped.push(',');
-        }
-        grouped.push(digit);
+/// Addon runtimes ("173 min", "2h53min", "PT2H53M") as "2h 53m"; "45 min" becomes "45m".
+/// Shapes it cannot read pass through untouched.
+pub fn runtime(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let numbers: Vec<u32> = lower
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    let minutes = match (lower.contains('h'), numbers.as_slice()) {
+        (true, [hours]) => hours * 60,
+        (true, [hours, minutes]) => hours * 60 + minutes,
+        (false, [minutes]) => *minutes,
+        _ => return text.to_string(),
+    };
+    match (minutes / 60, minutes % 60) {
+        (0, minutes) => format!("{minutes}m"),
+        (hours, 0) => format!("{hours}h"),
+        (hours, minutes) => format!("{hours}h {minutes}m"),
     }
-    format!(
-        "{grouped} {}",
-        if count == 1 { "rating" } else { "ratings" }
-    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn runtimes_read_as_hours_and_minutes() {
+        for (text, shown) in [
+            ("173 min", "2h 53m"),
+            ("2h53min", "2h 53m"),
+            ("2h 53m", "2h 53m"),
+            ("PT2H53M", "2h 53m"),
+            ("1 hr 30 min", "1h 30m"),
+            ("45 min", "45m"),
+            ("120 min", "2h"),
+            ("2h", "2h"),
+            ("2:53", "2:53"),
+            ("", ""),
+        ] {
+            assert_eq!(runtime(text), shown, "{text}");
+        }
+    }
     #[test]
     fn every_primary_label_row() {
         for loading in [false, true] {
@@ -140,13 +162,7 @@ mod tests {
         }
         for (loading, playable, state, label, enabled) in [
             (true, false, Primary::Loading, "Loading sources", false),
-            (
-                false,
-                false,
-                Primary::Unavailable,
-                "No playable source",
-                false,
-            ),
+            (false, false, Primary::Unavailable, "Retry sources", true),
             (false, true, Primary::Play, "Play", true),
             (true, true, Primary::Play, "Play", true),
         ] {
@@ -186,8 +202,6 @@ mod tests {
         assert_eq!(rating(Some("7.6"), None), Some("7.6".into()));
         assert!(rating(Some("7.6"), Some(0)).is_none());
         assert_eq!(rating(Some("7.6"), Some(2485)), Some("7.6".into()));
-        assert_eq!(rating_count(2485), "2,485 ratings");
-        assert_eq!(rating_count(1), "1 rating");
     }
 }
 

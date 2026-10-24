@@ -231,11 +231,8 @@ impl Search {
     }
 
     fn status(&self) -> String {
-        if self.query.is_empty() {
-            String::new()
-        } else if self.loading {
-            format!("Searching for \u{201c}{}\u{201d}", self.query)
-        } else if self.error.is_some() {
+        // The shimmering grid shows a search is under way; no line of text repeats it.
+        if self.query.is_empty() || self.loading || self.error.is_some() {
             String::new()
         } else {
             match self.grid.films.len() {

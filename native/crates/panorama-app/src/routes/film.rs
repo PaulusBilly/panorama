@@ -6,9 +6,7 @@ use crate::{
     image_cache::{CachedImage, ImageCache},
     services::Job,
 };
-use gpui::{
-    Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window,
-};
+use gpui::{Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window};
 use panorama_core::addons::{FilmDetails, StreamGroup};
 use std::{sync::Arc, time::Instant};
 
@@ -38,6 +36,9 @@ pub struct Film {
     meta_base: Option<url::Url>,
     sources_loading: bool,
     sources_error: bool,
+    /// The addons' subtitle files; `None` while they are looked up. Play waits for them so
+    /// they are in the player before the first frame.
+    subtitles: Option<Vec<panorama_core::addons::SubtitleSource>>,
     saved: bool,
     saving: bool,
     watchlist_error: bool,
@@ -45,10 +46,8 @@ pub struct Film {
     installed: Vec<panorama_core::stremio::Descriptor>,
     back: FocusHandle,
     primary: FocusHandle,
-    restart: FocusHandle,
     watchlist: FocusHandle,
     retry_details: FocusHandle,
-    retry_sources: FocusHandle,
     autoplay: bool,
     launched: Instant,
     /// When details, backdrop and logo were first all ready; the page shimmers until then.
@@ -57,6 +56,7 @@ pub struct Film {
     images: Entity<ImageCache>,
     details_task: Option<Task<()>>,
     sources_task: Option<Task<()>>,
+    subtitles_task: Option<Task<()>>,
     library_task: Option<Task<()>>,
     save_task: Option<Task<()>>,
     _state: Subscription,
@@ -125,6 +125,7 @@ impl Film {
             resume: intent.as_ref().and_then(|intent| intent.resume),
             meta_base: None,
             sources_loading: true,
+            subtitles: None,
             sources_error: false,
             saved: false,
             saving: false,
@@ -133,10 +134,8 @@ impl Film {
             installed,
             back: cx.focus_handle(),
             primary: cx.focus_handle(),
-            restart: cx.focus_handle(),
             watchlist: cx.focus_handle(),
             retry_details: cx.focus_handle(),
-            retry_sources: cx.focus_handle(),
             autoplay: intent.is_some(),
             launched: Instant::now(),
             revealed: None,
@@ -144,6 +143,7 @@ impl Film {
             images,
             details_task: None,
             sources_task: None,
+            subtitles_task: None,
             library_task: None,
             save_task: None,
             _state: observer,

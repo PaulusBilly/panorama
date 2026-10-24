@@ -237,6 +237,8 @@ pub struct SubtitlePreferences {
     pub delay: f64,
     /// Percent of the video height between the bottom edge and the cue.
     pub vertical_position: f64,
+    /// The language last chosen in the panel, turned on for the next film; `None` is off.
+    pub language: Option<crate::routes::player::subtitles::Lang>,
 }
 
 impl Default for SubtitlePreferences {
@@ -253,6 +255,7 @@ impl Default for SubtitlePreferences {
             box_rounding: 0.0,
             delay: 0.0,
             vertical_position: 15.0,
+            language: None,
         }
     }
 }
@@ -330,6 +333,10 @@ impl SubtitlePreferences {
             box_rounding: number("borderRadius", Field::BoxRounding),
             delay: 0.0,
             vertical_position: number("verticalPosition", Field::VerticalPosition),
+            language: record
+                .get("language")
+                .and_then(Value::as_str)
+                .and_then(crate::routes::player::subtitles::Lang::parse),
         }
     }
 
@@ -352,6 +359,7 @@ impl SubtitlePreferences {
             "backgroundOpacity": self.box_opacity,
             "borderRadius": self.box_rounding,
             "verticalPosition": self.vertical_position,
+            "language": self.language.map(|lang| lang.code()),
         });
         serde_json::to_vec(&value).unwrap_or_default()
     }

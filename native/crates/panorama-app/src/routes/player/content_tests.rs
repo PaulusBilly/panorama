@@ -208,6 +208,7 @@ fn subtitle_rows_follow_the_view_and_explain_empty_columns() {
         lang: Some(lang.into()),
         codec: Some("subrip".into()),
         selected,
+        external: false,
     };
     let mut tracks = vec![
         track(1, "eng", "English", false),
@@ -260,6 +261,7 @@ fn audio_rows_mirror_the_track_list() {
             lang: None,
             codec: None,
             selected: false,
+            external: false,
         },
         Track {
             id: 7,
@@ -268,6 +270,7 @@ fn audio_rows_mirror_the_track_list() {
             lang: None,
             codec: None,
             selected: true,
+            external: false,
         },
     ];
     let content = audio(&model);

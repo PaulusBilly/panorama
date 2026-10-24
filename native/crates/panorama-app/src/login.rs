@@ -242,7 +242,9 @@ impl Render for LoginDialog {
                             .compact()
                             .focus(&self.close, keyboard)
                             .tab_stop(!self.closing)
-                            .on_click(cx.listener(|dialog, _, window, cx| dialog.close(window, cx))),
+                            .on_click(
+                                cx.listener(|dialog, _, window, cx| dialog.close(window, cx)),
+                            ),
                     ),
             )
             .child(self.field("Email", &self.email, short, theme, window, cx))

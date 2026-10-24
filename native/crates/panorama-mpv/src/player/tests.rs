@@ -118,3 +118,37 @@ fn set_property_accepts_only_listed_names() {
     player.set_property("mute", true).unwrap();
     assert!(matches!(incoming.try_recv(), Ok(Request::Property(name, _)) if name == "mute"));
 }
+
+#[test]
+fn subtitles_are_added_only_from_web_urls_and_not_selected() {
+    let (player, incoming, completed) = fake();
+    for url in [
+        "file:///etc/passwd",
+        "edl://x",
+        "/tmp/a.srt",
+        "av://lavfi:x",
+    ] {
+        assert_eq!(
+            player.add_subtitle(url, "Addon", "eng"),
+            Err(MpvError::InvalidArgument),
+            "{url}"
+        );
+    }
+    player
+        .add_subtitle("https://subs.invalid/a.srt", "OpenSubtitles", "eng")
+        .unwrap();
+    let Request::Command(args) = incoming.recv().unwrap() else {
+        panic!("expected a command");
+    };
+    assert_eq!(
+        args,
+        [
+            "sub-add",
+            "https://subs.invalid/a.srt",
+            "auto",
+            "OpenSubtitles",
+            "eng"
+        ]
+    );
+    completed.send(Ok(())).unwrap();
+}

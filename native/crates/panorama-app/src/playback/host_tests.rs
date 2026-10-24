@@ -43,6 +43,7 @@ fn selection() -> PlaybackSelection {
         source: SourceRef::default(),
         start: StartMode::Restart,
         meta_base: None,
+        subtitles: vec![],
     }
 }
 fn setup() -> (Runner, Arc<FakeBackend>, Arc<RecordingProgress>) {
@@ -419,5 +420,42 @@ async fn a_failure_after_the_first_frame_is_shown_not_skipped() {
     assert_eq!(
         runner.model.status,
         Status::Error(PlaybackError::SourceUnavailable)
+    );
+}
+
+#[tokio::test]
+async fn the_films_subtitle_files_reach_every_source_and_not_the_next_film() {
+    let (mut runner, backend, _) = setup();
+    let file = |lang: &str| panorama_core::addons::SubtitleSource {
+        url: format!("https://subs.test/{lang}.srt").parse().unwrap(),
+        lang: lang.into(),
+        addon: "OpenSubtitles".into(),
+    };
+    let mut first = selection();
+    first.subtitles = vec![file("eng"), file("ind")];
+    runner.control(Command::Headless(Box::new(first))).await;
+    resolve(&mut runner).await;
+    assert!(lock(&backend.log).contains(&"add-subtitles:eng,ind".to_owned()));
+    // The next source of the same film gets them again.
+    runner
+        .control(Command::SwitchSource(SourceRef {
+            group: 0,
+            stream: 1,
+        }))
+        .await;
+    resolve(&mut runner).await;
+    let log = lock(&backend.log).clone();
+    let second_load = log.iter().rposition(|label| label == "load").unwrap();
+    assert!(log[second_load..].contains(&"add-subtitles:eng,ind".to_owned()));
+    // Another film without files adds none.
+    lock(&backend.log).clear();
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    assert!(
+        !lock(&backend.log)
+            .iter()
+            .any(|label| label.starts_with("add-subtitles"))
     );
 }

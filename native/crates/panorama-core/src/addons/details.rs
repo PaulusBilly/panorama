@@ -4,7 +4,7 @@ use stremio_core::types::addon::{ResourcePath, ResourceResponse};
 
 use super::{
     AddonClient, AddonKey, DetailsStream, FailureKind, FilmDetails, ResourceEvent, StreamGroup,
-    StreamState, StreamsEvent, StreamsStream, delivery, sanitize, supports,
+    StreamState, StreamsEvent, StreamsStream, SubtitleSource, delivery, sanitize, supports,
 };
 use crate::{store::Key, stremio::Descriptor};
 
@@ -121,9 +121,15 @@ impl AddonClient {
                                                 .previews
                                                 .iter()
                                                 .find(|p| p.id == id)
-                                                && credits.country.is_some()
                                             {
-                                                details.origin_country.clone_from(&credits.country);
+                                                if credits.country.is_some() {
+                                                    details
+                                                        .origin_country
+                                                        .clone_from(&credits.country);
+                                                }
+                                                details
+                                                    .original_name
+                                                    .clone_from(&credits.original_name);
                                             }
                                             details
                                         })
@@ -155,6 +161,31 @@ impl AddonClient {
             }
             .boxed()
         })
+    }
+
+    /// Subtitle files from every addon offering them for the film, queried concurrently with
+    /// 10s deadlines. An addon that fails adds nothing: subtitles never hold up playback.
+    pub async fn subtitles(&self, addons: &[Descriptor], film_id: &str) -> Vec<SubtitleSource> {
+        if !sanitize::valid_id(film_id) {
+            return vec![];
+        }
+        let path = ResourcePath::without_extra("subtitles", "movie", film_id);
+        let plan = self
+            .installations(addons)
+            .filter(|addon| supports(addon, &path, false))
+            .collect::<Vec<_>>();
+        let requests = plan.iter().map(|addon| {
+            let path = path.clone();
+            async move {
+                self.request(addon, path, 10)
+                    .await
+                    .and_then(|response| {
+                        sanitize::subtitles(response, &addon.descriptor.manifest.name)
+                    })
+                    .unwrap_or_default()
+            }
+        });
+        join_all(requests).await.into_iter().flatten().collect()
     }
 
     /// Queries matching stream resources concurrently, with isolated 15s deadlines.

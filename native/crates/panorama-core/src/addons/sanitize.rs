@@ -91,10 +91,17 @@ pub(super) fn credits(value: &serde_json::Value) -> Credits {
                     .or_else(|| item.get("originCountry"))
                     .and_then(|v| v.as_str())
                     .and_then(country);
+                // ponytail: field names used by TMDB-backed addons; extend when another appears.
+                let original_name = ["originalName", "original_title", "originalTitle"]
+                    .into_iter()
+                    .find_map(|field| item.get(field)?.as_str())
+                    .map(|name| text(name.trim(), 300))
+                    .filter(|name| !name.is_empty());
                 Some(super::PreviewCredits {
                     id: id.into(),
                     director,
                     country,
+                    original_name,
                 })
             })
             .collect(),
@@ -143,6 +150,7 @@ pub(super) fn parse(response: TransportResponse) -> Result<Response, FailureKind
                         id: p.id,
                         director: p.director.iter().take(100).map(|v| text(v, 300)).collect(),
                         country: p.country.as_deref().and_then(country),
+                        original_name: p.original_name.as_deref().map(|v| text(v, 300)),
                     })
                     .collect(),
             };
@@ -197,6 +205,7 @@ pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> 
         description: optional(preview.description, 5000),
         director,
         origin_country: category_country(&links),
+        original_name: None,
         cast,
         poster: image(preview.poster),
         background: image(preview.background),
@@ -226,6 +235,9 @@ pub(super) fn films(response: Response, thin: bool) -> Result<Vec<FilmDetails>, 
                 if credits.country.is_some() {
                     film.origin_country.clone_from(&credits.country);
                 }
+                if credits.original_name.is_some() {
+                    film.original_name.clone_from(&credits.original_name);
+                }
             }
             film
         })
@@ -238,6 +250,49 @@ fn category_country(links: &[stremio_core::types::resource::Link]) -> Option<Str
         .iter()
         .find(|link| link.category.eq_ignore_ascii_case("country"))
         .and_then(|link| country(&link.name))
+}
+
+/// At most this many subtitle files from one addon or one stream.
+const SUBTITLE_LIMIT: usize = 100;
+
+fn subtitle(
+    item: stremio_core::types::resource::Subtitles,
+    addon: &str,
+) -> Option<super::SubtitleSource> {
+    (matches!(item.url.scheme(), "https" | "http") && item.url.as_str().len() <= 4096).then(|| {
+        super::SubtitleSource {
+            url: item.url,
+            lang: text(item.lang.trim(), 50),
+            addon: text(addon, 300),
+        }
+    })
+}
+
+pub(super) fn subtitles(
+    response: Response,
+    addon: &str,
+) -> Result<Vec<super::SubtitleSource>, FailureKind> {
+    let ResourceResponse::Subtitles { subtitles } = response.core else {
+        return Err(FailureKind::InvalidResponse);
+    };
+    Ok(subtitles
+        .into_iter()
+        .filter_map(|item| subtitle(item, addon))
+        .take(SUBTITLE_LIMIT)
+        .collect())
+}
+
+impl StreamSource {
+    /// Subtitle files the stream carries itself, credited to `addon`.
+    pub fn subtitles(&self, addon: &str) -> Vec<super::SubtitleSource> {
+        self.stream
+            .subtitles
+            .iter()
+            .cloned()
+            .filter_map(|item| subtitle(item, addon))
+            .take(SUBTITLE_LIMIT)
+            .collect()
+    }
 }
 
 pub(super) fn sources(response: Response) -> Result<Vec<StreamSource>, FailureKind> {

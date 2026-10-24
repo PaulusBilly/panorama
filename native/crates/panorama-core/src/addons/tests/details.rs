@@ -314,7 +314,10 @@ async fn full_resource_declarations_inherit_manifest_constraints_and_preferred_m
 #[test]
 fn origin_is_one_country_with_a_short_name() {
     let country = super::sanitize::country;
-    assert_eq!(country("United States of America").as_deref(), Some("United States"));
+    assert_eq!(
+        country("United States of America").as_deref(),
+        Some("United States")
+    );
     assert_eq!(country("USA").as_deref(), Some("United States"));
     assert_eq!(country("France, Belgium").as_deref(), Some("France"));
     assert_eq!(
@@ -325,4 +328,76 @@ fn origin_is_one_country_with_a_short_name() {
     assert_eq!(country("  ,France").as_deref(), Some("France"));
     assert_eq!(country(" , "), None);
     assert_eq!(country(""), None);
+}
+
+#[test]
+fn original_title_is_read_from_any_known_field() {
+    let credits = super::sanitize::credits(&json!({"metas": [
+        {"id": "tt1", "originalName": "Faust: Eine deutsche Volkssage"},
+        {"id": "tt2", "original_title": "Fallen Angels"},
+        {"id": "tt3", "originalTitle": "  "},
+        {"id": "tt4"},
+    ]}));
+    let names: Vec<_> = credits
+        .previews
+        .iter()
+        .map(|p| p.original_name.as_deref())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            Some("Faust: Eine deutsche Volkssage"),
+            Some("Fallen Angels"),
+            None,
+            None
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn subtitles_come_from_every_offering_addon_and_failures_add_nothing() {
+    let fake = Fake::default();
+    let client = client(&fake).await;
+    let subs = |host: &str| {
+        addon(
+            host,
+            &format!("{host}.id"),
+            json!([]),
+            json!(["subtitles"]),
+            json!(["tt"]),
+        )
+    };
+    let addons = [
+        subs("open.test"),
+        subs("down.test"),
+        home_addon("streams.test"),
+    ];
+    fake.set(
+        "open.test",
+        "subtitles",
+        "tt1",
+        Reply::json(json!({"subtitles":[
+            {"id":"1","lang":" eng ","url":"https://subs.test/1.srt"},
+            {"id":"2","lang":"ind","url":"file:///etc/passwd"},
+            {"id":"3","lang":"ind","url":"http://subs.test/3.srt"}
+        ]})),
+    );
+    fake.set(
+        "down.test",
+        "subtitles",
+        "tt1",
+        Reply::error(FailureKind::Network),
+    );
+    let found = client.subtitles(&addons, "tt1").await;
+    assert_eq!(
+        found
+            .iter()
+            .map(|sub| (sub.url.as_str(), sub.lang.as_str(), sub.addon.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("https://subs.test/1.srt", "eng", "open.test"),
+            ("http://subs.test/3.srt", "ind", "open.test"),
+        ]
+    );
+    assert!(client.subtitles(&addons, "bad/id").await.is_empty());
 }

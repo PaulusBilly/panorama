@@ -202,7 +202,7 @@ pub fn caption(film: &FilmDetails, theme: Theme) -> Div {
                 div()
                     .min_w_0()
                     .truncate()
-                    .weight(FontWeight::BOLD)
+                    .weight(FontWeight::MEDIUM)
                     .child(film.director.join(", ").to_uppercase()),
             )
         })

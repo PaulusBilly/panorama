@@ -335,6 +335,14 @@ impl Playback for FakePlayback {
                 if setup.mpv_visible { "mpv" } else { "gpui" },
                 setup.style.delay
             ),
+            Command::AddSubtitles(files) => format!(
+                "add-subtitles:{}",
+                files
+                    .iter()
+                    .map(|file| file.lang.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
             Command::Output(properties) => format!(
                 "output:{}",
                 properties

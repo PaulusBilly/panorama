@@ -22,12 +22,16 @@ impl Home {
         let row_height = (!lineup.row.is_empty()).then(ContinueRow::height);
         self.fold = hero::fold(view, row_height);
         let fold = self.fold;
+        let hero_height = hero::height(view);
+        // The artwork fades out midway between the hero actions and the Continue heading.
+        let art_height = hero_height - hero::ROW_GAP / 2.0;
         let visible = view.active && -f32::from(self.scroll.offset().y) < fold;
         let film = lineup.hero.map(|hero| hero.film().clone());
         self.track_saved(film.as_ref().map(|film| film.id.as_str()), cx);
 
         let art = film.as_ref().and_then(|film| {
-            let (image, poster, _) = self.artwork(film, (view.width, fold), visible, window, cx);
+            let (image, poster, _) =
+                self.artwork(film, (view.width, art_height), visible, window, cx);
             image.map(|image| (image, poster))
         });
         let services = self.state.read(cx).services.clone();
@@ -45,13 +49,7 @@ impl Home {
                 images.request(url.as_str(), hero::LOGO, &services, window, cx)
             })
         });
-        let mut content = div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .flex_col()
-            .justify_end()
-            .pb(px(hero::FOLD_PAD));
+        let mut content = div().absolute().inset_0().flex().flex_col();
         if let Some(featured) = lineup.hero {
             let state = HeroState {
                 logo_pending: logo_url.is_some() && logo.is_none(),
@@ -62,11 +60,18 @@ impl Home {
             };
             let block = hero::render(featured, state, &self.hero, view, window, cx)
                 .ml(px(view.column().left));
-            content = content.child(if row_height.is_some() {
-                block.mb(px(hero::ROW_GAP))
-            } else {
-                block.mb(px(hero::below(None) - hero::FOLD_PAD))
-            });
+            content = content.child(
+                div()
+                    .h(px(hero_height))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .justify_end()
+                    .pb(px(hero::ROW_GAP))
+                    .child(block),
+            );
+        } else {
+            content = content.child(div().h(px(hero_height)).flex_shrink_0());
         }
         if row_height.is_some() {
             content = content.child(self.row.render(
@@ -87,8 +92,16 @@ impl Home {
             .flex_shrink_0()
             .overflow_hidden()
             .aria_label("Featured film")
-            .child(hero::backdrop(art, (view.width, fold), view.reduced))
-            .child(hero::scrims(view.theme, view.column(), view.width))
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .w_full()
+                    .h(px(art_height))
+                    .child(hero::backdrop(art, (view.width, art_height), view.reduced))
+                    .child(hero::scrims(view.theme, view.column(), view.width)),
+            )
             .child(content)
     }
     fn grid(&mut self, view: ViewSettings, window: &Window, cx: &mut Context<Self>) -> Div {

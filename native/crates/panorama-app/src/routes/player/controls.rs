@@ -230,7 +230,7 @@ impl Player {
                     .size(px(1.0))
                     .opacity(0.0)
                     .on_click(cx.listener(|player, _, _, cx| {
-                        player.send(crate::playback::host::Command::TogglePause, cx);
+                        player.toggle_pause(cx);
                     })),
                 handle,
                 focus_theme(theme),
@@ -260,7 +260,7 @@ impl Player {
             keyboard,
             window,
             cx,
-            |player, _, cx| player.send(crate::playback::host::Command::TogglePause, cx),
+            |player, _, cx| player.toggle_pause(cx),
         )
     }
 
@@ -271,6 +271,7 @@ impl Player {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
+        let (title, logo) = self.title(theme, window, cx);
         let shown = self.scrub.shown(self.model.time.unwrap_or(0.0));
         let (played, buffered) =
             range::fractions(self.model.duration, shown, self.model.buffered_until);
@@ -400,21 +401,76 @@ impl Player {
                 linear_color_stop(theme.player_canvas.opacity(0.0), 1.0),
             ))
             .child(
+                // A logo sits on the pill's bottom edge and grows upward; a text title centres.
                 div()
                     .flex()
-                    .items_center()
+                    .map(|row| {
+                        if logo {
+                            row.items_end()
+                        } else {
+                            row.items_center()
+                        }
+                    })
                     .justify_between()
                     .gap(px(24.0))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .title()
-                            .weight(FontWeight::BOLD)
-                            .truncate()
-                            .child(self.model.title.clone()),
-                    )
+                    .child(title)
                     .child(triggers),
             )
             .child(seek)
+    }
+}
+
+/// Largest logo in the bottom bar.
+const TITLE_LOGO: (f32, f32) = (260.0, 64.0);
+
+impl Player {
+    /// The film's logo, or its name while there is none or it failed to load; true for a logo.
+    fn title(
+        &self,
+        theme: Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> (gpui::AnyElement, bool) {
+        let state = self.state.read(cx);
+        let (images, services) = (state.images.clone(), state.services.clone());
+        let logo = self
+            .logo
+            .as_ref()
+            .zip(services)
+            .and_then(|(url, services)| {
+                images.update(cx, |images, cx| {
+                    images.request(url.as_str(), crate::hero::FILM_LOGO, &services, window, cx)
+                })
+            });
+        let title = div().id("player-title").min_w_0();
+        let Some(logo) = logo else {
+            return (
+                title
+                    .title()
+                    .weight(FontWeight::MEDIUM)
+                    .text_color(theme.ink)
+                    .truncate()
+                    .child(self.model.title.clone())
+                    .into_any_element(),
+                false,
+            );
+        };
+        let size = logo.image.size(0);
+        let (width, height) = (size.width.0 as f32, size.height.0 as f32);
+        let ratio = (TITLE_LOGO.0 / width)
+            .min(TITLE_LOGO.1 / height)
+            .min(1.0 / window.scale_factor());
+        (
+            title
+                .role(gpui::Role::Heading)
+                .aria_label(self.model.title.clone())
+                .child(
+                    gpui::img(logo.image)
+                        .w(px(width * ratio))
+                        .h(px(height * ratio)),
+                )
+                .into_any_element(),
+            true,
+        )
     }
 }

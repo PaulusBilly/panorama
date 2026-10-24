@@ -8,6 +8,7 @@ fn track(id: i64, lang: Option<&str>, label: &str, codec: &str, selected: bool) 
         lang: lang.map(str::to_owned),
         codec: Some(codec.into()),
         selected,
+        external: false,
     }
 }
 
@@ -158,4 +159,53 @@ fn a_language_without_tracks_selects_nothing() {
     assert_eq!(state.choose(Choice::Lang(Lang::Id), &list), None);
     assert_eq!(state.view(&list).active, Choice::Lang(Lang::Id));
     assert!(state.view(&list).tracks.is_empty());
+}
+
+#[test]
+fn addon_files_are_named_after_their_addon_beside_built_in_tracks() {
+    let addon = |id, lang| Track {
+        external: true,
+        ..track(id, Some(lang), "OpenSubtitles", "subrip", false)
+    };
+    let mut tracks = vec![
+        track(1, Some("eng"), "English", "subrip", true),
+        addon(8, "eng"),
+        addon(9, "eng"),
+        addon(10, "ind"),
+    ];
+    let view = State::default().view(&tracks);
+    assert_eq!(
+        view.tracks
+            .iter()
+            .map(|row| (row.label.as_str(), row.description.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("Embedded 1 \u{b7} subrip", None),
+            ("OpenSubtitles \u{b7} 1", None),
+            ("OpenSubtitles \u{b7} 2", None),
+        ]
+    );
+    // An addon's language is offered even when the video has no track in it.
+    select(&mut tracks, None);
+    assert_eq!(
+        State::default().view(&tracks).languages,
+        [Choice::Off, Choice::Lang(Lang::En), Choice::Lang(Lang::Id)]
+    );
+}
+
+#[test]
+fn the_remembered_language_turns_on_once_until_the_viewer_chooses() {
+    let mut tracks = vec![track(1, Some("fra"), "French", "subrip", false)];
+    let mut state = State::default();
+    // Not there yet: an addon's files arrive after the built-in tracks.
+    assert_eq!(state.restore(Lang::En, &tracks), None);
+    tracks.push(track(8, Some("eng"), "OpenSubtitles", "subrip", false));
+    assert_eq!(state.restore(Lang::En, &tracks), Some(8));
+    select(&mut tracks, Some(8));
+    // Later track lists leave the selection and any choice alone.
+    assert_eq!(state.restore(Lang::En, &tracks), None);
+    let mut chose_off = State::default();
+    chose_off.choose(Choice::Off, &tracks);
+    select(&mut tracks, None);
+    assert_eq!(chose_off.restore(Lang::En, &tracks), None);
 }

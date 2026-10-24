@@ -49,6 +49,7 @@ impl Player {
             self.args.subtitle_prefs.is_some() || self.args.playback_settings.is_some();
         self.ui.loaded = true;
         self.sync_subtitles(cx);
+        self.restore_language(cx);
         self.reconcile_devices(cx);
         if self.ui.output != PlaybackSettings::default() {
             self.apply_output(cx);
@@ -154,7 +155,26 @@ impl Player {
         if let Some(id) = selection {
             self.select_subtitle(id, cx);
         }
+        let language = match choice {
+            Choice::Off => None,
+            Choice::Lang(lang) => Some(lang),
+        };
+        if self.ui.prefs.language != language {
+            self.ui.prefs.language = language;
+            self.schedule_save(0, cx);
+        }
         cx.notify();
+    }
+
+    /// Turn on the remembered language once its track shows up: built-in tracks arrive with
+    /// the file, an addon's a few seconds later.
+    pub(super) fn restore_language(&mut self, cx: &mut Context<Self>) {
+        let Some(lang) = self.ui.prefs.language.filter(|_| self.ui.loaded) else {
+            return;
+        };
+        if let Some(id) = self.ui.subs.restore(lang, &self.model.subtitles) {
+            self.select_subtitle(Some(id), cx);
+        }
     }
 
     /// Pick a track in the Track column.

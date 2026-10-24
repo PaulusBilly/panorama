@@ -61,6 +61,7 @@ impl Film {
         };
         self.sources_loading = true;
         self.sources_error = false;
+        self.look_up_subtitles(&services, cx);
         self.groups.clear();
         self.selected = None;
         let addons = self.installed.clone();
@@ -113,6 +114,30 @@ impl Film {
             }
         }));
         cx.notify();
+    }
+    /// Ask the addons for subtitle files alongside the sources. Fixture runs have none.
+    fn look_up_subtitles(
+        &mut self,
+        services: &Arc<crate::services::Services>,
+        cx: &mut Context<Self>,
+    ) {
+        self.subtitles = None;
+        let addons = self.installed.clone();
+        let id = self.id.clone();
+        let lookup = services.clone();
+        let mut job = Job(services.runtime.clone().spawn(async move {
+            match &lookup.addons {
+                Some(client) => client.subtitles(&addons, &id).await,
+                None => vec![],
+            }
+        }));
+        self.subtitles_task = Some(cx.spawn(async move |entity, cx| {
+            let files = (&mut job.0).await.unwrap_or_default();
+            let _ = entity.update(cx, |film, cx| {
+                film.subtitles = Some(files);
+                cx.notify();
+            });
+        }));
     }
     pub(super) fn subscribe_library(&mut self, cx: &mut Context<Self>) {
         self.library_task = None;

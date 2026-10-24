@@ -6,21 +6,32 @@ use crate::{
     image_cache::CachedImage,
     routes::home::{Home, lineup::Featured},
     theme::{
-        Column, Theme, caps, credits,
+        Column, Theme, caps,
         scrim::{Edge, scrim},
-        typography::{DISPLAY, HEADING, TypeStyle},
+        typography::{CREDIT_LEAD, CREDIT_NAME, CREDIT_PLACE, DISPLAY, TypeStyle},
     },
 };
-use gpui::{Context, Div, FocusHandle, RenderImage, Window, div, img, prelude::*, px, relative};
+use gpui::{
+    Context, Div, FocusHandle, FontFeatures, RenderImage, Window, div, img, prelude::*, px,
+    relative,
+};
 use std::sync::Arc;
 
 const TOP: f32 = 72.0;
-const CREDITS_GAP: f32 = 12.0;
-const ACTIONS_GAP: f32 = 32.0;
+const ORIGINAL_GAP: f32 = 6.0;
+const CREDITS_GAP: f32 = 16.0;
+const PLACE_GAP: f32 = 2.0;
+const ACTIONS_GAP: f32 = 28.0;
 pub const ROW_GAP: f32 = 56.0;
-const BARE_GAP: f32 = 96.0;
 pub const FOLD_PAD: f32 = 48.0;
-pub const LOGO: (f32, f32) = (310.0, 128.0);
+/// Share of the window the hero takes, leaving the Continue row in view beneath it.
+const HERO_SHARE: f32 = 0.72;
+/// The film page has more room than the home hero, so its logo cap is larger. The player
+/// asks for the same size, so its title reuses the decoded image.
+pub const FILM_LOGO: (f32, f32) = (280.0, 112.0);
+pub const LOGO: (f32, f32) = (200.0, 80.0);
+/// Largest text title; the logo cap keeps image titles to the same weight on the page.
+const TITLE_MAX: f32 = 44.0;
 
 pub struct HeroFocus {
     pub primary: FocusHandle,
@@ -49,10 +60,10 @@ pub struct HeroState {
     pub saving: bool,
 }
 
-/// Display type scaled down on narrow windows, where 52 px titles crowd the column.
-fn title_style(width: f32) -> TypeStyle {
+/// Display type scaled down on narrow windows, where large titles crowd the column.
+pub fn title_style(width: f32) -> TypeStyle {
     TypeStyle {
-        size: (width * 0.04).clamp(36.0, DISPLAY.size),
+        size: (width * 0.032).clamp(32.0, TITLE_MAX),
         ..DISPLAY
     }
 }
@@ -62,14 +73,19 @@ fn compact(width: f32) -> bool {
     width <= 700.0
 }
 
-/// Height of the first viewport: the window, or more when the hero and row need it. The title
+/// Height of the hero: most of the window, or more when the title block needs it. The title
 /// is budgeted at two lines (it is clamped there) and the block sits at the bottom, so a
 /// one-line title just leaves more backdrop above it.
-pub fn fold(view: ViewSettings, row_height: Option<f32>) -> f32 {
+pub fn height(view: ViewSettings) -> f32 {
     let title = title_style(view.width);
+    let line = |style: TypeStyle| style.size * style.line_height;
     let block = (2.0 * title.size * title.line_height).max(LOGO.1)
+        + ORIGINAL_GAP
+        + line(CREDIT_NAME)
         + CREDITS_GAP
-        + HEADING.size * HEADING.line_height
+        + line(CREDIT_NAME)
+        + PLACE_GAP
+        + line(CREDIT_PLACE)
         + ACTIONS_GAP
         + if compact(view.width) {
             Size::Compact
@@ -77,15 +93,15 @@ pub fn fold(view: ViewSettings, row_height: Option<f32>) -> f32 {
             Size::Regular
         }
         .height();
-    view.height.max(TOP + block + below(row_height))
+    (view.height * HERO_SHARE).max(TOP + block + ROW_GAP)
 }
 
-/// Space under the hero block: the Continue row and its padding, or a bare gap.
-pub fn below(row_height: Option<f32>) -> f32 {
-    row_height.map_or(BARE_GAP, |row| ROW_GAP + row + FOLD_PAD)
+/// Height of the first viewport: the hero, then the Continue row on the canvas below it.
+pub fn fold(view: ViewSettings, row_height: Option<f32>) -> f32 {
+    height(view) + row_height.map_or(0.0, |row| row + FOLD_PAD)
 }
 
-/// Full-width artwork behind the first viewport, from x = 0 so it runs under the sidebar.
+/// Full-width artwork behind the hero, from x = 0 so it runs under the sidebar.
 /// With no image the canvas shows through and the layout stays put.
 pub fn backdrop(art: Option<(CachedImage, bool)>, bounds: (f32, f32), reduced: bool) -> Div {
     let frame = div().absolute().inset_0();
@@ -138,22 +154,30 @@ pub fn render(
                 .child(caps(&film.name)),
         );
     }
-    // Reserved even while empty, so credits arriving with details never move the title.
-    title = title.child(
-        HEADING
-            .apply(credits(film, theme))
-            .min_h(px(HEADING.size * HEADING.line_height))
-            .mt(px(CREDITS_GAP)),
-    );
+    title = title.child(byline(film));
 
     let compact = compact(view.width);
     let size = |button: Button| if compact { button.compact() } else { button };
     let play = film.clone();
     let resume = featured.resume();
+    let left = resume.and_then(|point| {
+        crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
+    });
+    let mut primary = Button::primary(
+        "hero-primary",
+        left.clone()
+            .unwrap_or_else(|| featured.action_label().to_owned()),
+    );
+    if let (Some(point), Some(_)) = (resume, &left) {
+        primary = primary.progress((point.offset_secs / point.duration_secs) as f32);
+    }
     let primary = size(
-        Button::primary("hero-primary", featured.action_label())
+        primary
             .leading(Icon::Play)
-            .aria_label(format!("{} {}", featured.action_label(), film.name))
+            .aria_label(match &left {
+                Some(time) => format!("Continue {}, {time} left", film.name),
+                None => format!("{} {}", featured.action_label(), film.name),
+            })
             .focus(&focus.primary, view.keyboard)
             .tab_stop(view.active)
             .on_click(
@@ -206,6 +230,56 @@ pub fn render(
         .flex_col()
         .child(title)
         .child(actions)
+}
+
+/// Everything under a film's display title, shared by the home hero and the film page: the
+/// original-language title when it differs, then director, origin and year. The credit rows keep
+/// their height while empty, so details arriving after the catalog card never move the title.
+pub fn byline(film: &panorama_core::addons::FilmDetails) -> Div {
+    let line = |style: TypeStyle| px(style.size * style.line_height);
+    let place = [film.origin_country.as_deref(), film.release_info.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let original = film
+        .original_name
+        .as_deref()
+        .filter(|original| !original.eq_ignore_ascii_case(&film.name))
+        .map(|original| {
+            CREDIT_NAME
+                .apply(div())
+                .mt(px(ORIGINAL_GAP))
+                .line_clamp(1)
+                .child(caps(original))
+        });
+    div()
+        .flex()
+        .flex_col()
+        .children(original)
+        .font_features(FontFeatures(Arc::new(vec![
+            ("tnum".into(), 1),
+            ("kern".into(), 1),
+        ])))
+        .child(
+            div()
+                .mt(px(CREDITS_GAP))
+                .min_h(line(CREDIT_NAME))
+                .flex()
+                .items_baseline()
+                .gap(px(6.0))
+                .when(!film.director.is_empty(), |row| {
+                    row.child(CREDIT_LEAD.apply(div()).child("Directed by"))
+                        .child(CREDIT_NAME.apply(div()).child(film.director.join(", ")))
+                }),
+        )
+        .child(
+            CREDIT_PLACE
+                .apply(div())
+                .mt(px(PLACE_GAP))
+                .min_h(line(CREDIT_PLACE))
+                .child(place),
+        )
 }
 
 /// CSS cover with explicit 50% 28% positioning for poster fallback.
