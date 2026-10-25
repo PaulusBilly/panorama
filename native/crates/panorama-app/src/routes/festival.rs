@@ -60,8 +60,8 @@ pub struct Festival {
     results: HashMap<u64, (AwardResult, Option<String>)>,
     /// The addon lookup in flight: started on hover, so a click usually finds it done.
     lookup: Option<Lookup>,
-    /// Cards already looked up: their addon film, or `None` when no addon has it.
-    found: HashMap<usize, Option<FilmDetails>>,
+    /// Cards already found in the addons.
+    found: HashMap<usize, FilmDetails>,
     grid: FilmGrid,
     scroll: ScrollHandle,
     images: Entity<ImageCache>,
@@ -259,7 +259,7 @@ impl Festival {
     /// while its lookup runs only updates what happens when it lands.
     fn resolve(&mut self, index: usize, play: bool, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(found) = self.found.get(&index).cloned() {
-            self.finish(index, found, play, window, cx);
+            self.finish(index, Some(found), play, window, cx);
             return;
         }
         if !self
@@ -284,24 +284,21 @@ impl Festival {
         let Some(services) = state.services.clone() else {
             return;
         };
-        let (job, mut receiver) = services.search_each(state.installed.clone(), film.title.clone());
+        let installed = state.installed.clone();
         let task = cx.spawn(async move |entity, cx| {
-            let _job = job;
-            let mut found = None;
             // The first addon to have it wins; the rest are not waited for.
-            while let Some(event) = receiver.next().await {
-                match event {
-                    ResourceEvent::CacheHit(results) | ResourceEvent::Fresh(results) => {
-                        found = same_film(&film, results);
-                        if found.is_some() {
-                            break;
-                        }
-                    }
-                    ResourceEvent::Failed(_) => break,
-                }
+            let (job, receiver) = services.search_each(installed.clone(), film.title.clone());
+            let mut found = first_match(&film, job, receiver).await;
+            if found.is_none() {
+                // Some catalogs leave out the year; the full search fills it in before matching.
+                let (job, receiver) = services.search(installed, film.title.clone());
+                found = first_match(&film, job, receiver).await;
             }
             let then = entity.update(cx, |festival, cx| {
-                festival.found.insert(index, found.clone());
+                // A miss isn't kept: the next click asks again, with whatever addons are installed then.
+                if let Some(found) = &found {
+                    festival.found.insert(index, found.clone());
+                }
                 cx.notify();
                 let lookup = festival.lookup.take_if(|lookup| lookup.index == index)?;
                 lookup.then
@@ -407,6 +404,25 @@ impl Festival {
 
 /// An addon result that is the same film: the title folded equal and the year within one.
 /// Anything less goes to Search, where the user picks, rather than opening a namesake.
+/// The first search result that is `film`, reading `receiver` until one is or it ends.
+async fn first_match(
+    film: &FestivalFilm,
+    _job: crate::services::Job<()>,
+    mut receiver: futures::channel::mpsc::UnboundedReceiver<ResourceEvent<Vec<FilmDetails>>>,
+) -> Option<FilmDetails> {
+    while let Some(event) = receiver.next().await {
+        match event {
+            ResourceEvent::CacheHit(results) | ResourceEvent::Fresh(results) => {
+                if let Some(found) = same_film(film, results) {
+                    return Some(found);
+                }
+            }
+            ResourceEvent::Failed(_) => return None,
+        }
+    }
+    None
+}
+
 fn same_film(film: &FestivalFilm, results: Vec<FilmDetails>) -> Option<FilmDetails> {
     let title = fold(&film.title);
     let want = film.year?;
