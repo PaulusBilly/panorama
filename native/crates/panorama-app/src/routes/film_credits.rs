@@ -4,6 +4,7 @@ use crate::{
     carousel::Carousel,
     theme::{
         Theme, Typography, caps, focus_ring,
+        scrim::{Edge, scrim},
         typography::{CAPTION, CREDIT_NAME, CREDIT_PLACE, SECTION, TITLE, TypeStyle},
     },
 };
@@ -11,13 +12,13 @@ use gpui::{Div, ObjectFit, StyledImage, div, img, prelude::*, px, svg};
 use panorama_core::credits::{Award, AwardResult, Event, Person};
 
 const SECTION_GAP: f32 = 72.0;
+/// Between Cast & Crew, Awards & Festivals and the sources line.
+const ROW_GAP: f32 = 48.0;
 const HEADING_GAP: f32 = 16.0;
 const CARD_GAP: f32 = 6.0;
 const CARD_MIN: f32 = 150.0;
 /// Portrait height over width.
 const PHOTO_RATIO: f32 = 1.16;
-/// Room for a two-line name and the role under it.
-const CARD_TEXT: f32 = 88.0;
 const TILE_GAP: f32 = 40.0;
 const TILE_MIN: f32 = 240.0;
 /// Festival marks sit in a row this tall above the name, as on MUBI.
@@ -140,15 +141,17 @@ fn rail(
     id: &'static str,
     items: Vec<gpui::AnyElement>,
     gap: f32,
+    stretch: bool,
     carousel: &Carousel,
     view: ViewSettings,
     on_wheel: impl Fn(&gpui::ScrollWheelEvent, &mut Window, &mut gpui::App) + 'static,
-) -> gpui::Stateful<Div> {
+) -> Div {
     let col = view.column();
-    div()
+    let row = div()
         .id(id)
         .flex()
         .items_start()
+        .when(stretch, |row| row.items_stretch())
         .gap(px(gap))
         .py(px(RING))
         .my(px(-RING))
@@ -164,7 +167,12 @@ fn rail(
             div()
                 .flex_shrink_0()
                 .w(px((view.width - col.left - col.width - gap).max(0.0))),
-        )
+        );
+    // Items scrolled past fade into the gutter rather than ending at the window's edge.
+    div()
+        .relative()
+        .child(row)
+        .child(scrim(view.theme, Edge::Left, px(col.left), 1.0))
 }
 
 fn heading(title: &str, theme: Theme) -> Div {
@@ -177,17 +185,18 @@ fn heading(title: &str, theme: Theme) -> Div {
         .child(
             SECTION
                 .apply(div())
+                .text_size(px(SECTION.size + 2.0))
                 .text_color(theme.ink)
                 .child(caps(title)),
         )
 }
 
-fn source_note(text: &'static str, theme: Theme) -> Div {
+/// Where the rows above came from, once, under both.
+fn sources_line(sources: &[&str], theme: Theme) -> Div {
     CAPTION
         .apply(div())
-        .mt(px(16.0))
         .text_color(theme.ink_muted)
-        .child(text)
+        .child(sources.join(" · "))
 }
 
 impl Film {
@@ -214,14 +223,21 @@ impl Film {
             .pb(px(SECTION_GAP + 24.0))
             .flex()
             .flex_col()
-            .gap(px(SECTION_GAP));
+            .gap(px(ROW_GAP));
+        let mut sources = vec![];
         if !people.is_empty() {
             sections = sections.child(self.people_section(&people, col.width, view, window, cx));
+            sources.push("Cast and crew from TMDB");
         }
         if !self.awards.is_empty() {
             sections = sections.child(self.awards_section(col.width, view, window, cx));
+            sources.push(if self.awards.iter().any(|award| award.event.is_some()) {
+                "Awards and festivals from MUBI"
+            } else {
+                "Awards from Wikidata"
+            });
         }
-        Some(sections)
+        Some(sections.child(sources_line(&sources, view.theme).ml(px(col.left))))
     }
 
     fn people_section(
@@ -257,6 +273,7 @@ impl Film {
                 "film-people",
                 cards,
                 CARD_GAP,
+                true,
                 &self.people_rail,
                 view,
                 cx.listener(|film, _: &gpui::ScrollWheelEvent, _, cx| {
@@ -264,7 +281,6 @@ impl Film {
                     cx.notify();
                 }),
             ))
-            .child(source_note("Cast and crew from TMDB", theme).ml(px(col.left)))
     }
 
     fn person_card(
@@ -307,10 +323,13 @@ impl Film {
         };
         div().w(px(width)).flex().flex_col().child(photo).child(
             div()
-                .h(px(CARD_TEXT))
+                // Hugs the name and role; the row stretches every card to its tallest, so a
+                // wrapped name lengthens the set together.
+                .flex_1()
                 .bg(theme.surface)
                 .px(px(16.0))
                 .pt(px(14.0))
+                .pb(px(16.0))
                 .flex()
                 .flex_col()
                 .gap(px(4.0))
@@ -558,11 +577,6 @@ impl Film {
                 .into_any_element()
             })
             .collect();
-        let source = if self.awards.iter().any(|award| award.event.is_some()) {
-            "Awards and festivals from MUBI"
-        } else {
-            "Awards from Wikidata"
-        };
         // A tile reached from the keyboard glides onto the column.
         if view.keyboard
             && let Some(index) = self.award_tiles[..shown]
@@ -586,6 +600,7 @@ impl Film {
                 "film-awards",
                 tiles,
                 TILE_GAP,
+                false,
                 &self.awards_rail,
                 view,
                 cx.listener(|film, _: &gpui::ScrollWheelEvent, _, cx| {
@@ -593,11 +608,6 @@ impl Film {
                     cx.notify();
                 }),
             ))
-            .child(
-                source_note(source, theme)
-                    .ml(px(col.left))
-                    .mt(px(TILE_GAP * 0.75)),
-            )
     }
 }
 

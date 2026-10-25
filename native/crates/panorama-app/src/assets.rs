@@ -84,7 +84,7 @@ impl AssetSource for Assets {
 }
 
 /// The bundled static Aspekta faces, by file name.
-const FONTS: [(&str, &[u8]); 3] = [
+const FONTS: [(&str, &[u8]); 4] = [
     (
         "Aspekta-400.ttf",
         include_bytes!("../assets/fonts/Aspekta-400.ttf"),
@@ -92,6 +92,10 @@ const FONTS: [(&str, &[u8]); 3] = [
     (
         "Aspekta-500.ttf",
         include_bytes!("../assets/fonts/Aspekta-500.ttf"),
+    ),
+    (
+        "Aspekta-600.ttf",
+        include_bytes!("../assets/fonts/Aspekta-600.ttf"),
     ),
     (
         "Aspekta-700.ttf",
@@ -128,15 +132,17 @@ pub fn write_fonts(dir: &Path) -> std::io::Result<()> {
 }
 
 /// The family that holds `weight`. DirectWrite files each static Aspekta face under its own
-/// family ("Aspekta 400", "Aspekta 500", "Aspekta 700") because the faces name their weights with
+/// family ("Aspekta 400", "Aspekta 500", "Aspekta 600", "Aspekta 700") because the faces name their weights with
 /// numbers, so on Windows a weight change must also change the family.
 pub fn family(weight: FontWeight) -> &'static str {
     if !cfg!(target_os = "windows") {
         "Aspekta"
     } else if weight.0 < 450.0 {
         "Aspekta 400"
-    } else if weight.0 < 600.0 {
+    } else if weight.0 < 550.0 {
         "Aspekta 500"
+    } else if weight.0 < 650.0 {
+        "Aspekta 600"
     } else {
         "Aspekta 700"
     }

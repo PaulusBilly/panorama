@@ -395,6 +395,9 @@ impl Render for Film {
             .id("film-scroll")
             .size_full()
             .overflow_y_scroll()
+            // Sideways swipes belong to the carousels; without this the page turns them
+            // into vertical scrolling.
+            .restrict_scroll_to_axis()
             .track_scroll(&self.scroll)
             .on_scroll_wheel(cx.listener(|_, _, window, cx| {
                 cx.on_next_frame(window, |film, window, cx| film.tick(window, cx));

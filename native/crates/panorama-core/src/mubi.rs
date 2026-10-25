@@ -3,7 +3,7 @@
 //! page's sections; callers fall back to Wikidata (`crate::credits`) when MUBI has nothing.
 use crate::credits::{Award, AwardResult, CreditsError, Event, json, text};
 use serde_json::Value;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 use url::Url;
 
 const API: &str = "https://api.mubi.com/v4";
@@ -20,6 +20,8 @@ const MAX_PAGE: usize = 2 << 20;
 const TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_AWARDS: usize = 400;
 const MAX_FILMS: usize = 60;
+/// An edition's entries, one per film; the largest festivals run to a few hundred.
+const MAX_ENTRIES: usize = 2000;
 /// Synopses are a paragraph; MUBI's short ones run to about 300 characters.
 const MAX_SYNOPSIS: usize = 600;
 const MAX_YEARS: usize = 200;
@@ -49,6 +51,8 @@ pub struct Festival {
 /// A film in a festival's lineup.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FestivalFilm {
+    /// MUBI's film id, which [`MubiClient::festival_results`] is keyed by.
+    pub id: Option<u64>,
     pub title: String,
     pub year: Option<i32>,
     pub directors: Vec<String>,
@@ -58,6 +62,8 @@ pub struct FestivalFilm {
     pub minutes: Option<u32>,
     pub genres: Vec<String>,
     /// The film's best result at this edition and its category; `None` for a plain entry.
+    /// Filled in from [`MubiClient::festival_results`]: the films list only carries each
+    /// film's best-known award anywhere, which is not this festival's.
     pub result: Option<(AwardResult, Option<String>)>,
 }
 
@@ -150,6 +156,17 @@ impl MubiClient {
             .append_pair("year", &year.to_string())
             .append_pair("page", &page.max(1).to_string());
         Ok(films_from_json(&self.api(url).await?))
+    }
+
+    /// Each film's best result at one edition, by MUBI film id.
+    pub async fn festival_results(
+        &self,
+        event_id: u64,
+        year: i32,
+    ) -> Result<HashMap<u64, (AwardResult, Option<String>)>, CreditsError> {
+        let mut url = endpoint(&["industry_events", &event_id.to_string(), "film_entries"])?;
+        url.query_pairs_mut().append_pair("year", &year.to_string());
+        Ok(results_from_json(&self.api(url).await?, event_id))
     }
 
     async fn api(&self, url: Url) -> Result<Value, CreditsError> {
@@ -278,7 +295,7 @@ fn search_from_json(results: &Value, film: &FilmQuery<'_>) -> Option<u64> {
 fn result_from_status(status: &str) -> Option<AwardResult> {
     Some(match status {
         "won" => AwardResult::Won,
-        "second_place" => AwardResult::RunnerUp,
+        "second_place" | "third_place" => AwardResult::RunnerUp,
         "special_mention" | "honorable_mention" => AwardResult::Mention,
         "nominated" => AwardResult::Nominated,
         "screening" => AwardResult::Selected,
@@ -351,8 +368,8 @@ fn films_from_json(page: &Value) -> FestivalPage {
         .iter()
         .take(MAX_FILMS)
         .filter_map(|film| {
-            let entry = &film["highlighted_industry_event_entry"];
             Some(FestivalFilm {
+                id: film["id"].as_u64(),
                 title: text(&film["title"])?,
                 year: film["year"]
                     .as_i64()
@@ -381,10 +398,7 @@ fn films_from_json(page: &Value) -> FestivalPage {
                     .filter_map(text)
                     .take(4)
                     .collect(),
-                result: entry["status"]
-                    .as_str()
-                    .and_then(result_from_status)
-                    .map(|result| (result, text(&entry["display_text"]))),
+                result: None,
             })
         })
         .collect();
@@ -392,6 +406,36 @@ fn films_from_json(page: &Value) -> FestivalPage {
         .as_u64()
         .and_then(|next| u32::try_from(next).ok());
     FestivalPage { films, next_page }
+}
+
+/// `/industry_events/{id}/film_entries`: each film's entries at the edition, reduced to the
+/// best one. Entries for another event are skipped, should MUBI ever mix them in.
+fn results_from_json(films: &Value, event_id: u64) -> HashMap<u64, (AwardResult, Option<String>)> {
+    let empty = vec![];
+    let mut results = HashMap::new();
+    for film in films.as_array().unwrap_or(&empty).iter().take(MAX_ENTRIES) {
+        let Some(id) = film["film_id"].as_u64() else {
+            continue;
+        };
+        let best = film["industry_event_entries"]
+            .as_array()
+            .unwrap_or(&empty)
+            .iter()
+            .filter(|entry| {
+                entry["industry_event"]["id"]
+                    .as_u64()
+                    .is_none_or(|event| event == event_id)
+            })
+            .filter_map(|entry| {
+                let result = entry["status"].as_str().and_then(result_from_status)?;
+                Some((result, text(&entry["display_text"])))
+            })
+            .min_by_key(|(result, _)| *result);
+        if let Some(best) = best {
+            results.insert(id, best);
+        }
+    }
+    results
 }
 
 /// `yearsAvailable` from the festival page's `__NEXT_DATA__` JSON, newest first.
@@ -600,13 +644,33 @@ mod tests {
         assert_eq!(page.films[0].title, "Aftersun");
         assert_eq!(page.films[0].directors, ["Charlotte Wells"]);
         assert!(page.films[0].still.is_some());
-        assert_eq!(page.films[0].result, None);
-        assert_eq!(
-            page.films[1].result,
-            Some((AwardResult::Won, Some("Grand Prix".to_owned())))
-        );
+        // The list's highlighted award is the film's best anywhere, so it is not used.
+        assert!(page.films.iter().all(|film| film.result.is_none()));
         let last = films_from_json(&json!({"films": [], "meta": {"next_page": null}}));
         assert_eq!(last.next_page, None);
+    }
+
+    #[test]
+    fn festival_results_keep_each_films_best_entry_at_the_edition() {
+        let entry = |status: &str, text: &str, event: u64| json!({"status": status, "display_text": text, "industry_event": {"id": event}});
+        let films = json!([
+            // Decision to Leave at IndieWire 2022: a nomination and a win; Cannes is not here.
+            {"film_id": 281688, "industry_event_entries": [
+                entry("nominated", "Best Director", 14),
+                entry("won", "Best Cinematography", 14),
+                entry("won", "Best Director", 1),
+            ]},
+            {"film_id": 339480, "industry_event_entries": [entry("nominated", "Best Film", 14)]},
+            {"film_id": 1, "industry_event_entries": [entry("unknown", "x", 14)]},
+            {"industry_event_entries": [entry("won", "No id", 14)]},
+        ]);
+        let results = results_from_json(&films, 14);
+        assert_eq!(
+            results[&281688],
+            (AwardResult::Won, Some("Best Cinematography".to_owned()))
+        );
+        assert_eq!(results[&339480].0, AwardResult::Nominated);
+        assert_eq!(results.len(), 2);
     }
 
     #[test]
@@ -615,6 +679,21 @@ mod tests {
         assert_eq!(years_from_page(html), [2026, 2025, 2024, 2002]);
         assert!(years_from_page("<html>\"yearsAvailable\":[2020]</html>").is_empty());
         assert!(years_from_page("<script id=\"__NEXT_DATA__\">{}</script>").is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "talks to api.mubi.com"]
+    async fn live_indiewire_2022_results() {
+        let results = MubiClient::new()
+            .unwrap()
+            .festival_results(14, 2022)
+            .await
+            .unwrap();
+        // Decision to Leave won at Cannes, not IndieWire's Best Director, which it was up for.
+        assert_eq!(
+            results[&281688],
+            (AwardResult::Won, Some("Best Cinematography".to_owned()))
+        );
     }
 
     #[tokio::test]
