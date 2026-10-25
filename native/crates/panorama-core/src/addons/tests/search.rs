@@ -311,3 +311,34 @@ async fn search_with_no_capable_catalogs_is_empty_without_requests() {
     );
     assert!(fake.hosts().is_empty());
 }
+
+#[tokio::test(start_paused = true)]
+async fn search_each_delivers_the_fastest_catalog_first() {
+    let fake = Fake::default();
+    let client = client(&fake).await;
+    let addons = [search_addon("slow.test"), search_addon("fast.test")];
+    fake.set(
+        "slow.test",
+        "catalog",
+        "find",
+        page("tt1", "Slow").delayed(5),
+    );
+    fake.set(
+        "fast.test",
+        "catalog",
+        "find",
+        page("tt2", "Fast").delayed(1),
+    );
+    let mut stream = client.search_each(&addons, "film");
+    let Some(ResourceEvent::Fresh(first)) = stream.next().await else {
+        panic!("expected the fast catalog");
+    };
+    assert_eq!(first[0].name, "Fast");
+    // The slow catalog is still running; the caller can stop here.
+    assert_eq!(fake.active.load(Ordering::SeqCst), 1);
+    let Some(ResourceEvent::Fresh(second)) = stream.next().await else {
+        panic!("expected the slow catalog");
+    };
+    assert_eq!(second[0].name, "Slow");
+    assert!(stream.next().await.is_none());
+}

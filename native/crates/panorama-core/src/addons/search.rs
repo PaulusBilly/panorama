@@ -9,6 +9,59 @@ use super::{
 use crate::{store::Key, stremio::Descriptor};
 
 impl AddonClient {
+    /// The same catalogs [`Self::search`] asks, but each one's results as soon as it answers,
+    /// unmerged and not enriched: for finding one known film without waiting on the slowest
+    /// addon. Ends with `Failed` only when every catalog failed.
+    pub fn search_each(&self, addons: &[Descriptor], query: &str) -> SearchStream {
+        let client = self.for_request();
+        let addons = addons.to_vec();
+        let query = sanitize::text(query.trim(), 100);
+        delivery(&self.runtime, move |mut sender| {
+            async move {
+                let extra = [ExtraValue {
+                    name: "search".into(),
+                    value: query.clone(),
+                }];
+                let plan = search_plan(&client, &addons, &extra);
+                if query.is_empty() || plan.is_empty() {
+                    let _ = sender.send(ResourceEvent::Fresh(vec![])).await;
+                    return;
+                }
+                let requests = plan.into_iter().map(|(addon, path)| {
+                    let client = client.clone();
+                    async move {
+                        client
+                            .request(&addon, path, 8)
+                            .await
+                            .and_then(|response| sanitize::films(response, true))
+                    }
+                });
+                let mut responses = stream::iter(requests).buffer_unordered(4);
+                let mut failure = None;
+                let mut answered = false;
+                while let Some(response) = responses.next().await {
+                    match response {
+                        Ok(results) => {
+                            answered = true;
+                            if sender.send(ResourceEvent::Fresh(results)).await.is_err() {
+                                return;
+                            }
+                        }
+                        Err(kind) => failure = Some(kind),
+                    }
+                }
+                if !answered {
+                    let _ = sender
+                        .send(ResourceEvent::Failed(
+                            failure.unwrap_or(FailureKind::InvalidResponse),
+                        ))
+                        .await;
+                }
+            }
+            .boxed()
+        })
+    }
+
     /// Searches up to four eligible movie catalogs concurrently, merging in account
     /// order. Enriches thin cards among the first 20 results, four at a time.
     /// Queries are trimmed and capped at 100 characters; empty queries do no I/O.
@@ -26,30 +79,7 @@ impl AddonClient {
                     name: "search".into(),
                     value: query,
                 }];
-                let mut plan = Vec::new();
-                'addons: for addon in client.installations(&addons) {
-                    for catalog in addon.descriptor.manifest.catalogs.iter().take(100) {
-                        if catalog.r#type == "movie"
-                            && Key::catalog(addon.key.as_str(), &catalog.id).is_ok()
-                            && catalog.extra.iter().any(|prop| prop.name == "search")
-                            && catalog.is_extra_supported(&extra)
-                        {
-                            plan.push((
-                                addon.clone(),
-                                ResourcePath::with_extra("catalog", "movie", &catalog.id, &extra),
-                            ));
-                            if plan.len() == 4 {
-                                break 'addons;
-                            }
-                        }
-                    }
-                }
-                if addons.is_empty() {
-                    plan.push((
-                        client.cinemeta(),
-                        ResourcePath::with_extra("catalog", "movie", "top", &extra),
-                    ));
-                }
+                let plan = search_plan(&client, &addons, &extra);
                 if plan.is_empty() {
                     let _ = sender.send(ResourceEvent::Fresh(vec![])).await;
                     return;
@@ -193,6 +223,39 @@ fn fill_gaps(film: &mut FilmDetails, details: FilmDetails) {
     if film.imdb_rating.is_none() {
         film.imdb_rating = details.imdb_rating;
     }
+}
+
+/// Up to four search-capable movie catalogs in account order; Cinemeta when nothing is installed.
+fn search_plan(
+    client: &AddonClient,
+    addons: &[Descriptor],
+    extra: &[ExtraValue],
+) -> Vec<(super::Installation, ResourcePath)> {
+    let mut plan = Vec::new();
+    'addons: for addon in client.installations(addons) {
+        for catalog in addon.descriptor.manifest.catalogs.iter().take(100) {
+            if catalog.r#type == "movie"
+                && Key::catalog(addon.key.as_str(), &catalog.id).is_ok()
+                && catalog.extra.iter().any(|prop| prop.name == "search")
+                && catalog.is_extra_supported(extra)
+            {
+                plan.push((
+                    addon.clone(),
+                    ResourcePath::with_extra("catalog", "movie", &catalog.id, extra),
+                ));
+                if plan.len() == 4 {
+                    break 'addons;
+                }
+            }
+        }
+    }
+    if addons.is_empty() {
+        plan.push((
+            client.cinemeta(),
+            ResourcePath::with_extra("catalog", "movie", "top", extra),
+        ));
+    }
+    plan
 }
 
 #[cfg(test)]

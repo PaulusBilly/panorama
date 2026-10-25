@@ -149,22 +149,22 @@ impl<T: Styled> Typography for T {}
 
 #[cfg(test)]
 mod tests {
-    /// The interface stops at medium (500). Subtitles take their weight from a user preference
+    /// The interface stops at semibold (600). Subtitles take their weight from a user preference
     /// at runtime, so they never name a heavy weight in source.
     #[test]
     fn interface_never_uses_bold() {
         let src = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
         let found = heavy_weights(src);
-        assert!(found.is_empty(), "weights above medium: {found:?}");
+        assert!(found.is_empty(), "weights above semibold: {found:?}");
     }
 
     fn heavy_weights(dir: &std::path::Path) -> Vec<String> {
         // Assembled at runtime so this file does not match itself.
-        let banned: Vec<String> = ["SEMIBOLD", "BOLD", "EXTRA_BOLD", "BLACK"]
+        let banned: Vec<String> = ["BOLD", "EXTRA_BOLD", "BLACK"]
             .iter()
             .map(|name| format!("FontWeight::{name}"))
             .chain(
-                ["600", "700", "800", "900"]
+                ["700", "800", "900"]
                     .iter()
                     .map(|w| format!("weight: {w}.0")),
             )

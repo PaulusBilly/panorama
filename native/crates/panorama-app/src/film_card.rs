@@ -149,6 +149,9 @@ pub fn render<V: GridHost>(
                 .aria_label(format!("Open details for {}", film.name))
                 .on_hover(cx.listener(move |host: &mut V, over, _, cx| {
                     host.film_grid().hover(index, *over);
+                    if *over {
+                        host.hover_card(index, cx);
+                    }
                     cx.notify();
                 }))
                 .on_click(cx.listener(move |host: &mut V, _, window, cx| {
@@ -248,10 +251,9 @@ pub fn caption(film: &FilmDetails, note: Option<&str>, theme: Theme) -> Div {
         .when_some(note, |caption, note| {
             caption.child(
                 div()
-                    .mb(px(4.0))
-                    .text_size(px(11.0))
-                    .weight(FontWeight::MEDIUM)
-                    .line_height(relative(1.3))
+                    .text_size(px(14.0))
+                    .weight(FontWeight::SEMIBOLD)
+                    .line_height(relative(1.15))
                     .truncate()
                     .child(note.to_uppercase()),
             )

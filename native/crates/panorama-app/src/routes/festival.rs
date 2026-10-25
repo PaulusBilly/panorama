@@ -28,13 +28,20 @@ use panorama_core::{
     credits::AwardResult,
     mubi::{Festival as Event, FestivalFilm},
 };
-use std::{sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 /// The festival's white logo is drawn inside this box, as large as MUBI's.
 const LOGO: (f32, f32) = (360.0, 140.0);
 const GRID_GAP: f32 = 56.0;
 /// One year tab: 8 above, a 13px label line, 6 below and the 2px underline.
 const YEAR_ROW: f32 = 34.0;
+
+struct Lookup {
+    index: usize,
+    /// Open (`false`) or play (`true`) once found; `None` for a lookup started on hover.
+    then: Option<(bool, gpui::AnyWindowHandle)>,
+    _task: Task<()>,
+}
 
 pub struct Festival {
     shell: WeakEntity<AppShell>,
@@ -49,8 +56,12 @@ pub struct Festival {
     next_page: Option<u32>,
     loading: bool,
     error: Option<&'static str>,
-    /// The card whose film is being looked up in the addons.
-    opening: Option<usize>,
+    /// Each film's result at this edition, by MUBI film id.
+    results: HashMap<u64, (AwardResult, Option<String>)>,
+    /// The addon lookup in flight: started on hover, so a click usually finds it done.
+    lookup: Option<Lookup>,
+    /// Cards already found in the addons.
+    found: HashMap<usize, FilmDetails>,
     grid: FilmGrid,
     scroll: ScrollHandle,
     images: Entity<ImageCache>,
@@ -60,7 +71,6 @@ pub struct Festival {
     years: Vec<FocusHandle>,
     launched: Instant,
     request: Option<Task<()>>,
-    open_task: Option<Task<()>>,
     _images: Subscription,
     _shell: Option<Subscription>,
 }
@@ -91,7 +101,9 @@ impl Festival {
             next_page: None,
             loading: true,
             error: None,
-            opening: None,
+            results: HashMap::new(),
+            lookup: None,
+            found: HashMap::new(),
             grid: FilmGrid::new(args.hover_first_card, cx),
             scroll: ScrollHandle::new(),
             images,
@@ -101,7 +113,6 @@ impl Festival {
             years: vec![],
             launched: Instant::now(),
             request: None,
-            open_task: None,
             _images: image_observer,
             _shell: shell_observer,
         };
@@ -132,8 +143,16 @@ impl Festival {
             let Some(year) = year.or_else(|| event.years.first().copied()) else {
                 return Ok((event, None, None));
             };
-            let page = mubi.festival_films(event.event.id, year, 1).await?;
-            Ok((event, Some(year), Some(page)))
+            let (page, results) = futures::join!(
+                mubi.festival_films(event.event.id, year, 1),
+                mubi.festival_results(event.event.id, year),
+            );
+            // Without results the cards show no notes, rather than the page failing.
+            Ok((
+                event,
+                Some(year),
+                Some((page?, results.unwrap_or_default())),
+            ))
         }));
         self.request = Some(cx.spawn(async move |entity, cx| {
             let result = (&mut job.0)
@@ -151,7 +170,8 @@ impl Festival {
                         festival.retitle(cx);
                         festival.films.clear();
                         festival.next_page = None;
-                        if let Some(page) = page {
+                        if let Some((page, results)) = page {
+                            festival.results = results;
                             festival.append(page, cx);
                         }
                     }
@@ -198,7 +218,10 @@ impl Festival {
 
     fn append(&mut self, page: panorama_core::mubi::FestivalPage, cx: &mut Context<Self>) {
         self.next_page = page.next_page;
-        self.films.extend(page.films);
+        self.films.extend(page.films.into_iter().map(|mut film| {
+            film.result = film.id.and_then(|id| self.results.get(&id).cloned());
+            film
+        }));
         let films: Arc<[FilmDetails]> = self
             .films
             .iter()
@@ -214,8 +237,9 @@ impl Festival {
             return;
         }
         self.year = Some(year);
-        self.open_task = None;
-        self.opening = None;
+        self.lookup = None;
+        self.found.clear();
+        self.results.clear();
         self.films.clear();
         self.next_page = None;
         self.grid.set_films(Arc::from([]), cx);
@@ -231,8 +255,28 @@ impl Festival {
         });
     }
 
-    /// Find the card's film in the addons, then open or play it; Search when none matches.
+    /// Open or play the card's film once the addons have it; Search when none does. A click
+    /// while its lookup runs only updates what happens when it lands.
     fn resolve(&mut self, index: usize, play: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(found) = self.found.get(&index).cloned() {
+            self.finish(index, Some(found), play, window, cx);
+            return;
+        }
+        if !self
+            .lookup
+            .as_ref()
+            .is_some_and(|lookup| lookup.index == index)
+        {
+            self.look_up(index, cx);
+        }
+        if let Some(lookup) = &mut self.lookup {
+            lookup.then = Some((play, window.window_handle()));
+        }
+        cx.notify();
+    }
+
+    /// Start finding card `index`'s film in the addons, replacing any lookup in flight.
+    fn look_up(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(film) = self.films.get(index).cloned() else {
             return;
         };
@@ -240,62 +284,88 @@ impl Festival {
         let Some(services) = state.services.clone() else {
             return;
         };
-        let (job, mut receiver) = services.search(state.installed.clone(), film.title.clone());
-        self.opening = Some(index);
-        cx.notify();
-        let window_handle = window.window_handle();
-        self.open_task = Some(cx.spawn(async move |entity, cx| {
-            let _job = job;
-            let mut found = None;
-            while let Some(event) = receiver.next().await {
-                match event {
-                    ResourceEvent::CacheHit(results) | ResourceEvent::Fresh(results) => {
-                        found = same_film(&film, results);
-                        if found.is_some() {
-                            break;
-                        }
-                    }
-                    ResourceEvent::Failed(_) => break,
-                }
+        let installed = state.installed.clone();
+        let task = cx.spawn(async move |entity, cx| {
+            // The first addon to have it wins; the rest are not waited for.
+            let (job, receiver) = services.search_each(installed.clone(), film.title.clone());
+            let mut found = first_match(&film, job, receiver).await;
+            if found.is_none() {
+                // Some catalogs leave out the year; the full search fills it in before matching.
+                let (job, receiver) = services.search(installed, film.title.clone());
+                found = first_match(&film, job, receiver).await;
             }
-            let _ = cx.update_window(window_handle, |_, window, cx| {
-                let _ = entity.update(cx, |festival, cx| {
-                    festival.opening = None;
-                    // The user moved on while the addons answered; leave them where they are.
-                    let current = festival
-                        .shell
-                        .upgrade()
-                        .is_some_and(|shell| shell.read(cx).is_current(festival.id));
-                    if !current {
-                        return;
-                    }
-                    match found {
-                        Some(details) if play => super::home::play_film(
-                            &festival.state,
-                            &festival.shell,
-                            details,
-                            None,
-                            window,
-                            cx,
-                        ),
-                        Some(details) => super::home::open_film(
-                            &festival.state,
-                            &festival.shell,
-                            details,
-                            window,
-                            cx,
-                        ),
-                        None => {
-                            let query = film.title.clone();
-                            let _ = festival.shell.update(cx, |shell, cx| {
-                                shell.navigate(Route::Search { query }, window, cx)
-                            });
-                        }
-                    }
-                    cx.notify();
-                });
+            let then = entity.update(cx, |festival, cx| {
+                // A miss isn't kept: the next click asks again, with whatever addons are installed then.
+                if let Some(found) = &found {
+                    festival.found.insert(index, found.clone());
+                }
+                cx.notify();
+                let lookup = festival.lookup.take_if(|lookup| lookup.index == index)?;
+                lookup.then
             });
-        }));
+            if let Ok(Some((play, handle))) = then {
+                let _ = cx.update_window(handle, |_, window, cx| {
+                    let _ = entity.update(cx, |festival, cx| {
+                        festival.finish(index, found, play, window, cx)
+                    });
+                });
+            }
+        });
+        self.lookup = Some(Lookup {
+            index,
+            then: None,
+            _task: task,
+        });
+    }
+
+    /// The pointer rests on a card: look its film up now, so opening it is immediate.
+    fn prefetch(&mut self, index: usize, cx: &mut Context<Self>) {
+        let busy = self
+            .lookup
+            .as_ref()
+            .is_some_and(|lookup| lookup.index == index || lookup.then.is_some());
+        if !busy && !self.found.contains_key(&index) {
+            self.look_up(index, cx);
+        }
+    }
+
+    fn finish(
+        &mut self,
+        index: usize,
+        found: Option<FilmDetails>,
+        play: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The user moved on while the addons answered; leave them where they are.
+        let current = self
+            .shell
+            .upgrade()
+            .is_some_and(|shell| shell.read(cx).is_current(self.id));
+        if !current {
+            return;
+        }
+        match found {
+            Some(details) if play => {
+                super::home::play_film(&self.state, &self.shell, details, None, window, cx)
+            }
+            Some(details) => super::home::open_film(&self.state, &self.shell, details, window, cx),
+            None => {
+                let Some(query) = self.films.get(index).map(|film| film.title.clone()) else {
+                    return;
+                };
+                let _ = self.shell.update(cx, |shell, cx| {
+                    shell.navigate(Route::Search { query }, window, cx)
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    fn opening(&self) -> bool {
+        self.lookup
+            .as_ref()
+            .is_some_and(|lookup| lookup.then.is_some())
     }
 
     fn settings(&self, window: &Window, cx: &Context<Self>) -> ViewSettings {
@@ -334,6 +404,25 @@ impl Festival {
 
 /// An addon result that is the same film: the title folded equal and the year within one.
 /// Anything less goes to Search, where the user picks, rather than opening a namesake.
+/// The first search result that is `film`, reading `receiver` until one is or it ends.
+async fn first_match(
+    film: &FestivalFilm,
+    _job: crate::services::Job<()>,
+    mut receiver: futures::channel::mpsc::UnboundedReceiver<ResourceEvent<Vec<FilmDetails>>>,
+) -> Option<FilmDetails> {
+    while let Some(event) = receiver.next().await {
+        match event {
+            ResourceEvent::CacheHit(results) | ResourceEvent::Fresh(results) => {
+                if let Some(found) = same_film(film, results) {
+                    return Some(found);
+                }
+            }
+            ResourceEvent::Failed(_) => return None,
+        }
+    }
+    None
+}
+
 fn same_film(film: &FestivalFilm, results: Vec<FilmDetails>) -> Option<FilmDetails> {
     let title = fold(&film.title);
     let want = film.year?;
@@ -382,11 +471,16 @@ fn details(index: usize, film: &FestivalFilm) -> FilmDetails {
     }
 }
 
-/// "Winner · Grand Prix" over a card's title; nothing for a film that was only shown.
+/// The prize won ("Grand Prix") over a card's title, or "Runner-up · Grand Prix" for lesser
+/// results; nothing for a film that was only nominated, since a category alone reads as a win.
 fn note(film: &FestivalFilm) -> Option<String> {
-    let (result, category) = film.result.as_ref()?;
+    let (result, category) = film
+        .result
+        .as_ref()
+        .filter(|(result, _)| *result != AwardResult::Nominated)?;
     let label = crate::award_marks::result_label(*result);
     Some(match (result, category) {
+        (AwardResult::Won, Some(category)) => category.clone(),
         (_, Some(category)) => format!("{label} · {category}"),
         (AwardResult::Selected, None) => "Official Selection".into(),
         (_, None) => label.into(),
@@ -436,6 +530,9 @@ impl GridHost for Festival {
         }
         cx.stop_propagation();
         cx.notify();
+    }
+    fn hover_card(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.prefetch(index, cx);
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(index) = card_index(&film) {
@@ -693,22 +790,25 @@ impl Render for Festival {
             self.images.update(cx, |images, _| images.finish_frame());
         }
         if self.loading
-            || self.opening.is_some()
+            || self.opening()
             || self.grid.moving(view.reduced)
             || (!view.reduced && view.active && self.images.read(cx).moving())
         {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
             window.request_animation_frame();
         }
-        let status = match (&self.opening, self.loading) {
-            (Some(_), _) => "Finding this film in your addons".to_owned(),
-            (None, true) => "Loading films".to_owned(),
+        let status = match (self.opening(), self.loading) {
+            (true, _) => "Finding this film in your addons".to_owned(),
+            (false, true) => "Loading films".to_owned(),
             _ => String::new(),
         };
         div()
             .id(("festival-scroll", self.id))
             .size_full()
             .overflow_y_scroll()
+            // Sideways swipes belong to the carousels; without this the page turns them
+            // into vertical scrolling.
+            .restrict_scroll_to_axis()
             .track_scroll(&self.scroll)
             .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
             .bg(theme.canvas)
@@ -726,6 +826,7 @@ mod tests {
 
     fn film(title: &str, year: Option<i32>) -> FestivalFilm {
         FestivalFilm {
+            id: None,
             title: title.into(),
             year,
             directors: vec![],
@@ -766,9 +867,13 @@ mod tests {
     fn notes_and_card_ids() {
         let mut winner = film("Close", Some(2022));
         winner.result = Some((AwardResult::Won, Some("Grand Prix".into())));
-        assert_eq!(note(&winner).as_deref(), Some("Winner · Grand Prix"));
+        assert_eq!(note(&winner).as_deref(), Some("Grand Prix"));
+        winner.result = Some((AwardResult::RunnerUp, Some("Golden Lion".into())));
+        assert_eq!(note(&winner).as_deref(), Some("Runner-up · Golden Lion"));
         winner.result = Some((AwardResult::Selected, None));
         assert_eq!(note(&winner).as_deref(), Some("Official Selection"));
+        winner.result = Some((AwardResult::Nominated, Some("Best Film".into())));
+        assert_eq!(note(&winner), None);
         assert_eq!(note(&film("Close", None)), None);
         assert_eq!(card_index(&details(7, &winner)), Some(7));
         assert_eq!(release_year("2022-10-07"), Some(2022));

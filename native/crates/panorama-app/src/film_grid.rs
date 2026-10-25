@@ -83,6 +83,8 @@ pub trait GridHost: Sized + 'static {
         window: &mut Window,
         cx: &mut Context<Self>,
     );
+    /// The pointer entered card `index`.
+    fn hover_card(&mut self, _index: usize, _cx: &mut Context<Self>) {}
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
     /// Open the film and let it start playback.
     fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
