@@ -76,6 +76,12 @@ impl Player {
             self.drag_to(RangeId::Seek, position, cx);
         } else if self.volume_drag {
             self.drag_to(RangeId::Volume, position, cx);
+        } else if self.ui.color_drag.is_some() {
+            if event.pressed_button == Some(MouseButton::Left) {
+                self.picker_drag_to(position, cx);
+            } else {
+                self.ui.color_drag = None;
+            }
         } else if !(self.shown.top || self.shown.bottom) {
             cx.notify();
         }
@@ -133,6 +139,7 @@ impl Player {
             });
         });
         self.volume_drag = false;
+        self.ui.color_drag = None;
         if self.scrub.dragging() {
             self.commit_scrub(cx);
         }

@@ -131,7 +131,18 @@ impl Player {
 
     /// Queues replacement playback. Input is never included in logs or errors.
     pub fn load(&self, url: &str) -> Result<(), MpvError> {
-        self.command(&["loadfile", url, "replace"])
+        self.load_at(url, None)
+    }
+    /// Queues replacement playback opening at `start` seconds, so a resume reads from its
+    /// position instead of buffering the opening and seeking. The per-file option is built
+    /// here from a number, never from caller text.
+    pub fn load_at(&self, url: &str, start: Option<f64>) -> Result<(), MpvError> {
+        match start.filter(|start| start.is_finite() && *start > 0.0) {
+            Some(start) => {
+                self.command(&["loadfile", url, "replace", "-1", &format!("start={start}")])
+            }
+            None => self.command(&["loadfile", url, "replace"]),
+        }
     }
     /// Queues stop without closing the player.
     pub fn stop(&self) -> Result<(), MpvError> {

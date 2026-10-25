@@ -43,7 +43,7 @@ pub(super) fn note(text: impl Into<gpui::SharedString>, theme: Theme, alpha: f32
 }
 
 impl Player {
-    /// The five preset colours and the "Choose color" row.
+    /// The five preset colours and the colour wheel that opens the picker.
     pub(super) fn color_controls(
         &self,
         disabled: bool,
@@ -54,27 +54,34 @@ impl Player {
     ) -> Div {
         let ink = theme.ink;
         let current = self.ui.prefs.text_color;
-        let swatches = SWATCHES.iter().enumerate().map(|(index, (label, value))| {
-            let value = *value;
-            let selected = current == value;
-            let cell = div()
-                .id(("swatch", index))
-                .role(gpui::Role::RadioButton)
-                .aria_label(*label)
+        let cell = |id: gpui::ElementId, label: &'static str, selected: bool| {
+            div()
+                .id(id)
+                .aria_label(label)
+                .relative()
                 .flex_1()
                 .min_w_0()
                 .min_h(px(44.0))
-                .rounded(px(8.0))
                 .flex()
                 .items_center()
                 .justify_center()
                 .bg(ink.opacity(if selected { 0.2 } else { 0.1 }))
                 .when(disabled, |cell| cell.opacity(0.4))
                 .when(!disabled, |cell| {
-                    cell.cursor_pointer()
-                        .on_click(cx.listener(move |player, _, _, cx| {
-                            player.set_color(value, cx);
-                        }))
+                    cell.cursor_pointer().hover(move |style| {
+                        style.bg(ink.opacity(if selected { 0.2 } else { 0.15 }))
+                    })
+                })
+        };
+        let swatches = SWATCHES.iter().enumerate().map(|(index, (label, value))| {
+            let value = *value;
+            let selected = current == value;
+            let swatch = cell(("swatch", index).into(), label, selected)
+                .role(gpui::Role::RadioButton)
+                .when(!disabled, |cell| {
+                    cell.on_click(cx.listener(move |player, _, _, cx| {
+                        player.set_color(value, cx);
+                    }))
                 })
                 .child(
                     div()
@@ -94,7 +101,7 @@ impl Player {
                         }),
                 );
             focus_ring(
-                cell,
+                swatch,
                 &self.focus.pool[slot::SWATCHES + index],
                 focus_theme(theme),
                 !disabled,
@@ -103,45 +110,47 @@ impl Player {
                 window,
             )
         });
-        let choose = focus_ring(
+        // A colour off the presets is a custom one: the wheel holds it as a dot.
+        let custom = !SWATCHES.iter().any(|(_, value)| *value == current);
+        let wheel = cell(
+            "choose-color".into(),
+            "Custom color",
+            custom || self.ui.color_open,
+        )
+        .role(gpui::Role::Button)
+        .when(!disabled, |cell| {
+            cell.on_click(cx.listener(|player, _, window, cx| {
+                if player.ui.color_open {
+                    player.cancel_edit(window, cx);
+                } else {
+                    player.open_color(window, cx);
+                }
+            }))
+        })
+        .child(probe(&self.measures, |measures, bounds| {
+            measures.color_row.set(Some(bounds));
+        }))
+        .child(
             div()
-                .id("choose-color")
-                .role(gpui::Role::Button)
-                .aria_label("Choose color")
                 .relative()
-                .min_h(px(44.0))
-                .rounded_full()
-                .bg(ink.opacity(0.1))
-                .px(px(12.0))
+                .size(px(24.0))
                 .flex()
                 .items_center()
-                .gap(px(12.0))
-                .text_size(px(14.0))
-                .line_height(relative(1.43))
-                .when(disabled, |row| row.opacity(0.4))
-                .when(!disabled, |row| {
-                    row.cursor_pointer()
-                        .on_click(cx.listener(|player, _, window, cx| {
-                            if player.ui.color_open {
-                                player.cancel_edit(window, cx);
-                            } else {
-                                player.open_color(window, cx);
-                            }
-                        }))
-                })
-                .child(probe(&self.measures, |measures, bounds| {
-                    measures.color_row.set(Some(bounds));
-                }))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .size(px(20.0))
-                        .rounded_full()
-                        .border_1()
-                        .border_color(ink.opacity(0.25))
-                        .bg(color(current)),
-                )
-                .child("Choose color"),
+                .justify_center()
+                .child(gpui::img("color-wheel.svg").absolute().inset_0())
+                .when(custom, |wheel| {
+                    wheel.child(
+                        div()
+                            .size(px(12.0))
+                            .rounded_full()
+                            .border_2()
+                            .border_color(theme.player_canvas)
+                            .bg(color(current)),
+                    )
+                }),
+        );
+        let wheel = focus_ring(
+            wheel,
             &self.focus.pool[slot::CHOOSE],
             focus_theme(theme),
             !disabled,
@@ -153,9 +162,8 @@ impl Player {
             .flex()
             .flex_col()
             .gap(px(8.0))
-            .child(div().mb(px(0.0)).child(note("Text color", theme, 0.55)))
-            .child(div().flex().gap(px(4.0)).children(swatches))
-            .child(choose)
+            .child(note("Text color", theme, 0.55))
+            .child(div().flex().gap(px(4.0)).children(swatches).child(wheel))
     }
 
     /// The regular, medium, bold segmented control.
@@ -179,7 +187,6 @@ impl Player {
                 .flex_1()
                 .min_h(px(36.0))
                 .px(px(4.0))
-                .rounded(px(8.0))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -216,15 +223,14 @@ impl Player {
             .child(
                 div()
                     .flex()
-                    .gap(px(4.0))
-                    .rounded(px(12.0))
+                    .gap(px(2.0))
                     .bg(ink.opacity(0.1))
-                    .p(px(4.0))
+                    .p(px(2.0))
                     .children(items),
             )
     }
 
-    /// A checkbox with its label (`Checkbox.Root` inside a label).
+    /// A setting row with a switch at its end; the whole row toggles it.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn checkbox(
         &self,
@@ -240,41 +246,28 @@ impl Player {
         cx: &mut gpui::Context<Self>,
     ) -> Stateful<Div> {
         let ink = theme.ink;
-        let row = div()
-            .id(id)
+        let row = setting_row(id, theme)
             .role(gpui::Role::CheckBox)
             .aria_label(label)
-            .flex()
-            .items_center()
-            .gap(px(12.0))
-            .min_h(px(44.0))
-            .text_size(px(14.0))
-            .line_height(relative(1.43))
             .when(disabled, |row| row.opacity(0.5))
             .when(!disabled, |row| {
                 row.cursor_pointer()
+                    .hover(move |style| style.bg(ink.opacity(0.05)))
                     .on_click(cx.listener(move |player, _, _, cx| on_toggle(player, cx)))
             })
+            .child(div().min_w_0().flex_1().child(label))
             .child(
                 div()
                     .flex_shrink_0()
-                    .size(px(16.0))
-                    .rounded(px(2.0))
-                    .border_1()
-                    .border_color(ink.opacity(0.5))
+                    .w(px(32.0))
+                    .h(px(20.0))
+                    .p(px(2.0))
+                    .rounded_full()
                     .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(checked, |boxed| {
-                        boxed.bg(ink).child(
-                            svg()
-                                .path("check.svg")
-                                .size(px(13.0))
-                                .text_color(theme.player_canvas),
-                        )
-                    }),
-            )
-            .child(div().min_w_0().child(label));
+                    .when(checked, |track| track.justify_end().bg(theme.accent))
+                    .when(!checked, |track| track.bg(ink.opacity(0.2)))
+                    .child(div().size(px(16.0)).rounded_full().bg(ink)),
+            );
         focus_ring(
             row,
             &self.focus.pool[slot],
@@ -286,72 +279,77 @@ impl Player {
         )
     }
 
-    /// A select's field label and trigger button.
+    /// A setting row that opens a select menu: the label, then the current value and a chevron.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn select_trigger(
         &self,
         select: SelectId,
+        label: &'static str,
         value: String,
-        disabled: bool,
         theme: Theme,
         keyboard: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
-    ) -> Div {
+    ) -> Stateful<Div> {
         let ink = theme.ink;
         let index = select.index();
-        let trigger = div()
-            .id(("select", index))
+        let open = self.ui.select.is_some_and(|open| open.id == select);
+        let row = setting_row(("select", index), theme)
             .role(gpui::Role::ComboBox)
             .aria_label(select.label())
-            .relative()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(12.0))
-            .w_full()
-            .min_h(px(44.0))
-            .px(px(12.0))
-            .rounded(px(8.0))
-            .border_1()
-            .border_color(ink.opacity(0.25))
-            .bg(theme.player_canvas)
-            .text_size(px(14.0))
-            .line_height(relative(1.43))
-            .when(disabled, |trigger| trigger.opacity(0.5))
-            .when(!disabled, |trigger| {
-                trigger
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |player, _, _, cx| player.toggle_select(select, cx)))
+            .cursor_pointer()
+            .when(open, |row| row.bg(ink.opacity(0.1)))
+            .when(!open, |row| {
+                row.hover(move |style| style.bg(ink.opacity(0.05)))
             })
+            .on_click(cx.listener(move |player, _, _, cx| player.toggle_select(select, cx)))
             .child(probe(&self.measures, move |measures, bounds| {
                 measures.selects[index].set(Some(bounds));
             }))
-            .child(div().min_w_0().truncate().child(value))
+            .child(div().flex_shrink_0().child(label))
             .child(
-                svg()
-                    .path("chevron-down.svg")
-                    .size(px(16.0))
-                    .flex_shrink_0()
-                    .text_color(ink),
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap(px(4.0))
+                    .text_color(ink.opacity(0.6))
+                    .child(div().min_w_0().truncate().child(value))
+                    .child(
+                        svg()
+                            .path("chevron-down.svg")
+                            .size(px(14.0))
+                            .flex_shrink_0()
+                            .text_color(ink.opacity(0.6)),
+                    ),
             );
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .text_size(px(14.0))
-            .line_height(relative(1.43))
-            .child(select.label())
-            .child(focus_ring(
-                trigger,
-                &self.focus.pool[slot::SELECTS + index],
-                focus_theme(theme),
-                !disabled,
-                keyboard,
-                0.0,
-                window,
-            ))
+        focus_ring(
+            row,
+            &self.focus.pool[slot::SELECTS + index],
+            focus_theme(theme),
+            true,
+            keyboard,
+            0.0,
+            window,
+        )
     }
+}
+
+/// The shared shape of a settings row, matching the option rows of the other panels.
+fn setting_row(id: impl Into<gpui::ElementId>, theme: Theme) -> Stateful<Div> {
+    div()
+        .id(id)
+        .relative()
+        .flex()
+        .items_center()
+        .gap(px(12.0))
+        .min_h(px(44.0))
+        .px(px(20.0))
+        .text_size(px(14.0))
+        .line_height(relative(1.43))
+        .text_color(theme.ink)
 }
 
 fn capitalised(word: &str) -> String {

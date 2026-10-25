@@ -1,5 +1,9 @@
 //! Preference state the subtitle and settings panels edit.
-use super::{edit::Edit, subtitles};
+use super::{
+    edit::Edit,
+    picker::{Hsv, Part},
+    subtitles,
+};
 use crate::playback::{
     output::{self, Channels, Device, PlaybackSettings, Video},
     prefs::DiscordView,
@@ -133,6 +137,10 @@ pub struct PrefsUi {
     pub select_pressed_closed: Option<SelectId>,
     /// The custom colour popover is open.
     pub color_open: bool,
+    /// The picker's colour, which keeps a hue the text colour alone may not carry.
+    pub picker: Hsv,
+    /// The picker part being dragged.
+    pub color_drag: Option<Part>,
     /// A capture override is active: nothing is written to the store.
     pub ephemeral: bool,
     /// Stored preferences have been read.
@@ -158,6 +166,8 @@ impl PrefsUi {
             select: None,
             select_pressed_closed: None,
             color_open: false,
+            picker: Hsv::from_rgb([0xff; 3]),
+            color_drag: None,
             ephemeral: false,
             loaded: false,
             applied: None,

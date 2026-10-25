@@ -31,6 +31,7 @@ pub fn films() -> Vec<FilmDetails> {
             genres: vec!["Drama".into()],
             description: Some("A quiet, observant portrait shaped by memory and time.".into()),
             cast: vec![],
+            people: vec![],
             poster: None,
             background: url::Url::parse(&format!("fixture://{}", STILLS[FILM_STILLS[index]].0))
                 .ok(),
@@ -58,7 +59,12 @@ pub fn search(query: &str) -> Vec<FilmDetails> {
 
 /// The film-details fixture, with the selected card's opaque identifier.
 pub fn details(id: &str) -> Option<FilmDetails> {
-    films().into_iter().find(|film| film.id == id)
+    let mut film = films().into_iter().find(|film| film.id == id)?;
+    // The first film stands in for a TMDB-backed metadata addon; the rest for Cinemeta.
+    if film.id == "tmdb:100" {
+        film.people = people();
+    }
+    Some(film)
 }
 
 pub fn continue_items() -> Vec<ContinueItem> {
@@ -237,5 +243,136 @@ pub fn player_groups() -> Vec<StreamGroup> {
     ]
     .into_iter()
     .flatten()
+    .collect()
+}
+
+/// Cast and crew for the film page: a few with stills for photos, the rest with none.
+pub fn people() -> Vec<panorama_core::credits::Person> {
+    [
+        ("Charlotte Wells", "Director, Screenplay", Some(0)),
+        ("Paul Mescal", "Cast", Some(1)),
+        ("Frankie Corio", "Cast", Some(2)),
+        ("Celia Rowlson-Hall", "Cast", None),
+        ("Sally Messham", "Cast", Some(0)),
+        ("Brooklyn Toulson", "Cast", None),
+        ("Spike Fearn", "Cast", Some(1)),
+        ("Harry Perdios", "Cast", None),
+        ("Gregory Oke", "Cinematography", None),
+        ("Blair McClendon", "Editor", Some(2)),
+        ("Oliver Coates", "Music", None),
+    ]
+    .into_iter()
+    .map(|(name, role, still)| panorama_core::credits::Person {
+        name: name.into(),
+        role: role.into(),
+        photo: still.and_then(|index: usize| {
+            url::Url::parse(&format!("fixture://{}", STILLS[index].0)).ok()
+        }),
+    })
+    .collect()
+}
+
+/// A sample of MUBI's awards and festivals for Aftersun. Logos come from the network, so
+/// fixture tiles fall back to the bundled marks.
+pub fn awards() -> Vec<panorama_core::credits::Award> {
+    use panorama_core::credits::{AwardResult::*, Event};
+    [
+        (
+            "BAFTA Awards",
+            "baftas",
+            9,
+            Some("Outstanding Debut"),
+            2023,
+            Won,
+        ),
+        (
+            "BAFTA Awards",
+            "baftas",
+            9,
+            Some("Best Leading Actor"),
+            2023,
+            Nominated,
+        ),
+        (
+            "BAFTA Awards",
+            "baftas",
+            9,
+            Some("Outstanding British Film"),
+            2023,
+            Nominated,
+        ),
+        (
+            "Independent Spirit Awards",
+            "isas",
+            7,
+            Some("Best First Feature"),
+            2023,
+            Won,
+        ),
+        (
+            "Cannes Film Festival",
+            "cannes",
+            1,
+            Some("French Touch Prize of the Critics' Week Jury"),
+            2022,
+            Won,
+        ),
+        (
+            "Cannes Film Festival",
+            "cannes",
+            1,
+            Some("Critics Week Grand Prize"),
+            2022,
+            Nominated,
+        ),
+        (
+            "Sundance Film Festival",
+            "sundance",
+            2,
+            None,
+            2023,
+            Selected,
+        ),
+        (
+            "Toronto International Film Festival",
+            "toronto",
+            8,
+            None,
+            2022,
+            Selected,
+        ),
+        (
+            "Academy Awards",
+            "oscars",
+            4,
+            Some("Best Actor"),
+            2023,
+            Nominated,
+        ),
+        (
+            "European Film Awards",
+            "efas",
+            30,
+            Some("European Actor"),
+            2022,
+            Nominated,
+        ),
+        ("New York Film Festival", "nyff", 25, None, 2022, Selected),
+    ]
+    .into_iter()
+    .map(
+        |(body, slug, id, category, year, result)| panorama_core::credits::Award {
+            body: body.into(),
+            category: category.map(str::to_owned),
+            year: Some(year),
+            result,
+            event: Some(Event {
+                id,
+                slug: slug.into(),
+                logo: None,
+                cover: None,
+            }),
+        },
+    )
     .collect()
 }

@@ -284,3 +284,38 @@ fn audio_rows_mirror_the_track_list() {
         Some(PlaybackError::Decode.message())
     );
 }
+
+#[test]
+fn addons_with_sources_lead_and_failures_sink_to_the_bottom() {
+    let ready = |name| {
+        group(
+            name,
+            StreamState::Ready(vec![stream(
+                serde_json::json!({"url": "https://media.invalid/a.mp4"}),
+                "1080p",
+                "1080p",
+            )]),
+        )
+    };
+    let groups = vec![
+        group("Local Files", StreamState::Failed(FailureKind::Offline)),
+        group("Quiet", StreamState::Empty),
+        ready("AIOStreams"),
+        ready("Torrentio"),
+    ];
+    let content = sources(&groups, SourceRef::default());
+    let labels: Vec<_> = content
+        .sections
+        .iter()
+        .map(|section| section.label.as_deref().unwrap_or(""))
+        .collect();
+    assert_eq!(labels, ["AIOStreams", "Torrentio", "Quiet", "Local Files"]);
+    // Rows keep their addon's real position, so picking one plays the right source.
+    assert_eq!(
+        content.sections[0].rows[0].key,
+        RowKey::Source(SourceRef {
+            group: 2,
+            stream: 0
+        })
+    );
+}

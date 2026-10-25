@@ -21,6 +21,8 @@ pub struct CardProps<'a> {
     pub(crate) poster: bool,
     pub(crate) unavailable: bool,
     pub(crate) focus: &'a FocusHandle,
+    /// A line over the title, such as a festival result.
+    pub(crate) note: Option<&'a str>,
     pub(crate) index: usize,
     pub(crate) shimmer: f32,
 }
@@ -126,7 +128,7 @@ pub fn render<V: GridHost>(
             )),
     );
     if let Some(film) = props.film {
-        tile = tile.child(caption(film, theme));
+        tile = tile.child(caption(film, props.note, theme));
         let target = film.clone();
         let button = focus_ring(
             div()
@@ -189,8 +191,9 @@ pub fn render<V: GridHost>(
     tile
 }
 
-/// Title and credits pinned to the bottom of a tile, at fixed sizes like MUBI's cards.
-pub fn caption(film: &FilmDetails, theme: Theme) -> Div {
+/// Title and credits pinned to the bottom of a tile, at fixed sizes like MUBI's cards, with
+/// an optional `note` over the title.
+pub fn caption(film: &FilmDetails, note: Option<&str>, theme: Theme) -> Div {
     let credits = div()
         .flex()
         .min_w_0()
@@ -242,6 +245,17 @@ pub fn caption(film: &FilmDetails, theme: Theme) -> Div {
         .flex_col()
         .gap(px(2.0))
         .text_color(theme.ink)
+        .when_some(note, |caption, note| {
+            caption.child(
+                div()
+                    .mb(px(4.0))
+                    .text_size(px(11.0))
+                    .weight(FontWeight::MEDIUM)
+                    .line_height(relative(1.3))
+                    .truncate()
+                    .child(note.to_uppercase()),
+            )
+        })
         .child(
             div()
                 .text_size(px(22.0))

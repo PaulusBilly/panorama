@@ -91,6 +91,8 @@ pub trait GridHost: Sized + 'static {
 /// Virtualised film-card grid with focus handles and the hover preview. Owned per entity.
 pub struct FilmGrid {
     pub films: Arc<[FilmDetails]>,
+    /// A line over each card's title, by index; empty for none.
+    notes: Arc<[Option<String>]>,
     cards: Vec<FocusHandle>,
     spare: FocusHandle,
     watch: FocusHandle,
@@ -107,6 +109,7 @@ impl FilmGrid {
     pub fn new(hover_first: bool, cx: &mut App) -> Self {
         Self {
             films: Arc::from([]),
+            notes: Arc::from([]),
             cards: Vec::new(),
             spare: cx.focus_handle(),
             watch: cx.focus_handle(),
@@ -127,6 +130,20 @@ impl FilmGrid {
     pub fn set_films(&mut self, films: Arc<[FilmDetails]>, cx: &mut App) {
         self.cards.resize_with(films.len(), || cx.focus_handle());
         self.films = films;
+        self.notes = Arc::from([]);
+    }
+    /// Replace the films with a note over each title.
+    pub fn set_films_with_notes(
+        &mut self,
+        films: Arc<[FilmDetails]>,
+        notes: Arc<[Option<String>]>,
+        cx: &mut App,
+    ) {
+        self.set_films(films, cx);
+        self.notes = notes;
+    }
+    fn note(&self, index: usize) -> Option<&str> {
+        self.notes.get(index).and_then(Option::as_deref)
     }
     pub fn focus(&self, index: usize) -> Option<&FocusHandle> {
         self.cards.get(index)
@@ -211,6 +228,7 @@ impl FilmGrid {
                 % 1.0
         };
         let films = self.films.clone();
+        let notes = self.notes.clone();
         let mut result = div().relative().w(px(grid.total_width())).h(px(height));
         for row in start..end {
             let y = offset + row as f32 * grid.stride();
@@ -243,6 +261,7 @@ impl FilmGrid {
                         poster,
                         unavailable,
                         focus: self.cards.get(index).unwrap_or(&self.spare),
+                        note: notes.get(index).and_then(Option::as_deref),
                         index,
                         shimmer: phase,
                     },
@@ -369,7 +388,7 @@ impl FilmGrid {
             )
             .child(fade(0.75, 0.8))
             .child(fade(0.3, 1.0))
-            .child(film_card::caption(film, theme))
+            .child(film_card::caption(film, self.note(index), theme))
             .on_click(cx.listener(move |host: &mut V, _, window, cx| {
                 host.open_film(open.clone(), window, cx)
             }));

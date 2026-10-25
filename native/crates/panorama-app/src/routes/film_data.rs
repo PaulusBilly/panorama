@@ -45,6 +45,11 @@ impl Film {
                                 film.details_error = film.metadata.is_none()
                             }
                         }
+                        // Awards wait for real details: the card's preview lacks the director
+                        // that tells MUBI's namesakes apart.
+                        if !film.details_error && film.metadata.is_some() {
+                            film.load_credits(cx);
+                        }
                         cx.notify();
                     })
                     .is_err()
@@ -54,6 +59,55 @@ impl Film {
             }
         }));
         cx.notify();
+    }
+    /// Awards; the cast and crew come with the metadata. Without either the section is left
+    /// out. Waits for the details, whose title, year and director find the film on MUBI; the
+    /// answer is kept in the store so a film costs MUBI two requests a month at most.
+    pub(super) fn load_credits(&mut self, cx: &mut Context<Self>) {
+        let Some(services) = self.state.read(cx).services.clone() else {
+            return;
+        };
+        let Some(wikidata) = services.credits.clone() else {
+            if self.args.fixtures {
+                self.awards = crate::fixtures::awards();
+            }
+            return;
+        };
+        if self.loading || self.credits_task.is_some() {
+            return;
+        }
+        let id = self.id.clone();
+        let meta = self.metadata.clone();
+        let (mubi, store) = (services.mubi.clone(), services.store.clone());
+        let mut job = Job(services.runtime.spawn(async move {
+            let key = panorama_core::store::Key::awards(&id).ok();
+            let cached = store
+                .as_ref()
+                .zip(key.as_ref())
+                .and_then(|(store, key)| store.get(key).ok().flatten())
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+            if let Some(awards) = cached {
+                return awards;
+            }
+            let (awards, settled) =
+                fetch_awards(&id, meta.as_ref(), mubi.as_ref(), &wikidata).await;
+            // A network failure is retried on the next visit; any answer, even none, is kept.
+            if settled
+                && let (Some(store), Some(key)) = (&store, &key)
+                && let Ok(bytes) = serde_json::to_vec(&awards)
+            {
+                let _ = store.set(key, &bytes);
+            }
+            awards
+        }));
+        self.credits_task = Some(cx.spawn(async move |entity, cx| {
+            if let Ok(awards) = (&mut job.0).await {
+                let _ = entity.update(cx, |film, cx| {
+                    film.awards = awards;
+                    cx.notify();
+                });
+            }
+        }));
     }
     pub(super) fn load_sources(&mut self, cx: &mut Context<Self>) {
         let Some(services) = self.state.read(cx).services.clone() else {
@@ -122,17 +176,14 @@ impl Film {
         cx: &mut Context<Self>,
     ) {
         self.subtitles = None;
-        let addons = self.installed.clone();
-        let id = self.id.clone();
-        let lookup = services.clone();
-        let mut job = Job(services.runtime.clone().spawn(async move {
-            match &lookup.addons {
-                Some(client) => client.subtitles(&addons, &id).await,
-                None => vec![],
-            }
-        }));
+        let shared = crate::playback::launch::subtitle_lookup(
+            services,
+            self.installed.clone(),
+            self.id.clone(),
+        );
+        self.subtitle_lookup = Some(shared.clone());
         self.subtitles_task = Some(cx.spawn(async move |entity, cx| {
-            let files = (&mut job.0).await.unwrap_or_default();
+            let files = shared.await;
             let _ = entity.update(cx, |film, cx| {
                 film.subtitles = Some(files);
                 cx.notify();
@@ -230,5 +281,47 @@ impl Film {
         let _ = self
             .shell
             .update(cx, |shell, cx| shell.open_login(window, cx));
+    }
+}
+
+/// MUBI's awards and festivals for the film, else Wikidata's awards, and whether every source
+/// asked gave an answer rather than a network failure.
+async fn fetch_awards(
+    id: &str,
+    meta: Option<&FilmDetails>,
+    mubi: Option<&panorama_core::mubi::MubiClient>,
+    wikidata: &panorama_core::credits::CreditsClient,
+) -> (Vec<panorama_core::credits::Award>, bool) {
+    use panorama_core::credits::CreditsError;
+    let mut settled = true;
+    if let (Some(mubi), Some(meta)) = (mubi, meta) {
+        let query = panorama_core::mubi::FilmQuery {
+            title: &meta.name,
+            original_title: meta.original_name.as_deref(),
+            year: meta
+                .release_info
+                .as_deref()
+                .and_then(super::super::festival::release_year),
+            directors: &meta.director,
+        };
+        match mubi.find_film(&query).await {
+            Ok(Some(film)) => match mubi.awards(film).await {
+                Ok(awards) if !awards.is_empty() => return (awards, true),
+                Ok(_) => {}
+                Err(_) => settled = false,
+            },
+            Ok(None) => {}
+            Err(_) => settled = false,
+        }
+    }
+    match wikidata.awards(id).await {
+        Ok(awards) => (awards, settled),
+        // An id Wikidata cannot be asked about has no awards there, for good; for one it can,
+        // an unreadable answer is retried on the next visit.
+        Err(CreditsError::Invalid) => {
+            let askable = id.starts_with("tt") || id.starts_with("tmdb:");
+            (vec![], settled && !askable)
+        }
+        Err(CreditsError::Network) => (vec![], false),
     }
 }

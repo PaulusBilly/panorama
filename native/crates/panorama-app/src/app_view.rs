@@ -49,7 +49,8 @@ impl Render for AppShell {
         if capture_waiting
             && !moving
             && playback_ready
-            && now.duration_since(self.launched) >= Duration::from_millis(1600)
+            && now.duration_since(self.launched)
+                >= Duration::from_millis(if self.args.live { 8000 } else { 1600 })
             && let Some(path) = self.screenshot.take()
         {
             self.capture_scheduled = true;

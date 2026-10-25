@@ -21,9 +21,12 @@ impl AssetSource for Assets {
             "arrow-down.svg" => Some(include_bytes!("../assets/icons/arrow-down.svg")),
             "chevron-down-thin.svg" => Some(include_bytes!("../assets/icons/chevron-down-thin.svg")),
             "check.svg" => Some(include_bytes!("../assets/icons/check.svg")),
+            "color-wheel.svg" => Some(include_bytes!("../assets/icons/color-wheel.svg")),
             "loader-2.svg" => Some(include_bytes!("../assets/icons/loader-2.svg")),
             "star-filled.svg" => Some(include_bytes!("../assets/icons/star-filled.svg")),
             "clock-filled.svg" => Some(include_bytes!("../assets/icons/clock-filled.svg")),
+            // Tabler Icons "award" (MIT), the mark for an award with no bundled logo.
+            "award.svg" => Some(include_bytes!("../assets/icons/award.svg")),
             "player-play-filled.svg" => {
                 Some(include_bytes!("../assets/icons/player-play-filled.svg"))
             }
@@ -61,6 +64,7 @@ impl AssetSource for Assets {
             "maximize.svg" => Some(include_bytes!("../assets/maximize.svg")),
             "restore.svg" => Some(include_bytes!("../assets/restore.svg")),
             "close.svg" => Some(include_bytes!("../assets/close.svg")),
+            path if path.starts_with("awards/") => crate::award_marks::asset(path),
             _ => None,
         };
         Ok(data.map(Cow::Borrowed))

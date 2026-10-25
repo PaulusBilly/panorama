@@ -70,12 +70,12 @@ pub fn draws_cue(selected: Option<Option<&str>>) -> bool {
 /// state, or `None` while it equals what was last sent. A seek changes neither, so it sends
 /// nothing; a new source clears the tracks, which flips a bitmap track back to GPUI.
 pub fn plan(
-    applied: Option<(SubtitlePreferences, Renderer)>,
+    applied: Option<&(SubtitlePreferences, Renderer)>,
     prefs: &SubtitlePreferences,
     renderer: Renderer,
 ) -> Option<(SubtitlePreferences, Renderer)> {
-    let next = (*prefs, renderer);
-    (applied != Some(next)).then_some(next)
+    let next = (prefs.clone(), renderer);
+    (applied != Some(&next)).then_some(next)
 }
 
 /// Plain cue text: ASS override blocks removed, line breaks normalised, control characters
@@ -275,33 +275,46 @@ mod tests {
     #[test]
     fn visibility_follows_track_source_and_seek_changes() {
         let prefs = SubtitlePreferences::default();
-        let visible = |state: Option<(SubtitlePreferences, Renderer)>| {
-            state.map(|(prefs, renderer)| SubtitleSetup::new(&prefs, renderer).mpv_visible)
+        let visible = |state: &Option<(SubtitlePreferences, Renderer)>| {
+            state
+                .as_ref()
+                .map(|(prefs, renderer)| SubtitleSetup::new(prefs, *renderer).mpv_visible)
         };
         // First sync with nothing selected: GPUI draws, mpv hidden.
         let mut applied = plan(None, &prefs, renderer_for(None));
-        assert_eq!(visible(applied), Some(false));
+        assert_eq!(visible(&applied), Some(false));
         // A text track is selected: renderer unchanged, nothing to send.
-        assert_eq!(plan(applied, &prefs, renderer_for(Some("subrip"))), None);
+        assert_eq!(
+            plan(applied.as_ref(), &prefs, renderer_for(Some("subrip"))),
+            None
+        );
         // Switching to a PGS track turns mpv rendering on.
-        let pgs = plan(applied, &prefs, renderer_for(Some("hdmv_pgs_subtitle")));
-        assert_eq!(visible(pgs), Some(true));
+        let pgs = plan(
+            applied.as_ref(),
+            &prefs,
+            renderer_for(Some("hdmv_pgs_subtitle")),
+        );
+        assert_eq!(visible(&pgs), Some(true));
         applied = pgs;
         // A seek changes neither the preferences nor the track.
         assert_eq!(
-            plan(applied, &prefs, renderer_for(Some("hdmv_pgs_subtitle"))),
+            plan(
+                applied.as_ref(),
+                &prefs,
+                renderer_for(Some("hdmv_pgs_subtitle"))
+            ),
             None
         );
         // A new source clears the tracks: back to GPUI, mpv hidden again.
-        let cleared = plan(applied, &prefs, renderer_for(None));
-        assert_eq!(visible(cleared), Some(false));
+        let cleared = plan(applied.as_ref(), &prefs, renderer_for(None));
+        assert_eq!(visible(&cleared), Some(false));
         applied = cleared;
         // Delay edits resend; the renderer stays.
         let delayed = SubtitlePreferences {
             delay: 1.5,
             ..prefs
         };
-        assert!(plan(applied, &delayed, Renderer::Gpui).is_some());
+        assert!(plan(applied.as_ref(), &delayed, Renderer::Gpui).is_some());
     }
 
     #[test]

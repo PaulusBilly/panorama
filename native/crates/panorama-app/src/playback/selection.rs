@@ -30,9 +30,16 @@ pub struct PlaybackSelection {
     pub source: SourceRef,
     pub start: StartMode,
     pub meta_base: Option<Url>,
-    /// The addons' subtitle files for the film, looked up before Play.
+    /// The addons' subtitle files for the film, when the lookup finished before Play.
     pub subtitles: Vec<panorama_core::addons::SubtitleSource>,
+    /// The lookup still in flight when Play started; its files join the play as they arrive.
+    pub late_subtitles: Option<SubtitleLookup>,
 }
+
+/// The addons' subtitle lookup for a film, shared by the film page and the player.
+pub type SubtitleLookup = futures::future::Shared<
+    futures::future::BoxFuture<'static, Vec<panorama_core::addons::SubtitleSource>>,
+>;
 
 impl PlaybackSelection {
     pub fn selected(&self) -> Option<&StreamSource> {

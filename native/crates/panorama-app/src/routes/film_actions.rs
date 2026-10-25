@@ -6,15 +6,8 @@ use crate::{
 use gpui::{Div, div, prelude::*, px};
 
 impl Film {
-    /// Start playback, or sign in first. `redirect` swaps this page for the player rather
-    /// than stacking it, for plays started elsewhere (Home's hero, a card preview) that
-    /// only passed through here to pick a source.
-    pub(super) fn primary_action(
-        &mut self,
-        redirect: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// Start playback, or sign in first.
+    pub(super) fn primary_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !matches!(self.account, Account::SignedIn(_)) {
             self.sign_in(window, cx);
             return;
@@ -25,9 +18,13 @@ impl Film {
             }
             return;
         }
-        let Some(subtitles) = self.subtitles.clone() else {
-            return;
+        // Play does not wait for the subtitle files: a lookup still running follows the player.
+        let late_subtitles = if self.subtitles.is_none() {
+            self.subtitle_lookup.clone()
+        } else {
+            None
         };
+        let subtitles = self.subtitles.clone().unwrap_or_default();
         if let (Some(source), Some(film)) = (self.selected, self.metadata.clone()) {
             let id = self.id.clone();
             let selection = crate::playback::selection::PlaybackSelection {
@@ -41,17 +38,14 @@ impl Film {
                     }),
                 meta_base: self.meta_base.clone(),
                 subtitles,
+                late_subtitles,
             };
             self.state
                 .update(cx, |state, _| state.playback = Some(selection));
             let route = crate::router::Route::Player { id };
-            let _ = self.shell.update(cx, |shell, cx| {
-                if redirect {
-                    shell.redirect(route, window, cx)
-                } else {
-                    shell.navigate(route, window, cx)
-                }
-            });
+            let _ = self
+                .shell
+                .update(cx, |shell, cx| shell.navigate(route, window, cx));
         }
     }
     pub(super) fn actions(&mut self, view: ViewSettings, cx: &mut Context<Self>) -> Div {
@@ -87,13 +81,12 @@ impl Film {
             Button::primary("film-primary", text)
         }
         .aria_label(label.clone())
-        // Playable, but still waiting on the subtitle files: the pill spins until they arrive.
-        .busy(primary == Primary::Loading || (primary == Primary::Play && self.subtitles.is_none()))
+        .busy(primary == Primary::Loading)
         .disabled(!primary.enabled())
         .reduced_motion(view.reduced)
         .focus(&self.primary, view.keyboard)
         .tab_stop(view.active)
-        .on_click(cx.listener(|film, _, window, cx| film.primary_action(false, window, cx)));
+        .on_click(cx.listener(|film, _, window, cx| film.primary_action(window, cx)));
         if primary == Primary::Play {
             button = button.leading(Icon::Play);
         }

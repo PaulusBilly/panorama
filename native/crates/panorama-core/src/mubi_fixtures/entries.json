@@ -1,0 +1,82 @@
+[
+ {
+  "id": 425053,
+  "year": 2022,
+  "status": "nominated",
+  "display_text": "Critics Week Grand Prize",
+  "full_display_text": "2022 | Nominee: Critics Week Grand Prize",
+  "industry_event": {
+   "id": 1,
+   "name": "Cannes Film Festival",
+   "slug": "cannes",
+   "type": "festival",
+   "logo_url": "https://images.mubicdn.net/images/industry_event/1/cache-222790-1494527057/logo-small_black.png",
+   "white_logo_url": "https://images.mubicdn.net/images/industry_event/1/cache-222790-1494527057/logo-large_white.png",
+   "cover_url": "https://images.mubicdn.net/images/industry_event/1/cache-222788-1494406355/cover-original.jpg"
+  }
+ },
+ {
+  "id": 388757,
+  "year": 2022,
+  "status": "won",
+  "display_text": "French Touch Prize of the Critics' Week Jury",
+  "full_display_text": "2022 | Winner: French Touch Prize of the Critics' Week Jury",
+  "industry_event": {
+   "id": 1,
+   "name": "Cannes Film Festival",
+   "slug": "cannes",
+   "type": "festival",
+   "logo_url": "https://images.mubicdn.net/images/industry_event/1/cache-222790-1494527057/logo-small_black.png",
+   "white_logo_url": "https://images.mubicdn.net/images/industry_event/1/cache-222790-1494527057/logo-large_white.png",
+   "cover_url": "https://images.mubicdn.net/images/industry_event/1/cache-222788-1494406355/cover-original.jpg"
+  }
+ },
+ {
+  "id": 403348,
+  "year": 2022,
+  "status": "screening",
+  "display_text": null,
+  "full_display_text": "2022",
+  "industry_event": {
+   "id": 8,
+   "name": "Toronto International Film Festival",
+   "slug": "toronto",
+   "type": "festival",
+   "logo_url": "https://images.mubicdn.net/images/industry_event/8/cache-222796-1741107355/logo-small_black.png",
+   "white_logo_url": "https://images.mubicdn.net/images/industry_event/8/cache-222796-1741107355/logo-large_white.png",
+   "cover_url": "https://images.mubicdn.net/images/industry_event/8/cache-222966-1494432449/cover-original.jpg"
+  }
+ },
+ {
+  "id": 1,
+  "year": 2022,
+  "status": "disqualified",
+  "display_text": "Critics Week Grand Prize",
+  "full_display_text": "2022 | Nominee: Critics Week Grand Prize",
+  "industry_event": {
+   "id": 1,
+   "name": "Cannes Film Festival",
+   "slug": "cannes",
+   "type": "festival",
+   "logo_url": "https://images.mubicdn.net/images/industry_event/1/cache-222790-1494527057/logo-small_black.png",
+   "white_logo_url": "https://images.mubicdn.net/images/industry_event/1/cache-222790-1494527057/logo-large_white.png",
+   "cover_url": "https://images.mubicdn.net/images/industry_event/1/cache-222788-1494406355/cover-original.jpg"
+  }
+ },
+ {
+  "id": 2,
+  "year": 2022,
+  "status": "won",
+  "display_text": "French Touch Prize of the Critics' Week Jury",
+  "full_display_text": "2022 | Winner: French Touch Prize of the Critics' Week Jury",
+  "industry_event": {
+   "id": 1,
+   "name": "Cannes Film Festival",
+   "slug": "cannes",
+   "type": "festival",
+   "logo_url": "https://images.mubicdn.net/images/industry_event/1/cache-222790-1494527057/logo-small_black.png",
+   "white_logo_url": "https://evil.test/logo.png",
+   "cover_url": "http://images.mubicdn.net/c.jpg"
+  }
+ }
+]

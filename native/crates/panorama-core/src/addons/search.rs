@@ -211,6 +211,7 @@ mod enrichment {
             origin_country: None,
             original_name: None,
             cast: Vec::new(),
+            people: vec![],
             poster: None,
             background: None,
             logo: None,

@@ -198,14 +198,107 @@ fn the_remembered_language_turns_on_once_until_the_viewer_chooses() {
     let mut tracks = vec![track(1, Some("fra"), "French", "subrip", false)];
     let mut state = State::default();
     // Not there yet: an addon's files arrive after the built-in tracks.
-    assert_eq!(state.restore(Lang::En, &tracks), None);
+    assert_eq!(state.restore(Lang::En, None, &tracks), None);
     tracks.push(track(8, Some("eng"), "OpenSubtitles", "subrip", false));
-    assert_eq!(state.restore(Lang::En, &tracks), Some(8));
+    assert_eq!(state.restore(Lang::En, None, &tracks), Some(8));
     select(&mut tracks, Some(8));
     // Later track lists leave the selection and any choice alone.
-    assert_eq!(state.restore(Lang::En, &tracks), None);
+    assert_eq!(state.restore(Lang::En, None, &tracks), None);
     let mut chose_off = State::default();
     chose_off.choose(Choice::Off, &tracks);
     select(&mut tracks, None);
-    assert_eq!(chose_off.restore(Lang::En, &tracks), None);
+    assert_eq!(chose_off.restore(Lang::En, None, &tracks), None);
+}
+
+#[test]
+fn the_remembered_source_wins_when_it_arrives_unless_the_viewer_chose() {
+    let addon = |id, name: &str| Track {
+        external: true,
+        ..track(id, Some("eng"), name, "subrip", false)
+    };
+    let community = Source::Addon("OpenSubtitles".into());
+    let mut tracks = vec![track(1, Some("eng"), "English", "subrip", false)];
+    let mut state = State::default();
+    // The built-in track plays while the addon's files load.
+    assert_eq!(state.restore(Lang::En, Some(&community), &tracks), Some(1));
+    select(&mut tracks, Some(1));
+    tracks.push(addon(8, "AIOSubtitles"));
+    assert_eq!(state.restore(Lang::En, Some(&community), &tracks), None);
+    tracks.push(addon(9, "OpenSubtitles"));
+    assert_eq!(state.restore(Lang::En, Some(&community), &tracks), Some(9));
+    select(&mut tracks, Some(9));
+    assert_eq!(state.restore(Lang::En, Some(&community), &tracks), None);
+
+    // A pick in the panel ends the automatic switching for this film.
+    let mut tracks = vec![track(1, Some("eng"), "English", "subrip", false)];
+    let mut state = State::default();
+    assert_eq!(state.restore(Lang::En, Some(&community), &tracks), Some(1));
+    select(&mut tracks, Some(1));
+    state.choose_track(1, &tracks);
+    tracks.push(addon(9, "OpenSubtitles"));
+    assert_eq!(state.restore(Lang::En, Some(&community), &tracks), None);
+
+    // Embedded is a source too.
+    let tracks = vec![
+        addon(8, "OpenSubtitles"),
+        track(2, Some("eng"), "English", "subrip", false),
+    ];
+    assert_eq!(
+        State::default().restore(Lang::En, Some(&Source::Embedded), &tracks),
+        Some(2)
+    );
+    assert_eq!(Source::of(&tracks[0]), community);
+    assert_eq!(Source::parse(&community.key()), Some(community));
+    assert_eq!(
+        Source::parse(&Source::Embedded.key()),
+        Some(Source::Embedded)
+    );
+}
+
+#[test]
+fn a_pick_mpv_has_not_applied_yet_is_shown_and_not_asked_for_again() {
+    // Files keep arriving while mpv works through its queue; each track list still shows
+    // nothing selected until it reaches the pick.
+    let mut tracks = vec![track(1, Some("eng"), "OpenSubtitles", "subrip", false)];
+    let mut state = State::default();
+    assert!(!state.showing(&tracks));
+    assert_eq!(state.restore(Lang::En, None, &tracks), Some(1));
+    assert!(state.showing(&tracks));
+    tracks.push(track(2, Some("eng"), "OpenSubtitles", "subrip", false));
+    assert_eq!(state.restore(Lang::En, None, &tracks), None);
+    state.choose(Choice::Off, &tracks);
+    select(&mut tracks, Some(1));
+    assert!(!state.showing(&tracks));
+}
+
+#[test]
+fn addon_files_keep_the_panel_languages_with_the_auto_pick_first() {
+    let file = |lang: &str, addon: &str| SubtitleSource {
+        url: url::Url::parse("https://subs.example/a.srt").unwrap(),
+        lang: lang.into(),
+        addon: addon.into(),
+    };
+    let files = vec![
+        file("pob", "OpenSubtitles"),
+        file("ind", "OpenSubtitles"),
+        file("eng", "AIOSubtitles"),
+        file("tur", "AIOSubtitles"),
+        file("eng", "OpenSubtitles"),
+    ];
+    let order = |lang, source: Option<&Source>| {
+        order_files(files.clone(), lang, source)
+            .into_iter()
+            .map(|file| format!("{} {}", file.lang, file.addon))
+            .collect::<Vec<_>>()
+    };
+    let community = Source::Addon("OpenSubtitles".into());
+    assert_eq!(
+        order(Some(Lang::En), Some(&community)),
+        ["eng OpenSubtitles", "eng AIOSubtitles", "ind OpenSubtitles"]
+    );
+    assert_eq!(
+        order(Some(Lang::Id), None),
+        ["ind OpenSubtitles", "eng AIOSubtitles", "eng OpenSubtitles"]
+    );
+    assert_eq!(order(None, None).len(), 3);
 }

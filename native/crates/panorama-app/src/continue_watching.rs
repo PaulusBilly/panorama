@@ -170,6 +170,7 @@ fn stub(meta: &FilmMeta) -> FilmDetails {
         origin_country: None,
         original_name: None,
         cast: vec![],
+        people: vec![],
         poster: meta.poster.clone(),
         background: None,
         logo: None,

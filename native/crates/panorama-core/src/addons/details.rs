@@ -116,6 +116,7 @@ impl AddonClient {
                                             if !response.credits.cast.is_empty() {
                                                 details.cast = response.credits.cast;
                                             }
+                                            details.people = response.credits.people;
                                             if let Some(credits) = response
                                                 .credits
                                                 .previews

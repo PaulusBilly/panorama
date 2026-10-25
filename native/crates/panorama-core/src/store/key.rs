@@ -48,6 +48,14 @@ impl Key {
         Ok(Self(format!("meta:{film_id}")))
     }
 
+    /// Identifies a film's cached awards; validated like [`Key::meta`]. It lives under `meta:`
+    /// so the film-details cache policy (age, count and sign-out pruning) covers it without a
+    /// schema change.
+    pub fn awards(film_id: &str) -> Result<Self, StoreError> {
+        let Self(meta) = Self::meta(film_id)?;
+        Ok(Self(format!("meta:awards|{}", &meta["meta:".len()..])))
+    }
+
     /// Identifies a preference by name.
     pub fn pref(name: &str) -> Result<Self, StoreError> {
         Self::single("pref", name)

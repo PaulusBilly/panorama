@@ -281,11 +281,13 @@ impl Runner {
         match result {
             Ok(mut active) => {
                 self.emit(HostEvent::Loading);
+                // mpv opens the file at the resume point: no reading the opening, then seeking.
                 let result = active.load(
                     self.window.clone(),
                     self.model.volume,
                     self.model.muted,
                     self.model.paused,
+                    self.resume.take(),
                 );
                 self.active = Some(active);
                 match result {
@@ -337,6 +339,13 @@ impl Runner {
                     let _ = active.command(&Command::Output(properties.clone()));
                 }
                 self.output = Some(properties);
+            }
+            Command::AddSubtitles(files) => {
+                // Files that arrive after Play are kept for retries and later sources too.
+                self.addon_subtitles.extend(files.iter().cloned());
+                if let Some(active) = &mut self.active {
+                    let _ = active.command(&Command::AddSubtitles(files));
+                }
             }
             Command::Attach(sender) => self.events = sender,
             Command::Shutdown(done) => {

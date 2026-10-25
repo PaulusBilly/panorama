@@ -74,6 +74,7 @@ impl Render for Player {
             || self.emphasis.iter().any(|tween| tween.moving(now, reduced))
             || self.chrome_fade.moving(now, reduced)
             || self.panel_motion.moving(now, reduced)
+            || self.tab_motion.moving(now, reduced)
             || self.flash_moving(now)
         {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
@@ -245,7 +246,13 @@ impl Player {
                 window,
                 cx,
             ),
-            Some("color") => self.open_color(window, cx),
+            Some(control @ ("color" | "appearance")) => {
+                self.ui.subs.tab = super::subtitles::Tab::Settings;
+                self.tab_motion = crate::transition::Tween::fixed(2.0);
+                if control == "color" {
+                    self.open_color(window, cx);
+                }
+            }
             Some("select") => self.toggle_select(super::prefs_ui::SelectId::Device, cx),
             Some("scroll") => self.scrolls[3].scroll_to_bottom(),
             _ => {}

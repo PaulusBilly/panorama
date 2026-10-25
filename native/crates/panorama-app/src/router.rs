@@ -53,6 +53,13 @@ pub enum Route {
         /// Opaque film identifier.
         id: String,
     },
+    /// A festival or award's films by year, from MUBI.
+    Festival {
+        /// MUBI's event slug, e.g. "cannes".
+        slug: String,
+        /// The edition shown; `None` opens the newest.
+        year: Option<i32>,
+    },
     /// The player placeholder.
     Player {
         /// Opaque playback identifier.
@@ -76,21 +83,38 @@ impl Route {
             }),
             ("film", Some(id)) if !id.is_empty() => Ok(Self::Film { id: id.into() }),
             ("player", Some(id)) if !id.is_empty() => Ok(Self::Player { id: id.into() }),
+            ("festival", Some(event)) => {
+                let (slug, year) = match event.split_once(':') {
+                    Some((slug, year)) => (
+                        slug,
+                        Some(year.parse().map_err(|_| format!("Invalid year: {year}"))?),
+                    ),
+                    None => (event, None),
+                };
+                if slug.is_empty() {
+                    return Err(format!("Invalid screenshot route: {value}"));
+                }
+                Ok(Self::Festival {
+                    slug: slug.into(),
+                    year,
+                })
+            }
             _ => Err(format!("Invalid screenshot route: {value}")),
         }
     }
-    /// The sidebar item this route highlights; Film and Player highlight nothing.
+    /// The sidebar item this route highlights; Film, Festival and Player highlight nothing.
     pub fn destination(&self) -> Option<Destination> {
         match self {
             Self::Home => Some(Destination::Home),
             Self::Search { .. } => Some(Destination::Search),
             Self::Addons => Some(Destination::Addons),
-            Self::Film { .. } | Self::Player { .. } => None,
+            Self::Film { .. } | Self::Festival { .. } | Self::Player { .. } => None,
         }
     }
-    /// Every route but the player draws the sidebar.
+    /// The browsing routes draw the sidebar; the film page and the player are full bleed
+    /// and leave through their back buttons.
     pub fn has_sidebar(&self) -> bool {
-        !matches!(self, Self::Player { .. })
+        !matches!(self, Self::Film { .. } | Self::Player { .. })
     }
 }
 
@@ -282,7 +306,7 @@ mod tests {
         );
         let film = Route::Film { id: "a:b".into() };
         assert_eq!(film.destination(), None);
-        assert!(film.has_sidebar());
+        assert!(!film.has_sidebar());
         let player = Route::Player { id: "a:b".into() };
         assert_eq!(player.destination(), None);
         assert!(!player.has_sidebar());
@@ -332,8 +356,32 @@ mod tests {
             Route::parse("film:a:b"),
             Ok(Route::Film { id: "a:b".into() })
         );
+        assert_eq!(
+            Route::parse("festival:cannes"),
+            Ok(Route::Festival {
+                slug: "cannes".into(),
+                year: None
+            })
+        );
+        assert_eq!(
+            Route::parse("festival:tribeca:2019"),
+            Ok(Route::Festival {
+                slug: "tribeca".into(),
+                year: Some(2019)
+            })
+        );
         for value in [
-            "", "Home", "home:x", "addons:", "film", "film:", "player:", "unknown",
+            "",
+            "Home",
+            "home:x",
+            "addons:",
+            "film",
+            "film:",
+            "player:",
+            "unknown",
+            "festival",
+            "festival:",
+            "festival:cannes:x",
         ] {
             assert!(Route::parse(value).is_err(), "{value}");
         }

@@ -152,3 +152,36 @@ fn subtitles_are_added_only_from_web_urls_and_not_selected() {
     );
     completed.send(Ok(())).unwrap();
 }
+
+#[test]
+fn a_resume_opens_the_file_at_its_position_in_one_command() {
+    let (player, incoming, completed) = fake();
+    player
+        .load_at("https://media.invalid/a.mkv", Some(1234.5))
+        .unwrap();
+    let Request::Command(args) = incoming.recv().unwrap() else {
+        panic!("expected a command");
+    };
+    assert_eq!(
+        args,
+        [
+            "loadfile",
+            "https://media.invalid/a.mkv",
+            "replace",
+            "-1",
+            "start=1234.5"
+        ]
+    );
+    completed.send(Ok(())).unwrap();
+    // No position, or one that is not a real time, opens from the start.
+    for start in [None, Some(-1.0), Some(f64::NAN)] {
+        player
+            .load_at("https://media.invalid/a.mkv", start)
+            .unwrap();
+        let Request::Command(args) = incoming.recv().unwrap() else {
+            panic!("expected a command");
+        };
+        assert_eq!(args, ["loadfile", "https://media.invalid/a.mkv", "replace"]);
+        completed.send(Ok(())).unwrap();
+    }
+}

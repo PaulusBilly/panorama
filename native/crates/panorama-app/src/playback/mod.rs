@@ -3,6 +3,7 @@ pub mod debug;
 pub mod fake;
 pub mod health;
 pub mod host;
+pub mod launch;
 pub mod model;
 pub mod output;
 pub mod prefs;

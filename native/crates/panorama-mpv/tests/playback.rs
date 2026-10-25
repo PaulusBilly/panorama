@@ -316,3 +316,22 @@ fn extra_options_cannot_reach_wid_or_load_configuration() {
         );
     }
 }
+
+#[test]
+fn load_at_opens_the_file_at_its_position() {
+    let (_media, video, _) = media();
+    let Some((player, events)) = player(&[]) else {
+        return;
+    };
+    player.load_at(video.to_str().unwrap(), Some(3.0)).unwrap();
+    let PlayerEvent::TimePos(Some(first)) = wait(&events, |event| {
+        matches!(event, PlayerEvent::TimePos(Some(_)))
+    }) else {
+        unreachable!()
+    };
+    assert!(
+        first >= 2.9,
+        "playback began at {first}s, not the resume point"
+    );
+    close(player);
+}

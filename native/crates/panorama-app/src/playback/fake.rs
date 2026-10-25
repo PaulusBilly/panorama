@@ -316,8 +316,15 @@ struct FakePlayback {
 }
 
 impl Playback for FakePlayback {
-    fn load(&mut self, _: Option<RawWindow>, _: u8, _: bool, _: bool) -> Result<(), PlaybackError> {
-        lock(&self.log).push("load".into());
+    fn load(
+        &mut self,
+        _: Option<RawWindow>,
+        _: u8,
+        _: bool,
+        _: bool,
+        start: Option<f64>,
+    ) -> Result<(), PlaybackError> {
+        lock(&self.log).push(start.map_or_else(|| "load".into(), |start| format!("load@{start}")));
         Ok(())
     }
 
