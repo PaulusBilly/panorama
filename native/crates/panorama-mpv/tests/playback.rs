@@ -316,3 +316,53 @@ fn extra_options_cannot_reach_wid_or_load_configuration() {
         );
     }
 }
+
+#[test]
+fn load_at_opens_the_file_at_its_position() {
+    let (_media, video, _) = media();
+    let Some((player, events)) = player(&[]) else {
+        return;
+    };
+    player.load_at(video.to_str().unwrap(), Some(3.0)).unwrap();
+    let PlayerEvent::TimePos(Some(first)) = wait(&events, |event| {
+        matches!(event, PlayerEvent::TimePos(Some(_)))
+    }) else {
+        unreachable!()
+    };
+    assert!(
+        first >= 2.9,
+        "playback began at {first}s, not the resume point"
+    );
+    close(player);
+}
+
+#[test]
+fn a_subtitle_that_cannot_load_fails_alone() {
+    let (_media, video, _) = media();
+    let Some((player, events)) = player(&[]) else {
+        return;
+    };
+    player.load(video.to_str().unwrap()).unwrap();
+    wait(
+        &events,
+        |event| matches!(event, PlayerEvent::TrackList(tracks) if !tracks.is_empty()),
+    );
+    // Nothing listens on port 9 here, so the download is refused at once.
+    player
+        .add_subtitle("http://127.0.0.1:9/missing.srt", "Addon", "eng")
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let event = events
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        assert!(
+            !matches!(event, PlayerEvent::Error(_)),
+            "a subtitle failure surfaced as a playback error: {event:?}"
+        );
+        if event == PlayerEvent::SubtitleFailed {
+            break;
+        }
+    }
+    close(player);
+}

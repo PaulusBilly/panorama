@@ -13,6 +13,8 @@ use gpui::{
 };
 use std::time::Instant;
 
+/// The page title bar.
+const HEADER: f32 = 52.0;
 /// Height of a section label: caption line plus its 12 px top and 4 px bottom padding.
 const LABEL_HEIGHT: f32 = 11.0 * 1.4 + 12.0 + 4.0;
 /// A stuck label sits 8 px above the list's top edge, under the sticky header.
@@ -55,7 +57,6 @@ impl Player {
             .absolute()
             .right(px(20.0))
             .bottom(px(self.panel_motion.bottom - offset))
-            .rounded(px(16.0))
             .bg(theme.player_canvas)
             .text_color(theme.ink)
             .overflow_hidden()
@@ -99,7 +100,7 @@ impl Player {
             }
         }
         // The hairline paints above the pages so headers and scrolled rows never cover it.
-        Some(surface.child(ring(theme, 0.1).rounded(px(16.0))))
+        Some(surface.child(ring(theme, 0.1).rounded_none()))
     }
 
     fn panel_page(
@@ -121,7 +122,7 @@ impl Player {
         let (title, width, body, sticky): (&str, f32, AnyElement, Option<Div>) = match id {
             PanelId::Settings => (
                 "Playback settings",
-                288.0f32.min(window_width - 16.0),
+                super::content::PANEL_WIDTH.min(window_width - 16.0),
                 self.settings_body(theme, keyboard, window, cx),
                 None,
             ),
@@ -133,9 +134,8 @@ impl Player {
                         && self.focus.panel.contains_focused(window, cx)
                 });
                 if id == PanelId::Subtitles {
-                    let shown = width.min(window_width - 40.0);
-                    let body = self
-                        .subtitles_body(&content, shown, highlight, theme, keyboard, window, cx);
+                    let body =
+                        self.subtitles_body(&content, highlight, theme, keyboard, window, cx);
                     (content.title, width, body, None)
                 } else {
                     let (list, sticky) = self.list_body(&content, id, highlight, theme, cx);
@@ -144,6 +144,7 @@ impl Player {
             }
         };
         let (x, opacity) = slide.map_or((0.0, 1.0), |(x, opacity)| (x * width, opacity));
+        let max_height = 448.0f32.min(window_height - 160.0);
         let page = div()
             .id(("player-panel-page", id as usize))
             .role(gpui::Role::Dialog)
@@ -151,7 +152,9 @@ impl Player {
             .relative()
             .w(px(width))
             .max_w(px(window_width - 40.0))
-            .max_h(px(448.0f32.min(window_height - 160.0)))
+            .max_h(px(max_height))
+            // Tabs never resize the Subtitles page.
+            .when(id == PanelId::Subtitles, |page| page.h(px(max_height)))
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -163,12 +166,12 @@ impl Player {
             .child(
                 div()
                     .flex_shrink_0()
-                    .h(px(44.0))
+                    .h(px(HEADER))
                     .px(px(20.0))
                     .flex()
                     .items_center()
                     .bg(theme.player_canvas)
-                    .label()
+                    .heading()
                     .child(title),
             )
             .child(body);
@@ -199,7 +202,7 @@ impl Player {
             .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
             .flex()
             .flex_col()
-            .px(px(8.0))
+            .px(px(0.0))
             .pt(px(4.0))
             .pb(px(8.0));
         for (index, item) in items.iter().enumerate() {
@@ -222,17 +225,17 @@ impl Player {
                 },
                 Item::Note(section) => match &content.sections[section].note {
                     Some(note) => caption(&note.text, theme, note.danger)
-                        .px(px(12.0))
+                        .px(px(20.0))
                         .py(px(8.0))
                         .into_any_element(),
                     None => continue,
                 },
                 Item::Empty => caption(content.empty.unwrap_or(""), theme, false)
-                    .px(px(12.0))
+                    .px(px(20.0))
                     .pb(px(8.0))
                     .into_any_element(),
                 Item::Error => caption(content.error.as_deref().unwrap_or(""), theme, true)
-                    .px(px(12.0))
+                    .px(px(20.0))
                     .pt(px(8.0))
                     .pb(px(8.0))
                     .into_any_element(),
@@ -269,8 +272,7 @@ impl Player {
             .items_center()
             .gap(px(12.0))
             .min_h(px(44.0))
-            .rounded(px(8.0))
-            .px(px(12.0))
+            .px(px(20.0))
             .py(px(8.0))
             .when(row.selected, |element| element.bg(ink.opacity(0.1)))
             .when(!row.selected, |element| {
@@ -312,7 +314,6 @@ impl Player {
                         div()
                             .caption()
                             .font_features(tabular())
-                            .rounded(px(4.0))
                             .px(px(6.0))
                             .bg(ink.opacity(0.1))
                             .text_color(ink.opacity(0.8))
@@ -321,14 +322,7 @@ impl Player {
                 ))
             })
             .when(highlighted, |element| {
-                element.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .rounded(px(8.0))
-                        .border_2()
-                        .border_color(ink),
-                )
+                element.child(div().absolute().inset_0().border_2().border_color(ink))
             })
     }
 }
@@ -346,7 +340,7 @@ pub(super) fn caption(text: &str, theme: Theme, danger: bool) -> Div {
 
 fn section_label(text: &str, theme: Theme) -> Div {
     caption(text, theme, false)
-        .px(px(12.0))
+        .px(px(20.0))
         .pt(px(12.0))
         .pb(px(4.0))
 }
@@ -375,8 +369,8 @@ fn sticky_overlay(
             .absolute()
             .left_0()
             .right_0()
-            .top(px(44.0 + y))
-            .px(px(8.0))
+            .top(px(HEADER + y))
+            .px(px(0.0))
             .bg(theme.player_canvas)
             .child(section_label(text, theme)),
     )

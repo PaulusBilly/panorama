@@ -38,6 +38,8 @@ pub struct MpvLibrary {
 
 enum Request {
     Command(Vec<String>),
+    /// `sub-add`: its failure is the subtitle's, reported as `SubtitleFailed`, not playback's.
+    Subtitle(Vec<String>),
     Property(String, PropertyValue),
     Properties(Vec<(String, PropertyValue)>),
 }
@@ -131,7 +133,18 @@ impl Player {
 
     /// Queues replacement playback. Input is never included in logs or errors.
     pub fn load(&self, url: &str) -> Result<(), MpvError> {
-        self.command(&["loadfile", url, "replace"])
+        self.load_at(url, None)
+    }
+    /// Queues replacement playback opening at `start` seconds, so a resume reads from its
+    /// position instead of buffering the opening and seeking. The per-file option is built
+    /// here from a number, never from caller text.
+    pub fn load_at(&self, url: &str, start: Option<f64>) -> Result<(), MpvError> {
+        match start.filter(|start| start.is_finite() && *start > 0.0) {
+            Some(start) => {
+                self.command(&["loadfile", url, "replace", "-1", &format!("start={start}")])
+            }
+            None => self.command(&["loadfile", url, "replace"]),
+        }
     }
     /// Queues stop without closing the player.
     pub fn stop(&self) -> Result<(), MpvError> {
@@ -196,7 +209,13 @@ impl Player {
         if !(url.starts_with("https://") || url.starts_with("http://")) {
             return Err(MpvError::InvalidArgument);
         }
-        self.command(&["sub-add", url, "auto", title, lang])
+        let args = ["sub-add", url, "auto", title, lang];
+        for arg in args {
+            validate(arg)?;
+        }
+        self.send(Request::Subtitle(
+            args.iter().map(|s| (*s).to_owned()).collect(),
+        ))
     }
     /// Queues volume in the inclusive range 0 through 100.
     pub fn set_volume(&self, volume: f64) -> Result<(), MpvError> {
@@ -304,6 +323,8 @@ fn run(
         let _ = updates.send(PlayerEvent::Ready);
         let mut properties = Properties::default();
         let mut pending = false;
+        // The command awaiting its reply is a subtitle file's.
+        let mut subtitle = false;
         let mut batch = std::collections::VecDeque::new();
         while !stopping.load(Ordering::Acquire) {
             if !pending {
@@ -312,8 +333,11 @@ fn run(
                 } else {
                     incoming.try_recv().ok()
                 };
+                subtitle = matches!(next, Some(Request::Subtitle(_)));
                 let result = match next {
-                    Some(Request::Command(args)) => Some(client.command(&args)),
+                    Some(Request::Command(args) | Request::Subtitle(args)) => {
+                        Some(client.command(&args))
+                    }
                     Some(Request::Property(name, mut value)) => Some(client.set(&name, &mut value)),
                     Some(Request::Properties(values)) => {
                         batch.extend(values);
@@ -324,16 +348,24 @@ fn run(
                 if let Some(result) = result {
                     pending = result.is_ok();
                     if let Err(error) = result {
-                        let _ = updates.send(PlayerEvent::Error(error));
+                        let _ = updates.send(if subtitle {
+                            PlayerEvent::SubtitleFailed
+                        } else {
+                            PlayerEvent::Error(error)
+                        });
                     }
                 }
             }
             let received = client.receive(&mut properties);
+            let subtitle_reply = received.reply && std::mem::take(&mut subtitle);
             if received.reply {
                 pending = false;
             }
             for event in received.events {
-                let _ = updates.send(event);
+                let _ = updates.send(match event {
+                    PlayerEvent::Error(_) if subtitle_reply => PlayerEvent::SubtitleFailed,
+                    event => event,
+                });
             }
             if received.shutdown {
                 break;

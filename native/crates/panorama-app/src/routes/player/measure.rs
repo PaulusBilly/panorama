@@ -21,7 +21,9 @@ pub struct Measures {
     pub selects: [Cell<Option<Bounds<Pixels>>>; 3],
     /// The open select menu or colour popover.
     pub popup: Cell<Option<Bounds<Pixels>>>,
-    /// The "Choose color" row.
+    /// The picker's saturation square and hue strip, by `picker::Part`.
+    pub picker: [Cell<Option<Bounds<Pixels>>>; 2],
+    /// The colour wheel swatch the picker opens from.
     pub color_row: Cell<Option<Bounds<Pixels>>>,
     /// The value field being edited.
     pub edit: Cell<Option<Bounds<Pixels>>>,

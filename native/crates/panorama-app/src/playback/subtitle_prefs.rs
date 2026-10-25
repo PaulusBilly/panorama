@@ -213,7 +213,7 @@ impl Field {
 }
 
 /// Everything the Appearance column edits, plus the delay.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SubtitlePreferences {
     /// Text colour.
     pub text_color: Rgb,
@@ -239,6 +239,8 @@ pub struct SubtitlePreferences {
     pub vertical_position: f64,
     /// The language last chosen in the panel, turned on for the next film; `None` is off.
     pub language: Option<crate::routes::player::subtitles::Lang>,
+    /// Where the last track picked in the panel came from, preferred for the next film.
+    pub source: Option<crate::routes::player::subtitles::Source>,
 }
 
 impl Default for SubtitlePreferences {
@@ -256,6 +258,7 @@ impl Default for SubtitlePreferences {
             delay: 0.0,
             vertical_position: 15.0,
             language: None,
+            source: None,
         }
     }
 }
@@ -337,6 +340,10 @@ impl SubtitlePreferences {
                 .get("language")
                 .and_then(Value::as_str)
                 .and_then(crate::routes::player::subtitles::Lang::parse),
+            source: record
+                .get("source")
+                .and_then(Value::as_str)
+                .and_then(crate::routes::player::subtitles::Source::parse),
         }
     }
 
@@ -360,6 +367,7 @@ impl SubtitlePreferences {
             "borderRadius": self.box_rounding,
             "verticalPosition": self.vertical_position,
             "language": self.language.map(|lang| lang.code()),
+            "source": self.source.as_ref().map(|source| source.key()),
         });
         serde_json::to_vec(&value).unwrap_or_default()
     }

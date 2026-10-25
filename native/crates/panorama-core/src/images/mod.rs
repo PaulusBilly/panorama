@@ -56,7 +56,10 @@ impl ImageUrl {
         else {
             return self.clone();
         };
-        let Some(size) = [300, 500, 780, 1280, 1920].into_iter().find(|&s| s >= width) else {
+        let Some(size) = [300, 500, 780, 1280, 1920]
+            .into_iter()
+            .find(|&s| s >= width)
+        else {
             return self.clone();
         };
         let mut url = self.0.clone();

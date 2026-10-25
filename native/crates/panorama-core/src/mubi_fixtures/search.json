@@ -1,0 +1,37 @@
+{
+ "films": [
+  {
+   "id": 340287,
+   "title": "Aftersun",
+   "original_title": "Aftersun",
+   "year": 2022,
+   "directors": [
+    {
+     "name": "Charlotte Wells"
+    }
+   ]
+  },
+  {
+   "id": 344731,
+   "title": "Aftersun",
+   "original_title": "Aftersun",
+   "year": 2022,
+   "directors": [
+    {
+     "name": "Lluís Galter"
+    }
+   ]
+  },
+  {
+   "id": 444926,
+   "title": "Aftersun",
+   "original_title": "Aftersun",
+   "year": 2006,
+   "directors": [
+    {
+     "name": "Peter Lydon"
+    }
+   ]
+  }
+ ]
+}

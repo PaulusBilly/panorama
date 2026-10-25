@@ -127,16 +127,6 @@ fn the_select_lists_the_default_first_and_labels_unnamed_outputs() {
 }
 
 #[test]
-fn status_line_prefers_the_notice() {
-    assert_eq!(status_line(None, false), "Decoded audio");
-    assert_eq!(status_line(None, true), "Receiver passthrough active");
-    assert_eq!(
-        status_line(Some("Using system default."), true),
-        "Using system default."
-    );
-}
-
-#[test]
 fn stored_settings_round_trip_and_reject_malformed_input() {
     let settings = PlaybackSettings {
         device: "wasapi/hdmi".into(),

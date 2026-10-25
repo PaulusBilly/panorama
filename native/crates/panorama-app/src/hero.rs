@@ -26,8 +26,7 @@ pub const ROW_GAP: f32 = 56.0;
 pub const FOLD_PAD: f32 = 48.0;
 /// Share of the window the hero takes, leaving the Continue row in view beneath it.
 const HERO_SHARE: f32 = 0.72;
-/// The film page has more room than the home hero, so its logo cap is larger. The player
-/// asks for the same size, so its title reuses the decoded image.
+/// The film page has more room than the home hero, so its logo cap is larger.
 pub const FILM_LOGO: (f32, f32) = (280.0, 112.0);
 pub const LOGO: (f32, f32) = (200.0, 80.0);
 /// Largest text title; the logo cap keeps image titles to the same weight on the page.

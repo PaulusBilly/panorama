@@ -3,6 +3,7 @@ use super::{
     Player,
     measure::probe,
     panel_widgets::{color, note, slot},
+    picker::{Hsv, Part},
     prefs_ui::{SelectId, select_items},
     widgets::tabular,
 };
@@ -10,7 +11,10 @@ use crate::{
     playback::{output, subtitle_prefs},
     theme::{Theme, Typography},
 };
-use gpui::{AnyElement, Bounds, Pixels, Window, div, prelude::*, px, relative, svg};
+use gpui::{
+    AnyElement, Bounds, Div, MouseButton, MouseDownEvent, Pixels, Stateful, Window, div,
+    linear_color_stop, linear_gradient, prelude::*, px, relative, svg,
+};
 
 /// Sideways inset of a menu from the window edge, and the gap under its trigger.
 const MENU_GAP: f32 = 4.0;
@@ -18,6 +22,11 @@ const COLLISION_PADDING: f32 = 20.0;
 const ITEM_HEIGHT: f32 = 40.0;
 /// Menu padding (`p-1`) and border on both sides.
 const MENU_CHROME: f32 = 10.0;
+/// About the colour popover's height; below that much room under its row it opens above.
+const POPOVER_HEIGHT: f32 = 330.0;
+const POPOVER_WIDTH: f32 = 272.0;
+/// The picker's drag handles.
+const THUMB: f32 = 16.0;
 
 /// Where a menu opens: below its trigger, or above when there is more room there.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -78,104 +87,102 @@ impl Player {
                 .unwrap_or_default()
         };
         let helper = if available {
-            "For a compatible receiver. Adjust volume on the receiver."
+            "Sends the original audio to your receiver. Set the volume there."
         } else {
-            "Choose an output with confirmed receiver support to enable passthrough."
+            "Needs an output with a confirmed receiver."
         };
-        let status = output::status_line(self.ui.notice, passthrough);
+        let section = |label: &'static str| {
+            note(label, theme, 0.55)
+                .px(px(20.0))
+                .pt(px(12.0))
+                .pb(px(4.0))
+        };
+        let helper_line = |text: &'static str| note(text, theme, 0.55).px(px(20.0)).pb(px(8.0));
         let mut body = div()
             .id("player-settings-body")
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
             .track_scroll(&self.scrolls[3])
-            .px(px(8.0))
+            .flex()
+            .flex_col()
+            .px(px(0.0))
             .pb(px(8.0))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(16.0))
-                    .px(px(12.0))
-                    .pb(px(8.0))
-                    .child(self.select_trigger(
-                        SelectId::Device,
-                        self.device_label(),
-                        false,
-                        theme,
-                        keyboard,
-                        window,
-                        cx,
-                    ))
-                    .child(self.select_trigger(
-                        SelectId::Channels,
-                        label_of(SelectId::Channels),
-                        false,
-                        theme,
-                        keyboard,
-                        window,
-                        cx,
-                    ))
-                    .child(self.checkbox(
-                        "settings-passthrough",
-                        slot::PASSTHROUGH,
-                        "Receiver passthrough",
-                        self.ui.output.passthrough() && available,
-                        !available,
-                        theme,
-                        keyboard,
-                        window,
-                        |player, cx| player.toggle_passthrough(cx),
-                        cx,
-                    ))
-                    .child(note(helper, theme, 0.65))
-                    .child(self.select_trigger(
-                        SelectId::Video,
-                        label_of(SelectId::Video),
-                        false,
-                        theme,
-                        keyboard,
-                        window,
-                        cx,
-                    ))
-                    .child(
-                        div()
-                            .id("settings-status")
-                            .role(gpui::Role::Status)
-                            .child(note(status, theme, 0.65)),
-                    ),
-            );
+            .child(section("Audio"))
+            .child(self.select_trigger(
+                SelectId::Device,
+                "Output",
+                self.device_label(),
+                theme,
+                keyboard,
+                window,
+                cx,
+            ))
+            .child(self.select_trigger(
+                SelectId::Channels,
+                "Channels",
+                label_of(SelectId::Channels),
+                theme,
+                keyboard,
+                window,
+                cx,
+            ))
+            .child(self.checkbox(
+                "settings-passthrough",
+                slot::PASSTHROUGH,
+                "Receiver passthrough",
+                passthrough,
+                !available,
+                theme,
+                keyboard,
+                window,
+                |player, cx| player.toggle_passthrough(cx),
+                cx,
+            ))
+            .child(helper_line(helper))
+            .when_some(self.ui.notice, |body, notice| {
+                body.child(
+                    div()
+                        .id("settings-status")
+                        .role(gpui::Role::Status)
+                        .child(helper_line(notice)),
+                )
+            })
+            .child(section("Video"))
+            .child(self.select_trigger(
+                SelectId::Video,
+                "Output",
+                label_of(SelectId::Video),
+                theme,
+                keyboard,
+                window,
+                cx,
+            ));
         if let Some(discord) = &self.ui.discord {
             let enabled = discord.enabled;
-            body = body.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.0))
-                    .px(px(12.0))
-                    .pb(px(8.0))
-                    .child(self.checkbox(
-                        "settings-discord",
-                        slot::DISCORD,
-                        "Share watching activity on Discord",
-                        enabled,
-                        !discord.available || discord.busy,
-                        theme,
-                        keyboard,
-                        window,
-                        move |player, cx| player.set_discord(!enabled, cx),
-                        cx,
-                    ))
-                    .child(note(discord.helper(), theme, 0.65))
-                    .when_some(discord.error, |block, error| {
-                        block.child(
-                            div()
-                                .id("discord-status")
-                                .role(gpui::Role::Status)
-                                .child(note(error, theme, 0.65)),
-                        )
-                    }),
-            );
+            body = body
+                .child(section("Sharing"))
+                .child(self.checkbox(
+                    "settings-discord",
+                    slot::DISCORD,
+                    "Discord activity",
+                    enabled,
+                    !discord.available || discord.busy,
+                    theme,
+                    keyboard,
+                    window,
+                    move |player, cx| player.set_discord(!enabled, cx),
+                    cx,
+                ))
+                .child(helper_line(discord.helper()))
+                .when_some(discord.error, |body, error| {
+                    body.child(
+                        div()
+                            .id("discord-status")
+                            .role(gpui::Role::Status)
+                            .child(helper_line(error)),
+                    )
+                });
         }
         body.into_any_element()
     }
@@ -195,7 +202,7 @@ impl Player {
             return self.select_menu(open.id, open.highlight, theme, cx);
         }
         if self.ui.color_open {
-            return self.color_popover(theme);
+            return self.color_popover(theme, cx);
         }
         None
     }
@@ -229,7 +236,6 @@ impl Player {
                 .flex_shrink_0()
                 .min_h(px(ITEM_HEIGHT))
                 .px(px(12.0))
-                .rounded(px(6.0))
                 .flex()
                 .items_center()
                 .justify_between()
@@ -259,7 +265,6 @@ impl Player {
             .min_w(trigger.size.width)
             .max_h(px(placement.max_height))
             .overflow_y_scroll()
-            .rounded(px(8.0))
             .border_1()
             .border_color(ink.opacity(0.25))
             .bg(theme.player_canvas)
@@ -279,12 +284,14 @@ impl Player {
         Some(menu.into_any_element())
     }
 
-    fn color_popover(&self, theme: Theme) -> Option<AnyElement> {
+    fn color_popover(&self, theme: Theme, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let ink = theme.ink;
         let row = self.measures.color_row.get()?;
         let root = self.measures.root.get();
         let edit = self.ui.edit.as_ref()?;
         let (left, bottom) = self.popup_origin(row);
+        // Right-aligned under the wheel, kept inside the window.
+        let left = (left + f32::from(row.size.width) - POPOVER_WIDTH).max(MENU_GAP);
         let valid = subtitle_prefs::parse_strict_hex(&edit.draft);
         let text = div().child(edit.draft.clone());
         let shown = if edit.fresh {
@@ -297,20 +304,20 @@ impl Player {
                 .child(div().w(px(1.0)).h(px(16.0)).bg(ink))
                 .into_any_element()
         };
+        let hsv = self.ui.picker;
         // Open above the row when the window ends too soon below it.
-        let below = f32::from(root.bottom() - row.bottom()) > 150.0;
+        let below = f32::from(root.bottom() - row.bottom()) > POPOVER_HEIGHT;
         let mut popover = div()
             .id("player-color-popover")
             .role(gpui::Role::Dialog)
             .aria_label("Custom text color")
             .absolute()
             .left(px(left))
-            .w(row.size.width)
+            .w(px(POPOVER_WIDTH))
             .flex()
             .flex_col()
-            .gap(px(8.0))
+            .gap(px(12.0))
             .p(px(12.0))
-            .rounded(px(8.0))
             .border_1()
             .border_color(ink.opacity(0.25))
             .bg(theme.player_canvas)
@@ -321,6 +328,8 @@ impl Player {
                 measures.popup.set(Some(bounds));
             }))
             .child(note("Custom color", theme, 0.55))
+            .child(self.picker_field(hsv, cx))
+            .child(self.picker_hue(hsv, cx))
             .child(
                 div()
                     .flex()
@@ -345,7 +354,6 @@ impl Player {
                             .flex_1()
                             .min_h(px(32.0))
                             .px(px(8.0))
-                            .rounded(px(6.0))
                             .border_1()
                             .border_color(ink.opacity(0.25))
                             .bg(theme.player_canvas)
@@ -375,6 +383,108 @@ impl Player {
                 + MENU_GAP))
         };
         Some(popover.into_any_element())
+    }
+}
+
+impl Player {
+    /// A drag handle: a white ring around the colour it sits on.
+    fn picker_thumb(fill: gpui::Rgba) -> Div {
+        div()
+            .absolute()
+            .size(px(THUMB))
+            .ml(px(-THUMB / 2.0))
+            .rounded_full()
+            .border_2()
+            .border_color(gpui::white())
+            .bg(fill)
+            .shadow_md()
+    }
+
+    fn picker_press_handler(
+        part: Part,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl Fn(&MouseDownEvent, &mut Window, &mut gpui::App) + 'static {
+        cx.listener(move |player, event: &MouseDownEvent, _, cx| {
+            player.picker_press(part, event.position, cx);
+        })
+    }
+
+    /// Saturation runs left to right over the hue, brightness falls top to bottom.
+    fn picker_field(&self, hsv: Hsv, cx: &mut gpui::Context<Self>) -> Stateful<Div> {
+        let layer = |fill: gpui::Background| div().absolute().inset_0().bg(fill);
+        let white = gpui::white();
+        let black = gpui::black();
+        div()
+            .id("color-field")
+            .role(gpui::Role::Slider)
+            .aria_label("Saturation and brightness")
+            .relative()
+            .w_full()
+            .h(px(152.0))
+            .bg(color(Hsv::hue_rgb(hsv.h)))
+            .cursor_crosshair()
+            .on_mouse_down(
+                MouseButton::Left,
+                Self::picker_press_handler(Part::Field, cx),
+            )
+            .child(layer(linear_gradient(
+                90.0,
+                linear_color_stop(white, 0.0),
+                linear_color_stop(white.opacity(0.0), 1.0),
+            )))
+            .child(layer(linear_gradient(
+                180.0,
+                linear_color_stop(black.opacity(0.0), 0.0),
+                linear_color_stop(black, 1.0),
+            )))
+            .child(probe(&self.measures, |measures, bounds| {
+                measures.picker[Part::Field as usize].set(Some(bounds));
+            }))
+            .child(
+                Self::picker_thumb(color(hsv.to_rgb()))
+                    .left(relative(hsv.s))
+                    .top(relative(1.0 - hsv.v))
+                    .mt(px(-THUMB / 2.0)),
+            )
+    }
+
+    /// The hue strip: six two-stop gradients through the colour wheel.
+    fn picker_hue(&self, hsv: Hsv, cx: &mut gpui::Context<Self>) -> Stateful<Div> {
+        let segments = (0..6).map(|index| {
+            let stop = |at: usize| color(Hsv::hue_rgb(at as f32 / 6.0));
+            div().flex_1().h_full().bg(linear_gradient(
+                90.0,
+                linear_color_stop(stop(index), 0.0),
+                linear_color_stop(stop(index + 1), 1.0),
+            ))
+        });
+        div()
+            .id("color-hue")
+            .role(gpui::Role::Slider)
+            .aria_label("Hue")
+            .relative()
+            .w_full()
+            .h(px(THUMB))
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, Self::picker_press_handler(Part::Hue, cx))
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(px(2.0))
+                    .h(px(12.0))
+                    .flex()
+                    .children(segments),
+            )
+            .child(probe(&self.measures, |measures, bounds| {
+                measures.picker[Part::Hue as usize].set(Some(bounds));
+            }))
+            .child(
+                Self::picker_thumb(color(Hsv::hue_rgb(hsv.h)))
+                    .left(relative(hsv.h))
+                    .top_0(),
+            )
     }
 }
 

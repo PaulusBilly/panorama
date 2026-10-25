@@ -1,5 +1,6 @@
 //! Language and track choices of the Subtitles panel (`PlayerSubtitlesPopover.tsx`).
 use crate::playback::model::Track;
+use panorama_core::addons::SubtitleSource;
 use std::collections::HashMap;
 
 /// The languages the panel offers (`SubtitleLanguageId`).
@@ -44,7 +45,7 @@ pub enum Choice {
     Lang(Lang),
 }
 
-/// The narrow layout's tabs.
+/// The panel's tabs.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Tab {
     /// Language.
@@ -57,6 +58,11 @@ pub enum Tab {
 }
 
 impl Tab {
+    /// Position in [`Tab::ALL`].
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
     /// Every tab in display order with its label.
     pub const ALL: [(Self, &'static str); 3] = [
         (Self::Languages, "Language"),
@@ -100,6 +106,64 @@ pub fn language_id(language: Option<&str>, label: Option<&str>) -> Option<Lang> 
 
 fn track_lang(track: &Track) -> Option<Lang> {
     language_id(track.lang.as_deref(), Some(&track.label))
+}
+
+/// Where a subtitle track comes from, remembered across films.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Source {
+    /// Built into the video file.
+    Embedded,
+    /// An addon's file, by the addon's name.
+    Addon(String),
+}
+
+impl Source {
+    /// An addon's file is named after the addon (its mpv title).
+    pub fn of(track: &Track) -> Self {
+        if track.external {
+            Self::Addon(track.label.clone())
+        } else {
+            Self::Embedded
+        }
+    }
+
+    /// The stored form.
+    pub fn key(&self) -> String {
+        match self {
+            Self::Embedded => "embedded".into(),
+            Self::Addon(name) => format!("addon:{name}"),
+        }
+    }
+
+    pub fn parse(key: &str) -> Option<Self> {
+        match key {
+            "embedded" => Some(Self::Embedded),
+            _ => key
+                .strip_prefix("addon:")
+                .filter(|name| !name.is_empty())
+                .map(|name| Self::Addon(name.into())),
+        }
+    }
+}
+
+/// The addon files worth adding, the auto-pick first: only languages the panel offers (each
+/// file is a download mpv makes before any later command), the remembered language first and,
+/// within it, the remembered addon.
+pub fn order_files(
+    files: Vec<SubtitleSource>,
+    lang: Option<Lang>,
+    source: Option<&Source>,
+) -> Vec<SubtitleSource> {
+    let mut files: Vec<_> = files
+        .into_iter()
+        .filter(|file| language_id(Some(&file.lang), None).is_some())
+        .collect();
+    files.sort_by_key(|file| {
+        let same_lang = lang.is_some() && language_id(Some(&file.lang), None) == lang;
+        let same_source = matches!(source, Some(Source::Addon(name)) if *name == file.addon);
+        (!same_lang, !same_source)
+    });
+    files
 }
 
 /// A row of the Track column.
@@ -160,30 +224,67 @@ pub fn number_repeats(labels: Vec<String>) -> Vec<String> {
 #[derive(Clone, Debug, Default)]
 pub struct State {
     choice: Option<Choice>,
+    /// The choice was restored, not made in the panel, so a track from the remembered
+    /// source may still replace it.
+    restored: bool,
+    /// The track restore last asked mpv for: track lists sent before mpv applies it still
+    /// show it off, and asking again would only queue the same command.
+    requested: Option<i64>,
     remembered: HashMap<Lang, i64>,
     /// The narrow layout's tab.
     pub tab: Tab,
 }
 
 impl State {
-    /// Turn on `lang` for tracks that just arrived, unless a choice was made for this source
-    /// or a track is already on. Returns the track to select.
-    pub fn restore(&mut self, lang: Lang, tracks: &[Track]) -> Option<i64> {
-        if self.choice.is_some() || Self::selected(tracks).is_some() {
+    /// Turn on `lang` for tracks that just arrived, unless the viewer chose for this source or
+    /// a track was already on. The first track plays until one from the remembered `source`
+    /// arrives. Returns the track to select.
+    pub fn restore(
+        &mut self,
+        lang: Lang,
+        source: Option<&Source>,
+        tracks: &[Track],
+    ) -> Option<i64> {
+        let started = self.choice.is_some() || Self::selected(tracks).is_some();
+        if started && !self.restored {
             return None;
         }
-        let id = tracks
+        let mut candidates = tracks
             .iter()
-            .find(|track| track_lang(track) == Some(lang))?
-            .id;
+            .filter(|track| track_lang(track) == Some(lang));
+        let preferred = candidates
+            .clone()
+            .find(|track| source.is_some_and(|source| Source::of(track) == *source));
+        let target = if self.restored {
+            preferred?
+        } else {
+            preferred.or_else(|| candidates.next())?
+        };
         self.choice = Some(Choice::Lang(lang));
-        Some(id)
+        self.restored = true;
+        if target.selected || self.requested == Some(target.id) {
+            return None;
+        }
+        self.requested = Some(target.id);
+        Some(target.id)
     }
 
     /// Forget the choice and the remembered tracks (a new source).
     pub fn reset(&mut self) {
         self.choice = None;
+        self.restored = false;
+        self.requested = None;
         self.remembered.clear();
+    }
+
+    /// Whether subtitles are on: the language chosen or restored, before mpv confirms the
+    /// track, else whatever mpv has selected.
+    pub fn showing(&self, tracks: &[Track]) -> bool {
+        match self.choice {
+            Some(Choice::Lang(_)) => true,
+            Some(Choice::Off) => false,
+            None => Self::selected(tracks).is_some(),
+        }
     }
 
     fn selected(tracks: &[Track]) -> Option<&Track> {
@@ -251,6 +352,7 @@ impl State {
             self.remembered.insert(lang, track.id);
         }
         self.choice = Some(language);
+        self.restored = false;
         let Choice::Lang(lang) = language else {
             return Some(None);
         };
@@ -271,6 +373,7 @@ impl State {
 
     /// Pick a track of the active language.
     pub fn choose_track(&mut self, id: i64, tracks: &[Track]) {
+        self.restored = false;
         let language = self.view(tracks).active;
         if let Choice::Lang(lang) = language {
             self.remembered.insert(lang, id);

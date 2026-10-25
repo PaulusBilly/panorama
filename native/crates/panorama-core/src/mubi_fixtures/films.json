@@ -1,0 +1,63 @@
+{
+ "films": [
+  {
+   "title": "Aftersun",
+   "year": 2022,
+   "directors": [
+    {
+     "name": "Charlotte Wells"
+    }
+   ],
+   "stills": {
+    "standard": "https://assets.mubicdn.net/images/film/340287/image-w856.jpg?1745499810"
+   },
+   "highlighted_industry_event_entry": null
+  },
+  {
+   "title": "Close",
+   "year": 2022,
+   "directors": [
+    {
+     "name": "Lukas Dhont"
+    }
+   ],
+   "stills": {
+    "standard": "https://assets.mubicdn.net/images/film/339480/image-w856.jpg?1745499781"
+   },
+   "highlighted_industry_event_entry": {
+    "id": 396587,
+    "year": 2022,
+    "status": "won",
+    "display_text": "Grand Prix",
+    "full_display_text": "2022 | Winner: Grand Prix"
+   }
+  },
+  {
+   "title": "Decision to Leave",
+   "year": 2022,
+   "directors": [
+    {
+     "name": "Park Chan-wook"
+    }
+   ],
+   "stills": {
+    "standard": "https://assets.mubicdn.net/images/film/281688/image-w856.jpg?1745499781"
+   },
+   "highlighted_industry_event_entry": {
+    "id": 388249,
+    "year": 2022,
+    "status": "won",
+    "display_text": "Best Director",
+    "full_display_text": "2022 | Winner: Best Director"
+   }
+  }
+ ],
+ "meta": {
+  "current_page": 1,
+  "next_page": 2,
+  "previous_page": null,
+  "total_pages": 6,
+  "total_count": 191,
+  "per_page": 36
+ }
+}

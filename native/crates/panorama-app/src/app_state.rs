@@ -37,13 +37,6 @@ pub fn account_error(kind: CoreErrorKind) -> &'static str {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct PlayIntent {
-    pub id: String,
-    /// Known at the hero already; Film's own library read arrives later.
-    pub resume: Option<panorama_core::stremio::ResumePoint>,
-}
-
 /// Account, installed addons and cache-first Home data shared by app entities.
 pub struct AppState {
     /// Current account state.
@@ -77,9 +70,8 @@ pub struct AppState {
     pub streams: Option<(String, Arc<Vec<panorama_core::addons::StreamGroup>>)>,
     /// Source selected by Film for the next Player mount.
     pub playback: Option<crate::playback::selection::PlaybackSelection>,
-    /// Home's hero asked to play this film: the Film it opens starts playback once a source is
-    /// ready, through Film's own sign-in and source selection.
-    pub play_intent: Option<PlayIntent>,
+    /// A play started from Home or Search, still looking up its sources for the open player.
+    pub launch: Option<crate::playback::launch::Launch>,
     pub closing: bool,
     pub player: Option<crate::playback::shell::ShellPlayerState>,
     pub playback_host: Option<crate::playback::host::PlaybackHost>,
@@ -114,7 +106,7 @@ impl AppState {
             film_preview: None,
             streams: None,
             playback: None,
-            play_intent: None,
+            launch: None,
             playback_host: None,
             player: None,
             closing: false,

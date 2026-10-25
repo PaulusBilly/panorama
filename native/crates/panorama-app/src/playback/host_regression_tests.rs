@@ -74,7 +74,7 @@ async fn retry_before_resume_seek_lands_keeps_target() {
     assert_eq!(
         lock(&backend.log)
             .iter()
-            .filter(|entry| *entry == "seek:90")
+            .filter(|entry| *entry == "load@90")
             .count(),
         2
     );

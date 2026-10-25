@@ -320,7 +320,7 @@ impl Player {
                 theme,
                 keyboard,
                 window,
-                |player, _, cx| player.send(Command::Retry, cx),
+                |player, _, cx| player.retry(cx),
                 cx,
             )
         };

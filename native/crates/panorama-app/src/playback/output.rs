@@ -261,17 +261,6 @@ pub fn properties(
 /// Windows build (`gpu-api=d3d11` in the panorama-mpv options).
 pub const HINT_SUPPORTED: bool = cfg!(windows);
 
-/// The state line under the video select.
-pub fn status_line(notice: Option<&str>, effective_passthrough: bool) -> String {
-    notice
-        .unwrap_or(if effective_passthrough {
-            "Receiver passthrough active"
-        } else {
-            "Decoded audio"
-        })
-        .to_owned()
-}
-
 /// Settings against the devices now present: a saved device that vanished falls back to the
 /// system default with a notice (`poll`/`initialize` in the controller).
 pub fn reconcile(settings: &mut PlaybackSettings, devices: &[Device]) -> Option<&'static str> {

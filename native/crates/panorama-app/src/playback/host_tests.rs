@@ -44,6 +44,7 @@ fn selection() -> PlaybackSelection {
         start: StartMode::Restart,
         meta_base: None,
         subtitles: vec![],
+        late_subtitles: None,
     }
 }
 fn setup() -> (Runner, Arc<FakeBackend>, Arc<RecordingProgress>) {
@@ -130,7 +131,7 @@ async fn error_then_retry_resumes_and_preserves_latch() {
     assert_eq!(
         lock(&backend.log)
             .iter()
-            .filter(|entry| entry.as_str() == "seek:42")
+            .filter(|entry| entry.as_str() == "load@42")
             .count(),
         1
     );
@@ -182,13 +183,7 @@ async fn switch_mid_resolve_drops_stale_result() {
     assert_eq!(runner.model.status, Status::Ready);
     assert_eq!(
         *lock(&backend.log),
-        [
-            "load",
-            "seek:0",
-            "mpv stop",
-            "session close",
-            "player close"
-        ]
+        ["load@0", "mpv stop", "session close", "player close"]
     );
 }
 #[tokio::test]
@@ -206,7 +201,7 @@ async fn stop_closes_mpv_session_player_in_order() {
     assert_eq!(runner.model.status, Status::Idle);
 }
 #[tokio::test]
-async fn resume_seeks_once_after_duration() {
+async fn resume_opens_the_file_at_its_position() {
     let (mut runner, backend, _) = setup();
     lock(&backend.scripts).push_back(Script {
         events: vec![
@@ -221,7 +216,7 @@ async fn resume_seeks_once_after_duration() {
     selection.start = StartMode::Resume(90.0);
     runner.control(Command::Headless(Box::new(selection))).await;
     resolve(&mut runner).await;
-    assert_eq!(*lock(&backend.log), ["load", "seek:90"]);
+    assert_eq!(*lock(&backend.log), ["load@90"]);
 }
 #[tokio::test]
 async fn controls_report_seek_and_preserve_audio_state() {
@@ -346,15 +341,11 @@ async fn subtitle_and_output_setup_replay_onto_every_new_player() {
     let log = lock(&backend.log).clone();
     let second_load = log
         .iter()
-        .rposition(|label| label == "load")
+        .rposition(|label| label.starts_with("load"))
         .expect("second load");
     assert_eq!(
-        &log[second_load..second_load + 3],
-        [
-            "load".to_owned(),
-            format!("output:{names}"),
-            "subtitles:mpv:1.5".to_owned()
-        ],
+        &log[second_load + 1..second_load + 3],
+        [format!("output:{names}"), "subtitles:mpv:1.5".to_owned()],
         "the newest setup replays onto the second player"
     );
 }
@@ -445,7 +436,10 @@ async fn the_films_subtitle_files_reach_every_source_and_not_the_next_film() {
         .await;
     resolve(&mut runner).await;
     let log = lock(&backend.log).clone();
-    let second_load = log.iter().rposition(|label| label == "load").unwrap();
+    let second_load = log
+        .iter()
+        .rposition(|label| label.starts_with("load"))
+        .unwrap();
     assert!(log[second_load..].contains(&"add-subtitles:eng,ind".to_owned()));
     // Another film without files adds none.
     lock(&backend.log).clear();
@@ -458,4 +452,34 @@ async fn the_films_subtitle_files_reach_every_source_and_not_the_next_film() {
             .iter()
             .any(|label| label.starts_with("add-subtitles"))
     );
+}
+
+#[tokio::test]
+async fn subtitle_files_that_arrive_after_play_starts_join_it_and_every_retry() {
+    let (mut runner, backend, _) = setup();
+    let file = |lang: &str| panorama_core::addons::SubtitleSource {
+        url: format!("https://subs.test/{lang}.srt").parse().unwrap(),
+        lang: lang.into(),
+        addon: "OpenSubtitles".into(),
+    };
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    // Still resolving: nothing is lost before a player exists.
+    runner
+        .control(Command::AddSubtitles(vec![file("eng")]))
+        .await;
+    resolve(&mut runner).await;
+    assert!(lock(&backend.log).contains(&"add-subtitles:eng".to_owned()));
+    // Arriving mid-play, they go straight to the player.
+    runner
+        .control(Command::AddSubtitles(vec![file("ind")]))
+        .await;
+    assert_eq!(
+        lock(&backend.log).last().map(String::as_str),
+        Some("add-subtitles:ind")
+    );
+    runner.control(Command::Retry).await;
+    resolve(&mut runner).await;
+    assert!(lock(&backend.log).contains(&"add-subtitles:eng,ind".to_owned()));
 }

@@ -10,6 +10,9 @@ use crate::{
 };
 use panorama_core::addons::{StreamGroup, StreamSource, StreamState};
 
+/// Every panel shares one width, so switching panels never resizes the surface.
+pub(super) const PANEL_WIDTH: f32 = 320.0;
+
 /// What activating a row does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RowKey {
@@ -142,7 +145,7 @@ pub fn audio(model: &PlaybackModel) -> Content {
         .collect();
     Content {
         title: "Audio",
-        width: 288.0,
+        width: PANEL_WIDTH,
         empty: rows.is_empty().then_some("No audio tracks"),
         sections: vec![Section {
             label: None,
@@ -208,7 +211,7 @@ pub fn subtitles(view: &subtitles::View) -> Content {
     };
     Content {
         title: "Subtitles",
-        width: 736.0,
+        width: PANEL_WIDTH,
         sections: vec![
             Section {
                 label: Some("Language".into()),
@@ -281,11 +284,17 @@ fn source_row(group: usize, index: usize, stream: &StreamSource, current: Source
     }
 }
 
-/// The Sources panel: one section per addon, in account order.
+/// The Sources panel: one section per addon. Addons with sources lead in account order, then
+/// those with none, then those that failed.
 pub fn sources(groups: &[StreamGroup], current: SourceRef) -> Content {
-    let sections = groups
-        .iter()
-        .enumerate()
+    let mut order: Vec<(usize, &StreamGroup)> = groups.iter().enumerate().collect();
+    order.sort_by_key(|(_, item)| match &item.state {
+        StreamState::Ready(streams) if !streams.is_empty() => 0,
+        StreamState::Ready(_) | StreamState::Empty => 1,
+        StreamState::Failed(_) => 2,
+    });
+    let sections = order
+        .into_iter()
         .map(|(group, item)| {
             let (rows, note) = match &item.state {
                 StreamState::Ready(streams) if !streams.is_empty() => (
@@ -320,7 +329,7 @@ pub fn sources(groups: &[StreamGroup], current: SourceRef) -> Content {
         .collect();
     Content {
         title: "Sources",
-        width: 416.0,
+        width: PANEL_WIDTH,
         empty: groups.is_empty().then_some("No sources available."),
         sections,
         error: None,

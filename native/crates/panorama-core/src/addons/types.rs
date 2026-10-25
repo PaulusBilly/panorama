@@ -52,6 +52,9 @@ pub struct FilmDetails {
     pub origin_country: Option<String>,
     /// Cast, when provided by metadata fields or links.
     pub cast: Vec<String>,
+    /// Cast and crew with photos, when a TMDB-backed addon sends them.
+    #[serde(default)]
+    pub people: Vec<crate::credits::Person>,
     /// HTTPS poster URL.
     pub poster: Option<Url>,
     /// HTTPS background URL.

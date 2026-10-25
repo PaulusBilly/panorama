@@ -90,23 +90,6 @@ impl Runner {
                 self.awaiting_resume = None;
                 self.position = *seconds;
             }
-            if let PlayerEvent::Duration(Some(duration)) = &event
-                && duration.is_finite()
-                && *duration > 0.0
-                && let Some(offset) = self.resume.take()
-                && let Some(active) = &mut self.active
-            {
-                let offset = if offset.is_finite() {
-                    offset.max(0.0).min(*duration)
-                } else {
-                    0.0
-                };
-                self.position = offset;
-                self.awaiting_resume = Some(offset);
-                if let Err(error) = active.command(&Command::Seek(offset)) {
-                    self.emit(HostEvent::Failed(error));
-                }
-            }
             let mut link = None;
             if let PlayerEvent::DemuxerCacheState(cache) = &event
                 && let Some(active) = &self.active

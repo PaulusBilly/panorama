@@ -12,6 +12,8 @@ pub struct Args {
     /// Debug: play this info hash instead of the Big Buck Bunny one (never logged).
     pub torrent_hash: Option<String>,
     pub film_resume: bool,
+    /// Press Play on Home's first fixture film with a resume point, as Continue does.
+    pub play_hero: bool,
     /// Initial destination.
     pub route: Route,
     /// Optional debug capture path.
@@ -22,6 +24,10 @@ pub struct Args {
     pub reduced_motion: bool,
     /// Use the in-process preview data.
     pub fixtures: bool,
+    /// Capture against the real services and store, after the network has had time to answer.
+    pub live: bool,
+    /// Open the first award tile past its first lines.
+    pub awards_expand_first: bool,
     /// Ordered scroll deltas; an infinite delta scrolls to the end.
     pub scroll: Vec<f32>,
     /// Expand the first visible card's image.
@@ -73,11 +79,14 @@ impl Args {
             play_torrent: false,
             torrent_hash: None,
             film_resume: false,
+            play_hero: false,
             route: Route::Home,
             screenshot: None,
             size: (1280.0, 800.0),
             reduced_motion: false,
             fixtures: false,
+            live: false,
+            awards_expand_first: false,
             scroll: vec![],
             hover_first_card: false,
             focus_first_card: false,
@@ -132,6 +141,8 @@ impl Args {
                 }
                 "--reduced-motion" => result.reduced_motion = true,
                 "--fixtures" => result.fixtures = true,
+                "--live" => result.live = true,
+                "--awards-expand-first" => result.awards_expand_first = true,
                 "--player-state" => {
                     let state = args.next().ok_or("--player-state needs a state")?;
                     result.player_state = Some(
@@ -177,6 +188,7 @@ impl Args {
                     result.torrent_hash = Some(hash.to_ascii_lowercase());
                 }
                 "--film-resume" => result.film_resume = true,
+                "--play-hero" => result.play_hero = true,
                 "--bench-scroll" => {
                     result.bench_scroll = true;
                     result.fixtures = true;
@@ -193,10 +205,15 @@ impl Args {
                 "--open-control" => {
                     let value = args.next().ok_or("--open-control needs a control")?;
                     match value.to_str() {
-                        Some(value @ ("edit" | "color" | "select" | "scroll")) => {
+                        Some(value @ ("edit" | "color" | "select" | "scroll" | "appearance")) => {
                             result.open_control = Some(value.to_owned());
                         }
-                        _ => return Err("--open-control needs edit, color or select".into()),
+                        _ => {
+                            return Err(
+                                "--open-control needs edit, color, select, scroll or appearance"
+                                    .into(),
+                            );
+                        }
                     }
                 }
                 "--playback-settings" => {
@@ -281,7 +298,10 @@ impl Args {
                 id: "tmdb:100".into(),
             };
         }
-        result.fixtures |= result.screenshot.is_some() || real_playback;
+        if result.live && (result.screenshot.is_none() || result.fixtures) {
+            return Err("--live needs --screenshot and no --fixtures".into());
+        }
+        result.fixtures |= result.screenshot.is_some() && !result.live || real_playback;
         Ok(result)
     }
 }

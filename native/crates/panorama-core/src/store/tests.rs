@@ -167,11 +167,16 @@ fn key_components_are_validated_in_every_constructor() {
     ] {
         assert!(Key::core(invalid).is_err());
         assert!(Key::meta(invalid).is_err());
+        assert!(Key::awards(invalid).is_err());
         assert!(Key::pref(invalid).is_err());
         assert!(Key::catalog(invalid, "valid").is_err());
         assert!(Key::catalog("valid", invalid).is_err());
     }
     assert!(Key::meta(&"é".repeat(256)).is_ok());
+    assert!(Key::awards(&"é".repeat(256)).is_ok());
+    let awards = Key::awards("tt123:1").unwrap();
+    assert_eq!(awards.as_str(), "meta:awards|tt123:1");
+    assert_eq!(awards.class(), KeyClass::Cache);
     assert!(Key::catalog(&"a".repeat(512), &"b".repeat(512)).is_ok());
 }
 

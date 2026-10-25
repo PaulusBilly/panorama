@@ -1,7 +1,9 @@
 pub mod addons;
+pub mod credits;
 pub mod discord;
 pub mod images;
 pub mod media;
+pub mod mubi;
 pub mod store;
 pub mod stremio;
 pub mod torrent;

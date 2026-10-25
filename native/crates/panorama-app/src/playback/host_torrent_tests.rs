@@ -63,7 +63,7 @@ async fn no_peers_then_keep_waiting_returns_to_finding_peers_and_plays() {
     assert_eq!(
         lock(&backend.log)
             .iter()
-            .filter(|entry| entry.as_str() == "seek:30")
+            .filter(|entry| entry.as_str() == "load@30")
             .count(),
         1,
         "the retry keeps the resume position"

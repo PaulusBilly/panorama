@@ -43,6 +43,8 @@ fn image(value: Option<Url>) -> Option<Url> {
 pub(super) struct Credits {
     pub director: Vec<String>,
     pub cast: Vec<String>,
+    /// Cast and crew with photos, from a TMDB-backed addon's `app_extras`.
+    pub people: Vec<crate::credits::Person>,
     pub previews: Vec<super::PreviewCredits>,
 }
 
@@ -65,6 +67,11 @@ pub(super) fn credits(value: &serde_json::Value) -> Credits {
     Credits {
         director: names("director"),
         cast: names("cast"),
+        people: value
+            .get("meta")
+            .and_then(|meta| meta.get("app_extras"))
+            .map(crate::credits::people_from_extras)
+            .unwrap_or_default(),
         previews: value
             .get("metas")
             .and_then(|v| v.as_array())
@@ -132,6 +139,7 @@ pub(super) fn parse(response: TransportResponse) -> Result<Response, FailureKind
             response,
             director,
             cast,
+            people,
             previews,
         } => {
             let mut parsed = parse(TransportResponse::Core(response))?;
@@ -142,6 +150,7 @@ pub(super) fn parse(response: TransportResponse) -> Result<Response, FailureKind
                     .map(|name| text(name, 300))
                     .collect(),
                 cast: cast.iter().take(100).map(|name| text(name, 300)).collect(),
+                people,
                 previews: previews
                     .into_iter()
                     .take(200)
@@ -207,6 +216,7 @@ pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> 
         origin_country: category_country(&links),
         original_name: None,
         cast,
+        people: vec![],
         poster: image(preview.poster),
         background: image(preview.background),
         logo: image(preview.logo),

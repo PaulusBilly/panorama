@@ -48,6 +48,7 @@ pub trait Playback: Send {
         volume: u8,
         muted: bool,
         paused: bool,
+        start: Option<f64>,
     ) -> Result<(), PlaybackError>;
     fn command(&mut self, command: &Command) -> Result<(), PlaybackError>;
     fn events(&mut self) -> Vec<PlayerEvent>;

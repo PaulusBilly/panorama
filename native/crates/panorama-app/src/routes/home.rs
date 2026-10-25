@@ -337,7 +337,8 @@ impl GridHost for Home {
     }
 }
 
-/// Open the film with a play intent; Film starts playback through its own source selection.
+/// Play straight away: the player opens now and its loader covers the source lookup. Signed
+/// out, the film page opens instead, where Play asks to sign in.
 pub(crate) fn play_film<V: 'static>(
     state: &Entity<AppState>,
     shell: &WeakEntity<AppShell>,
@@ -346,11 +347,15 @@ pub(crate) fn play_film<V: 'static>(
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
+    if !matches!(state.read(cx).account, Account::SignedIn(_)) {
+        open_film(state, shell, film, window, cx);
+        return;
+    }
     let id = film.id.clone();
-    state.update(cx, |state, _| {
-        state.play_intent = Some(crate::app_state::PlayIntent { id, resume })
+    state.update(cx, |state, cx| state.launch(film, resume, cx));
+    let _ = shell.update(cx, |shell, cx| {
+        shell.navigate(Route::Player { id }, window, cx)
     });
-    open_film(state, shell, film, window, cx);
 }
 
 pub(crate) fn open_film<V: 'static>(

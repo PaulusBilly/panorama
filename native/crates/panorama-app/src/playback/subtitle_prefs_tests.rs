@@ -94,6 +94,9 @@ fn the_json_round_trips_without_the_session_delay() {
         text_color: [0xff, 0xe0, 0x66],
         font_weight: FontWeight::Bold,
         language: Some(crate::routes::player::subtitles::Lang::Id),
+        source: Some(crate::routes::player::subtitles::Source::Addon(
+            "OpenSubtitles".into(),
+        )),
         ..Default::default()
     };
     prefs.set(Field::FontSize, 36.0);
@@ -106,7 +109,7 @@ fn the_json_round_trips_without_the_session_delay() {
         restored,
         SubtitlePreferences {
             delay: 0.0,
-            ..prefs
+            ..prefs.clone()
         }
     );
     assert!(!String::from_utf8_lossy(&prefs.to_bytes()).contains("elay"));

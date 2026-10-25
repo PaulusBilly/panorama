@@ -33,7 +33,6 @@ impl Player {
             .aria_label(field.action_label(direction > 0))
             .flex_shrink_0()
             .size(px(44.0))
-            .rounded_full()
             .flex()
             .items_center()
             .justify_center()
@@ -121,7 +120,6 @@ impl Player {
                         .w(px(64.0))
                         .min_h(px(32.0))
                         .px(px(8.0))
-                        .rounded(px(6.0))
                         .border_1()
                         .border_color(ink.opacity(0.25))
                         .bg(theme.player_canvas)
@@ -177,7 +175,6 @@ impl Player {
                 div()
                     .flex()
                     .items_center()
-                    .rounded_full()
                     .bg(ink.opacity(0.1))
                     .child(
                         self.stepper_button(field, -1, base, disabled, theme, keyboard, window, cx),

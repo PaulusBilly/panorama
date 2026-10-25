@@ -2,8 +2,9 @@
 use super::{
     Player,
     edit::{Edit, Outcome, Target},
+    picker::{Hsv, Part},
     prefs_ui::{OpenSelect, SelectId, apply_select, select_items},
-    subtitles::Choice,
+    subtitles::{self, Choice, Source},
 };
 use crate::playback::{
     host::Command,
@@ -40,7 +41,7 @@ impl Player {
 
     fn prefs_loaded(&mut self, loaded: Loaded, cx: &mut Context<Self>) {
         self.ui.prefs = loaded.subtitles;
-        if let Some(prefs) = self.args.subtitle_prefs {
+        if let Some(prefs) = self.args.subtitle_prefs.clone() {
             self.ui.prefs = prefs;
         }
         self.ui.output = self.args.playback_settings.clone().unwrap_or(loaded.output);
@@ -50,6 +51,7 @@ impl Player {
         self.ui.loaded = true;
         self.sync_subtitles(cx);
         self.restore_language(cx);
+        self.send_subtitles(cx);
         self.reconcile_devices(cx);
         if self.ui.output != PlaybackSettings::default() {
             self.apply_output(cx);
@@ -71,15 +73,14 @@ impl Player {
         if !self.ui.loaded {
             return;
         }
-        let Some(state) = subtitle_render::plan(self.ui.applied, &self.ui.prefs, self.renderer())
+        let Some(state) =
+            subtitle_render::plan(self.ui.applied.as_ref(), &self.ui.prefs, self.renderer())
         else {
             return;
         };
+        let setup = SubtitleSetup::new(&state.0, state.1);
         self.ui.applied = Some(state);
-        self.send(
-            Command::Subtitles(Box::new(SubtitleSetup::new(&state.0, state.1))),
-            cx,
-        );
+        self.send(Command::Subtitles(Box::new(setup)), cx);
     }
 
     /// A saved output that is no longer present falls back to the system default.
@@ -172,14 +173,70 @@ impl Player {
         let Some(lang) = self.ui.prefs.language.filter(|_| self.ui.loaded) else {
             return;
         };
-        if let Some(id) = self.ui.subs.restore(lang, &self.model.subtitles) {
+        let source = self.ui.prefs.source.as_ref();
+        if let Some(id) = self.ui.subs.restore(lang, source, &self.model.subtitles) {
             self.select_subtitle(Some(id), cx);
+        }
+    }
+
+    /// Add the addons' files, the likely auto-pick first.
+    pub(super) fn queue_subtitles(
+        &mut self,
+        files: Vec<panorama_core::addons::SubtitleSource>,
+        cx: &mut Context<Self>,
+    ) {
+        self.subtitle_queue.extend(files);
+        self.send_subtitles(cx);
+    }
+
+    /// Send the queued files once the preferences say what to auto-pick. mpv downloads each
+    /// in turn before its next command, so when the first file is in the remembered language
+    /// it goes alone and the rest follow once it loaded (or failed) and restore selected it.
+    pub(super) fn send_subtitles(&mut self, cx: &mut Context<Self>) {
+        let external = self
+            .model
+            .subtitles
+            .iter()
+            .filter(|track| track.external)
+            .count();
+        if self.subtitle_wait.is_some_and(|before| external <= before) {
+            return;
+        }
+        self.subtitle_wait = None;
+        if !self.ui.loaded || self.subtitle_queue.is_empty() {
+            return;
+        }
+        let lang = self.ui.prefs.language;
+        let mut files = subtitles::order_files(
+            std::mem::take(&mut self.subtitle_queue),
+            lang,
+            self.ui.prefs.source.as_ref(),
+        );
+        let first_is_pick = files.first().is_some_and(|file| {
+            lang.is_some() && subtitles::language_id(Some(&file.lang), None) == lang
+        });
+        if first_is_pick && files.len() > 1 {
+            self.subtitle_queue = files.split_off(1);
+            self.subtitle_wait = Some(external);
+        }
+        if !files.is_empty() {
+            self.send(Command::AddSubtitles(files), cx);
         }
     }
 
     /// Pick a track in the Track column.
     pub(super) fn choose_subtitle(&mut self, id: i64, cx: &mut Context<Self>) {
         self.ui.subs.choose_track(id, &self.model.subtitles);
+        let source = self
+            .model
+            .subtitles
+            .iter()
+            .find(|track| track.id == id)
+            .map(Source::of);
+        if source.is_some() && self.ui.prefs.source != source {
+            self.ui.prefs.source = source;
+            self.schedule_save(0, cx);
+        }
         self.select_subtitle(Some(id), cx);
         cx.notify();
     }
@@ -235,10 +292,52 @@ impl Player {
         }
     }
 
+    /// A press on the picker: start dragging that part from the pointer.
+    pub(super) fn picker_press(
+        &mut self,
+        part: Part,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.ui.color_drag = Some(part);
+        self.picker_drag_to(position, cx);
+    }
+
+    /// Move the dragged part to the pointer and apply the colour live.
+    pub(super) fn picker_drag_to(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(part) = self.ui.color_drag else {
+            return;
+        };
+        let Some(bounds) = self.measures.picker[part as usize].get() else {
+            return;
+        };
+        let fraction = |offset: gpui::Pixels, size: gpui::Pixels| {
+            (f32::from(offset) / f32::from(size).max(1.0)).clamp(0.0, 1.0)
+        };
+        let x = fraction(position.x - bounds.left(), bounds.size.width);
+        match part {
+            Part::Field => {
+                self.ui.picker.s = x;
+                self.ui.picker.v = 1.0 - fraction(position.y - bounds.top(), bounds.size.height);
+            }
+            Part::Hue => self.ui.picker.h = x,
+        }
+        let color = self.ui.picker.to_rgb();
+        if let Some(edit) = &mut self.ui.edit {
+            *edit = Edit::hex(&subtitle_prefs::hex(color));
+        }
+        self.set_color(color, cx);
+    }
+
     /// Open the custom colour popover.
     pub(super) fn open_color(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.commit_edit(window, cx);
         self.ui.color_open = true;
+        self.ui.picker = Hsv::from_rgb(self.ui.prefs.text_color);
         self.ui.edit = Some(Edit::hex(&subtitle_prefs::hex(self.ui.prefs.text_color)));
         window.focus(&self.focus.edit, cx);
         cx.notify();
@@ -262,6 +361,7 @@ impl Player {
                 if target == Target::Hex
                     && let Some(color) = subtitle_prefs::parse_strict_hex(&draft)
                 {
+                    self.ui.picker = self.ui.picker.follow(color);
                     self.set_color(color, cx);
                 }
                 cx.notify();

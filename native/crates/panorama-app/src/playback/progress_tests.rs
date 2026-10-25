@@ -42,6 +42,8 @@ async fn signed_out_core_progress_changes_no_library_and_emits_no_actions() {
         store: None,
         prefs_writer: None,
         fixture_file: None,
+        credits: None,
+        mubi: None,
     }));
     let args = crate::args::Args::parse(["--fixtures".into()]).unwrap();
     let selection = crate::playback::debug::selection("tmdb:100", &args).unwrap();

@@ -45,6 +45,7 @@ impl Playback for NativePlayback {
         volume: u8,
         muted: bool,
         paused: bool,
+        start: Option<f64>,
     ) -> Result<(), PlaybackError> {
         let mut player = self
             .library
@@ -61,7 +62,9 @@ impl Playback for NativePlayback {
             .set_property("mute", muted)
             .map_err(PlaybackError::from)?;
         player.set_pause(paused).map_err(PlaybackError::from)?;
-        player.load(&self.url).map_err(PlaybackError::from)?;
+        player
+            .load_at(&self.url, start)
+            .map_err(PlaybackError::from)?;
         self.player = Some(player);
         Ok(())
     }

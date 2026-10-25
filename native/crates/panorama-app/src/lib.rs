@@ -9,7 +9,9 @@ pub mod args;
 pub mod assets;
 #[allow(unsafe_code)]
 pub mod awake;
+pub mod award_marks;
 pub mod button;
+pub mod carousel;
 pub mod cascade_loader;
 pub mod catalog_switcher;
 pub mod continue_row;

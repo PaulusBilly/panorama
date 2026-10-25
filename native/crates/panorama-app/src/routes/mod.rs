@@ -1,4 +1,5 @@
 //! Independent retained route entities.
+pub mod festival;
 pub mod film;
 pub mod home;
 pub mod player;
@@ -26,6 +27,9 @@ pub fn create(
             .into(),
         Route::Film { id: film_id } => cx
             .new(|cx| film::Film::new(film_id.clone(), id, shell, state, args, cx))
+            .into(),
+        Route::Festival { slug, year } => cx
+            .new(|cx| festival::Festival::new(shell, state, args, id, slug.clone(), *year, cx))
             .into(),
         Route::Player { id: film_id } => cx
             .new(|cx| player::Player::new(film_id.clone(), id, shell, state, args, cx))

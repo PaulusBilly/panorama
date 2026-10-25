@@ -11,6 +11,7 @@ pub mod panel;
 mod panel_motion;
 mod panel_view;
 mod panel_widgets;
+mod picker;
 pub mod pointer;
 mod prefs_actions;
 mod prefs_save;
@@ -92,14 +93,14 @@ pub struct Player {
     keyboard_active: bool,
     /// The centre play/pause mark: whether it shows play, and when the toggle happened.
     flash: Option<(bool, Instant)>,
-    /// The film's logo, drawn in place of its name in the bottom bar.
-    logo: Option<url::Url>,
     pointer: pointer::Hider,
     reduced: bool,
     panels: Panels,
     panel_motion: PanelMotion,
-    /// One per panel, then one per Subtitles column (the narrow layout uses the first).
-    scrolls: [ScrollHandle; 7],
+    /// One per panel, then the Subtitles page under its tabs.
+    scrolls: [ScrollHandle; 5],
+    /// The Subtitles tab indicator, in tabs from the first.
+    tab_motion: Tween,
     ui: prefs_ui::PrefsUi,
     groups: Arc<Vec<StreamGroup>>,
     sources: Option<SourcesCache>,
@@ -113,6 +114,13 @@ pub struct Player {
     #[cfg(any(windows, target_os = "macos"))]
     surface: Option<panorama_mpv::VideoSurface>,
     events: Option<Task<()>>,
+    /// Addon subtitle files still being looked up when the play started.
+    late_subtitles: Option<Task<()>>,
+    /// Addon files not yet sent: the rest wait while the auto-pick loads, so its selection
+    /// reaches mpv ahead of their downloads.
+    subtitle_queue: Vec<panorama_core::addons::SubtitleSource>,
+    /// External tracks mpv had when the auto-pick file was sent; set while it loads.
+    subtitle_wait: Option<usize>,
     bounds: Option<Subscription>,
     blur: Option<Subscription>,
     edit_blur: Option<Subscription>,
@@ -153,12 +161,19 @@ impl Player {
             .unwrap_or_else(|| cx.on_release(|_, _| {}));
         let release = cx.on_release(|player, cx| player.unmount(cx));
         let images = cx.observe(&state.read(cx).images.clone(), |_, _, cx| cx.notify());
-        let streams = cx.observe(&state, |player, _, cx| player.sync_groups(cx));
+        let streams = cx.observe(&state, |player, _, cx| {
+            player.sync_groups(cx);
+            cx.notify();
+        });
         let selection = current_selection(state.read(cx), &id, &args);
         let mut model = PlaybackModel::new(
             selection
                 .as_ref()
                 .map(|selection| selection.film.name.clone())
+                .or_else(|| {
+                    let launch = state.read(cx).launch.as_ref();
+                    launch.filter(|l| l.id == id).map(|l| l.film.name.clone())
+                })
                 .unwrap_or_default(),
             selection
                 .as_ref()
@@ -195,14 +210,12 @@ impl Player {
             chrome_wake: None,
             keyboard_active: false,
             flash: None,
-            logo: selection
-                .as_ref()
-                .and_then(|selection| selection.film.logo.clone()),
             pointer: pointer::Hider::default(),
             reduced: true,
             panels: Panels::default(),
             panel_motion: PanelMotion::default(),
             scrolls: std::array::from_fn(|_| ScrollHandle::new()),
+            tab_motion: Tween::fixed(0.0),
             ui: prefs_ui::PrefsUi::new(),
             groups: Arc::new(
                 selection
@@ -220,6 +233,9 @@ impl Player {
             #[cfg(any(windows, target_os = "macos"))]
             surface: None,
             events: None,
+            late_subtitles: None,
+            subtitle_queue: vec![],
+            subtitle_wait: None,
             bounds: None,
             blur: None,
             edit_blur: None,
@@ -286,6 +302,8 @@ impl Player {
             _ => {}
         }
         let tracks = matches!(&event, HostEvent::Mpv(PlayerEvent::TrackList(_)));
+        // A subtitle file mpv could not load adds no track: the queue moves on without it.
+        let failed = matches!(&event, HostEvent::Mpv(PlayerEvent::SubtitleFailed));
         let devices = matches!(&event, HostEvent::Mpv(PlayerEvent::AudioDeviceList(_)));
         self.model.apply(event);
         if source_changed {
@@ -297,6 +315,12 @@ impl Player {
         }
         if tracks {
             self.restore_language(cx);
+        }
+        if failed {
+            self.subtitle_wait = None;
+        }
+        if tracks || failed {
+            self.send_subtitles(cx);
         }
         if devices {
             self.reconcile_devices(cx);
@@ -313,18 +337,51 @@ impl Player {
         cx.notify();
     }
 
+    /// Retry from the error screen. A play that never found a source has no playback to
+    /// retry, so the addons are asked again and the loader shows while they answer.
+    pub(super) fn retry(&mut self, cx: &mut Context<Self>) {
+        let failed = self
+            .state
+            .read(cx)
+            .launch
+            .as_ref()
+            .filter(|launch| launch.id == self.id && launch.failed)
+            .map(|launch| (launch.film.clone(), launch.resume));
+        let Some((film, resume)) = failed else {
+            self.send(Command::Retry, cx);
+            return;
+        };
+        self.state
+            .update(cx, |state, cx| state.launch(film, resume, cx));
+        self.mounted = false;
+        self.model.apply(HostEvent::Resolving);
+        cx.notify();
+    }
+
     fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.mounted {
             return;
         }
-        self.mounted = true;
-        let Some(selection) = self.selection(cx) else {
-            self.model
-                .apply(HostEvent::Failed(PlaybackError::SourceUnavailable));
+        let Some(mut selection) = self.selection(cx) else {
+            let launch = self.state.read(cx).launch.as_ref();
+            match launch
+                .filter(|launch| launch.id == self.id)
+                .map(|l| l.failed)
+            {
+                // Still looking up sources: the loader holds until a source is picked.
+                Some(false) => return,
+                Some(true) => self.model.apply(HostEvent::Failed(PlaybackError::NoSource)),
+                None => self
+                    .model
+                    .apply(HostEvent::Failed(PlaybackError::SourceUnavailable)),
+            }
+            self.mounted = true;
             return;
         };
+        self.mounted = true;
         self.model.title.clone_from(&selection.film.name);
-        self.logo.clone_from(&selection.film.logo);
+        // Files already found go through the same queue as late ones, after Start.
+        let early = std::mem::take(&mut selection.subtitles);
         self.load_prefs(cx);
         let fixture = if self.args.play_file.is_none()
             && self.args.play_url.is_none()
@@ -360,6 +417,12 @@ impl Player {
                 }
             }));
         }
+        if let Some(lookup) = selection.late_subtitles.clone() {
+            self.late_subtitles = Some(cx.spawn(async move |entity, cx| {
+                let files = lookup.await;
+                let _ = entity.update(cx, |player, cx| player.queue_subtitles(files, cx));
+            }));
+        }
         #[cfg(any(windows, target_os = "macos"))]
         match panorama_mpv::VideoSurface::from_window(window) {
             Ok(surface) => {
@@ -376,6 +439,7 @@ impl Player {
             }
             Err(_) => self.model.apply(HostEvent::Failed(PlaybackError::Unknown)),
         }
+        self.queue_subtitles(early, cx);
         #[cfg(not(any(windows, target_os = "macos")))]
         self.model
             .apply(HostEvent::Failed(PlaybackError::LibraryMissing));
@@ -448,6 +512,13 @@ impl Player {
     }
 
     fn unmount(&mut self, cx: &mut gpui::App) {
+        // Leaving while the sources are still being looked up stops the lookup.
+        let id = self.id.clone();
+        self.state.update(cx, |state, _| {
+            if state.launch.as_ref().is_some_and(|launch| launch.id == id) {
+                state.launch = None;
+            }
+        });
         if !self.mounted {
             return;
         }

@@ -11,6 +11,8 @@ pub enum Stage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlaybackError {
     LibraryMissing,
+    /// None of the addons had a playable source for the film.
+    NoSource,
     SourceUnavailable,
     SourceExpired,
     NoPeers,
@@ -26,6 +28,7 @@ impl PlaybackError {
     pub fn message(&self) -> &'static str {
         match self {
             Self::LibraryMissing => "Playback components are missing. Reinstall Panorama.",
+            Self::NoSource => "None of your addons has a playable source for this film.",
             Self::SourceUnavailable => "This source could not be played. Try another source.",
             Self::SourceExpired => "This source has expired. Try another source.",
             Self::NoPeers => "No one is sharing this torrent right now. Try another source.",

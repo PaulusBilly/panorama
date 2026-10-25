@@ -12,6 +12,8 @@ use std::{sync::Arc, time::Instant};
 
 #[path = "film_actions.rs"]
 mod actions;
+#[path = "film_credits.rs"]
+mod credits;
 #[path = "film_data.rs"]
 mod data;
 #[path = "film_images.rs"]
@@ -39,16 +41,28 @@ pub struct Film {
     /// The addons' subtitle files; `None` while they are looked up. Play waits for them so
     /// they are in the player before the first frame.
     subtitles: Option<Vec<panorama_core::addons::SubtitleSource>>,
+    subtitle_lookup: Option<crate::playback::selection::SubtitleLookup>,
     saved: bool,
     saving: bool,
     watchlist_error: bool,
+    /// Awards below the hero; empty until they arrive or when neither MUBI nor Wikidata has any.
+    awards: Vec<panorama_core::credits::Award>,
+    /// The Awards & Festivals carousel.
+    awards_rail: crate::carousel::Carousel,
+    /// One per tile shown, for the tiles that open a festival page.
+    award_tiles: Vec<FocusHandle>,
+    /// One per tile shown, for its "+N More".
+    award_more: Vec<FocusHandle>,
+    /// Tiles opened past their first lines, by index.
+    awards_expanded: std::collections::HashSet<usize>,
+    /// The Cast & Crew carousel.
+    people_rail: crate::carousel::Carousel,
     account: Account,
     installed: Vec<panorama_core::stremio::Descriptor>,
     back: FocusHandle,
     primary: FocusHandle,
     watchlist: FocusHandle,
     retry_details: FocusHandle,
-    autoplay: bool,
     launched: Instant,
     /// When details, backdrop and logo were first all ready; the page shimmers until then.
     revealed: Option<Instant>,
@@ -59,6 +73,7 @@ pub struct Film {
     subtitles_task: Option<Task<()>>,
     library_task: Option<Task<()>>,
     save_task: Option<Task<()>>,
+    credits_task: Option<Task<()>>,
     _state: Subscription,
     _shell: Subscription,
     _images: Subscription,
@@ -73,9 +88,6 @@ impl Film {
         args: Args,
         cx: &mut Context<Self>,
     ) -> Self {
-        let intent = state.update(cx, |state, _| {
-            state.play_intent.take_if(|intent| intent.id == id)
-        });
         let current = state.read(cx);
         let metadata = current
             .film_preview
@@ -92,6 +104,11 @@ impl Film {
                     .cloned()
             });
         let images = current.images.clone();
+        let awards_expanded = if args.awards_expand_first {
+            std::collections::HashSet::from([0])
+        } else {
+            Default::default()
+        };
         let account = current.account.clone();
         let installed = current.installed.clone();
         let observer = cx.observe(&state, |film, state, cx| {
@@ -122,21 +139,27 @@ impl Film {
             details_error: false,
             groups: vec![],
             selected: None,
-            resume: intent.as_ref().and_then(|intent| intent.resume),
+            resume: None,
             meta_base: None,
             sources_loading: true,
             subtitles: None,
+            subtitle_lookup: None,
             sources_error: false,
             saved: false,
             saving: false,
             watchlist_error: false,
+            awards: vec![],
+            awards_rail: Default::default(),
+            award_tiles: vec![],
+            award_more: vec![],
+            awards_expanded,
+            people_rail: Default::default(),
             account,
             installed,
             back: cx.focus_handle(),
             primary: cx.focus_handle(),
             watchlist: cx.focus_handle(),
             retry_details: cx.focus_handle(),
-            autoplay: intent.is_some(),
             launched: Instant::now(),
             revealed: None,
             debug_step: 0,
@@ -146,12 +169,14 @@ impl Film {
             subtitles_task: None,
             library_task: None,
             save_task: None,
+            credits_task: None,
             _state: observer,
             _shell: shell_observer,
             _images: image_observer,
         };
         film.load_details(cx);
         film.load_sources(cx);
+        film.load_credits(cx);
         film.subscribe_library(cx);
         film
     }

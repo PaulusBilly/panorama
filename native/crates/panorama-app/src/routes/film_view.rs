@@ -189,7 +189,9 @@ impl Film {
     }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.settings(window, cx);
+        // Debug scrolls wait for the reveal: before it there is nothing below the hero.
         if view.active
+            && self.revealed.is_some()
             && self.debug_step < self.args.scroll.len()
             && self.launched.elapsed().as_secs_f32() > 0.25 + 0.2 * self.debug_step as f32
         {
@@ -205,15 +207,6 @@ impl Film {
 impl Render for Film {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.settings(window, cx);
-        if self.autoplay
-            && ((self.selected.is_some() && self.subtitles.is_some())
-                || !matches!(self.account, Account::SignedIn(_)))
-        {
-            self.autoplay = false;
-            cx.defer_in(window, |film, window, cx| {
-                film.primary_action(true, window, cx)
-            });
-        }
         let theme = view.theme;
         let col = view.column();
         if view.active {
@@ -379,12 +372,20 @@ impl Render for Film {
             );
         }
         page = page.child(content);
+        if self.revealed.is_some()
+            && !self.details_error
+            && let Some(sections) = self.credits_sections(view, window, cx)
+        {
+            page = page.child(sections.opacity(reveal));
+        }
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());
         }
         if self.sources_loading && !view.reduced
             || reveal < 1.0 && !view.reduced
             || view.active && self.images.read(cx).moving()
+            || self.people_rail.moving(view.reduced)
+            || self.awards_rail.moving(view.reduced)
             || self.debug_step < self.args.scroll.len()
         {
             cx.on_next_frame(window, |film, window, cx| film.tick(window, cx));

@@ -76,6 +76,12 @@ impl Player {
             self.drag_to(RangeId::Seek, position, cx);
         } else if self.volume_drag {
             self.drag_to(RangeId::Volume, position, cx);
+        } else if self.ui.color_drag.is_some() {
+            if event.pressed_button == Some(MouseButton::Left) {
+                self.picker_drag_to(position, cx);
+            } else {
+                self.ui.color_drag = None;
+            }
         } else if !(self.shown.top || self.shown.bottom) {
             cx.notify();
         }
@@ -133,6 +139,7 @@ impl Player {
             });
         });
         self.volume_drag = false;
+        self.ui.color_drag = None;
         if self.scrub.dragging() {
             self.commit_scrub(cx);
         }
@@ -330,8 +337,14 @@ impl Player {
         match key {
             "up" | "left" | "down" | "right" => {
                 let delta = if matches!(key, "up" | "left") { -1 } else { 1 };
-                self.panels.row = next_row(self.panels.row, delta, &content.enabled());
-                if let Some(row) = self.panels.row
+                self.panels.row = next_row(self.panels.row, delta, &self.navigable(id, &content));
+                if id == PanelId::Subtitles {
+                    // The open tab's page lists its rows from 0.
+                    if let Some(row) = self.panels.row {
+                        let first = self.subtitle_tab_rows(&content).start;
+                        self.scrolls[4].scroll_to_item(row - first);
+                    }
+                } else if let Some(row) = self.panels.row
                     && let Some(item) = content
                         .items()
                         .iter()
@@ -343,7 +356,13 @@ impl Player {
                 Some(KeyAction::Handled)
             }
             "enter" | "space" | " " => {
-                if let Some(row) = self.panels.row.and_then(|row| content.row(row)).cloned()
+                let navigable = self.navigable(id, &content);
+                if let Some(row) = self
+                    .panels
+                    .row
+                    .filter(|row| navigable.get(*row).copied().unwrap_or(false))
+                    .and_then(|row| content.row(row))
+                    .cloned()
                     && !row.disabled
                 {
                     self.select_row(row.key, window, cx);
@@ -351,6 +370,28 @@ impl Player {
                 Some(KeyAction::Handled)
             }
             _ => None,
+        }
+    }
+
+    /// The rows the keyboard can reach: enabled ones, and in Subtitles only the open tab's.
+    fn navigable(&self, id: PanelId, content: &Content) -> Vec<bool> {
+        let mut enabled = content.enabled();
+        if id == PanelId::Subtitles {
+            let visible = self.subtitle_tab_rows(content);
+            for (index, on) in enabled.iter_mut().enumerate() {
+                *on &= visible.contains(&index);
+            }
+        }
+        enabled
+    }
+
+    /// The Subtitles rows on the open tab: the languages, the tracks, or none on Appearance.
+    fn subtitle_tab_rows(&self, content: &Content) -> std::ops::Range<usize> {
+        let languages = content.sections[0].rows.len();
+        match self.ui.subs.tab {
+            super::subtitles::Tab::Languages => 0..languages,
+            super::subtitles::Tab::Variants => languages..content.enabled().len(),
+            super::subtitles::Tab::Settings => 0..0,
         }
     }
 
@@ -463,8 +504,10 @@ impl Player {
         }
         if matches!(change, Change::Opened) && self.panels.take_focus_on_open() {
             window.focus(&self.focus.panel, cx);
-            if let Some(content) = self.panels.active().and_then(|id| self.panel_content(id)) {
-                self.panels.row = initial_row(content.selected(), &content.enabled());
+            if let Some(id) = self.panels.active()
+                && let Some(content) = self.panel_content(id)
+            {
+                self.panels.row = initial_row(content.selected(), &self.navigable(id, &content));
             }
         }
         cx.notify();

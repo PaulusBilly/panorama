@@ -131,6 +131,23 @@ impl AppShell {
         if args.open_sign_in {
             shell.open_login(window, cx);
         }
+        if args.play_hero && args.fixtures {
+            cx.defer_in(window, |shell, window, cx| {
+                let Some(film) = crate::fixtures::films().into_iter().next() else {
+                    return;
+                };
+                let resume = panorama_core::stremio::ResumePoint {
+                    offset_secs: 1200.0,
+                    duration_secs: 6100.0,
+                };
+                // What `home::play_film` does, from inside the shell.
+                let id = film.id.clone();
+                shell
+                    .state
+                    .update(cx, |state, cx| state.launch(film, Some(resume), cx));
+                shell.navigate(crate::router::Route::Player { id }, window, cx);
+            });
+        }
         shell
     }
 }

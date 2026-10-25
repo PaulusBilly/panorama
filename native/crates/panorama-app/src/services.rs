@@ -62,6 +62,10 @@ pub struct Services {
     pub prefs_writer: Option<crate::playback::prefs::PrefsWriter>,
     /// The fixture presence's opt-in file, removed with the services.
     pub fixture_file: Option<FixtureFile>,
+    /// Wikidata awards for the film page; absent in fixture mode.
+    pub credits: Option<panorama_core::credits::CreditsClient>,
+    /// MUBI awards, festivals and festival pages; absent in fixture mode.
+    pub mubi: Option<panorama_core::mubi::MubiClient>,
 }
 
 /// A per-run temporary file removed on drop.
@@ -124,6 +128,8 @@ impl ServicesHost {
                 store: None,
                 prefs_writer: None,
                 fixture_file: Some(fixture_file),
+                credits: None,
+                mubi: None,
             }));
         }
         let path = store::default_path().ok_or_else(|| {
@@ -202,6 +208,8 @@ impl ServicesHost {
             ),
             store: Some(store),
             fixture_file: None,
+            credits: panorama_core::credits::CreditsClient::new().ok(),
+            mubi: panorama_core::mubi::MubiClient::new().ok(),
         }))
     }
 }
