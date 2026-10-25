@@ -335,3 +335,34 @@ fn load_at_opens_the_file_at_its_position() {
     );
     close(player);
 }
+
+#[test]
+fn a_subtitle_that_cannot_load_fails_alone() {
+    let (_media, video, _) = media();
+    let Some((player, events)) = player(&[]) else {
+        return;
+    };
+    player.load(video.to_str().unwrap()).unwrap();
+    wait(
+        &events,
+        |event| matches!(event, PlayerEvent::TrackList(tracks) if !tracks.is_empty()),
+    );
+    // Nothing listens on port 9 here, so the download is refused at once.
+    player
+        .add_subtitle("http://127.0.0.1:9/missing.srt", "Addon", "eng")
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let event = events
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        assert!(
+            !matches!(event, PlayerEvent::Error(_)),
+            "a subtitle failure surfaced as a playback error: {event:?}"
+        );
+        if event == PlayerEvent::SubtitleFailed {
+            break;
+        }
+    }
+    close(player);
+}

@@ -172,7 +172,7 @@ impl Player {
                 .map(|selection| selection.film.name.clone())
                 .or_else(|| {
                     let launch = state.read(cx).launch.as_ref();
-                    launch.filter(|l| l.id == id).map(|l| l.name.clone())
+                    launch.filter(|l| l.id == id).map(|l| l.film.name.clone())
                 })
                 .unwrap_or_default(),
             selection
@@ -302,8 +302,8 @@ impl Player {
             _ => {}
         }
         let tracks = matches!(&event, HostEvent::Mpv(PlayerEvent::TrackList(_)));
-        // A file mpv could not load reports an error and no new track.
-        let failed = matches!(&event, HostEvent::Mpv(PlayerEvent::Error(_)));
+        // A subtitle file mpv could not load adds no track: the queue moves on without it.
+        let failed = matches!(&event, HostEvent::Mpv(PlayerEvent::SubtitleFailed));
         let devices = matches!(&event, HostEvent::Mpv(PlayerEvent::AudioDeviceList(_)));
         self.model.apply(event);
         if source_changed {
@@ -315,6 +315,9 @@ impl Player {
         }
         if tracks {
             self.restore_language(cx);
+        }
+        if failed {
+            self.subtitle_wait = None;
         }
         if tracks || failed {
             self.send_subtitles(cx);
@@ -331,6 +334,27 @@ impl Player {
             );
         }
         self.sync_shell(cx);
+        cx.notify();
+    }
+
+    /// Retry from the error screen. A play that never found a source has no playback to
+    /// retry, so the addons are asked again and the loader shows while they answer.
+    pub(super) fn retry(&mut self, cx: &mut Context<Self>) {
+        let failed = self
+            .state
+            .read(cx)
+            .launch
+            .as_ref()
+            .filter(|launch| launch.id == self.id && launch.failed)
+            .map(|launch| (launch.film.clone(), launch.resume));
+        let Some((film, resume)) = failed else {
+            self.send(Command::Retry, cx);
+            return;
+        };
+        self.state
+            .update(cx, |state, cx| state.launch(film, resume, cx));
+        self.mounted = false;
+        self.model.apply(HostEvent::Resolving);
         cx.notify();
     }
 

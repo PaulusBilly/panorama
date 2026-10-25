@@ -137,8 +137,9 @@ fn subtitles_are_added_only_from_web_urls_and_not_selected() {
     player
         .add_subtitle("https://subs.invalid/a.srt", "OpenSubtitles", "eng")
         .unwrap();
-    let Request::Command(args) = incoming.recv().unwrap() else {
-        panic!("expected a command");
+    // Its own request, so a failed download is the subtitle's, not playback's.
+    let Request::Subtitle(args) = incoming.recv().unwrap() else {
+        panic!("expected a subtitle request");
     };
     assert_eq!(
         args,

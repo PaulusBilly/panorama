@@ -45,6 +45,7 @@ pub(super) fn styled_cue(text: &str, look: &Appearance) -> Div {
 }
 
 impl Player {
+    /// One element per row, then the note: the page scrolls to a row by its index here.
     fn section_rows(
         &self,
         content: &Content,
@@ -53,22 +54,31 @@ impl Player {
         highlight: Option<usize>,
         theme: Theme,
         cx: &mut gpui::Context<Self>,
-    ) -> Div {
+    ) -> Vec<AnyElement> {
         let Section { rows, note, .. } = &content.sections[section];
-        let mut list = div().flex().flex_col();
-        for (index, row) in rows.iter().enumerate() {
-            list = list.child(self.option_row(
-                row,
-                offset + index,
-                highlight == Some(offset + index),
-                theme,
-                cx,
-            ));
+        let mut list: Vec<AnyElement> = rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                self.option_row(
+                    row,
+                    offset + index,
+                    highlight == Some(offset + index),
+                    theme,
+                    cx,
+                )
+                .into_any_element()
+            })
+            .collect();
+        if let Some(text) = note {
+            list.push(
+                caption(&text.text, theme, false)
+                    .px(px(20.0))
+                    .py(px(12.0))
+                    .into_any_element(),
+            );
         }
-        match note {
-            Some(text) => list.child(caption(&text.text, theme, false).px(px(20.0)).py(px(12.0))),
-            None => list,
-        }
+        list
     }
 
     fn appearance_body(
@@ -105,6 +115,8 @@ impl Player {
             return;
         }
         self.ui.subs.tab = tab;
+        // A highlight on the old tab's rows is no longer on screen.
+        self.panels.row = None;
         self.tab_motion.retarget(
             tab.index() as f32,
             DURATION_STANDARD,
@@ -200,7 +212,10 @@ impl Player {
         let body = match tab {
             Tab::Languages => self.section_rows(content, 0, 0, highlight, theme, cx),
             Tab::Variants => self.section_rows(content, 1, languages, highlight, theme, cx),
-            Tab::Settings => self.appearance_body(theme, keyboard, window, cx),
+            Tab::Settings => vec![
+                self.appearance_body(theme, keyboard, window, cx)
+                    .into_any_element(),
+            ],
         };
         // How far the page still has to travel, in tabs: it slides in from that side and fades.
         let away = at - tab.index() as f32;
@@ -220,11 +235,13 @@ impl Player {
                     .overflow_y_scroll()
                     .track_scroll(&scroll)
                     .pb(px(PAGE_PAD))
-                    .child(
-                        body.relative()
+                    .children(body.into_iter().map(|item| {
+                        div()
+                            .relative()
                             .left(px(away * TAB_SLIDE))
-                            .opacity(1.0 - away.abs().min(1.0)),
-                    ),
+                            .opacity(1.0 - away.abs().min(1.0))
+                            .child(item)
+                    })),
             )
             .into_any_element()
     }

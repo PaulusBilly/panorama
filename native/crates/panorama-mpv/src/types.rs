@@ -230,6 +230,8 @@ pub enum PlayerEvent {
     },
     /// Sanitized startup or asynchronous operation failure.
     Error(MpvError),
+    /// A subtitle file could not be added; playback is unaffected.
+    SubtitleFailed,
     /// mpv is destroyed; the retained child lease has been released.
     /// On timeout this arrives later, after actual destruction.
     Shutdown,

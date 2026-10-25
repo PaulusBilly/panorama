@@ -17,8 +17,9 @@ use std::sync::Arc;
 pub struct Launch {
     /// The film's id, matching the player route.
     pub id: String,
-    /// The film's name, for the player while it waits.
-    pub name: String,
+    /// The film and resume point, for the player while it waits and to look again.
+    pub film: FilmDetails,
+    pub resume: Option<ResumePoint>,
     /// Every addon answered and none had a playable source.
     pub failed: bool,
     _task: Task<()>,
@@ -57,7 +58,7 @@ impl AppState {
             return;
         };
         let id = film.id.clone();
-        let name = film.name.clone();
+        let kept = film.clone();
         let addons = self.installed.clone();
         let subtitles = subtitle_lookup(&services, addons.clone(), id.clone());
         // Which metadata addon the progress belongs to; ready long before the streams.
@@ -132,7 +133,8 @@ impl AppState {
         self.playback = None;
         self.launch = Some(Launch {
             id,
-            name,
+            film: kept,
+            resume,
             failed: false,
             _task: task,
         });

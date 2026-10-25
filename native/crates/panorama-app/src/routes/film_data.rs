@@ -81,11 +81,15 @@ impl Film {
         let (mubi, store) = (services.mubi.clone(), services.store.clone());
         let mut job = Job(services.runtime.spawn(async move {
             let key = panorama_core::store::Key::awards(&id).ok();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_secs());
             let cached = store
                 .as_ref()
                 .zip(key.as_ref())
                 .and_then(|(store, key)| store.get(key).ok().flatten())
-                .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|value| fresh_awards(&value, now));
             if let Some(awards) = cached {
                 return awards;
             }
@@ -94,7 +98,8 @@ impl Film {
             // A network failure is retried on the next visit; any answer, even none, is kept.
             if settled
                 && let (Some(store), Some(key)) = (&store, &key)
-                && let Ok(bytes) = serde_json::to_vec(&awards)
+                && let Ok(bytes) =
+                    serde_json::to_vec(&serde_json::json!({ "fetched": now, "awards": awards }))
             {
                 let _ = store.set(key, &bytes);
             }
@@ -323,5 +328,40 @@ async fn fetch_awards(
             (vec![], settled && !askable)
         }
         Err(CreditsError::Network) => (vec![], false),
+    }
+}
+
+/// A film keeps gathering festival entries and prizes, so cached awards are looked up again
+/// after two weeks.
+const AWARDS_FRESH_SECS: u64 = 14 * 24 * 60 * 60;
+
+/// Cached awards still fresh at `now`; anything else, including the older undated form, is
+/// looked up again.
+fn fresh_awards(
+    cached: &serde_json::Value,
+    now: u64,
+) -> Option<Vec<panorama_core::credits::Award>> {
+    let fetched = cached["fetched"].as_u64()?;
+    if now.saturating_sub(fetched) > AWARDS_FRESH_SECS {
+        return None;
+    }
+    serde_json::from_value(cached["awards"].clone()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_awards_expire_after_two_weeks() {
+        let cached = serde_json::json!({ "fetched": 1_000, "awards": [] });
+        assert_eq!(fresh_awards(&cached, 1_000), Some(vec![]));
+        assert_eq!(
+            fresh_awards(&cached, 1_000 + AWARDS_FRESH_SECS),
+            Some(vec![])
+        );
+        assert_eq!(fresh_awards(&cached, 1_001 + AWARDS_FRESH_SECS), None);
+        // The undated form from before is looked up again.
+        assert_eq!(fresh_awards(&serde_json::json!([]), 1_000), None);
     }
 }
