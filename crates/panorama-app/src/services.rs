@@ -338,6 +338,7 @@ impl Services {
     /// `fixtures::details`.
     pub fn details(
         self: &Arc<Self>,
+        kind: Kind,
         id: String,
     ) -> (Job<()>, mpsc::UnboundedReceiver<ResourceEvent<FilmDetails>>) {
         let (sender, receiver) = mpsc::unbounded();
@@ -352,7 +353,7 @@ impl Services {
                 return;
             };
             let addons = session.lock().await.installed_addons();
-            let mut events = client.details(&addons, Kind::Movie, &id, None);
+            let mut events = client.details(&addons, kind, &id, None);
             while let Some(event) = events.next().await {
                 if sender.unbounded_send(event).is_err() {
                     break;

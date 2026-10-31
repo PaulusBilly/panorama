@@ -26,6 +26,8 @@ impl StartMode {
 #[derive(Clone)]
 pub struct PlaybackSelection {
     pub film: FilmDetails,
+    /// What is playing: the film's own id, or an episode's.
+    pub video_id: String,
     pub groups: Vec<StreamGroup>,
     pub source: SourceRef,
     pub start: StartMode,

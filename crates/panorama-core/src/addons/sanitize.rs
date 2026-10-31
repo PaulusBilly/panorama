@@ -251,6 +251,7 @@ pub(super) fn episodes(videos: &[Video]) -> Vec<Episode> {
                 id: video.id.clone(),
                 season,
                 number,
+                numbered: video.series_info.is_some(),
                 title: text(&video.title, 300),
                 overview: optional(video.overview.clone(), 5000),
                 thumbnail: video

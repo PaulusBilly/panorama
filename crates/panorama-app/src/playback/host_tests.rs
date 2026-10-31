@@ -39,6 +39,7 @@ fn selection() -> PlaybackSelection {
     }
     PlaybackSelection {
         film: crate::fixtures::details("tmdb:100").unwrap(),
+        video_id: "tmdb:100".into(),
         groups,
         source: SourceRef::default(),
         start: StartMode::Restart,

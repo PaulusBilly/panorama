@@ -346,13 +346,19 @@ impl Player {
             .launch
             .as_ref()
             .filter(|launch| launch.id == self.id && launch.failed)
-            .map(|launch| (launch.film.clone(), launch.resume));
-        let Some((film, resume)) = failed else {
+            .map(|launch| {
+                (
+                    launch.film.clone(),
+                    launch.video_id.clone(),
+                    launch.resume.clone(),
+                )
+            });
+        let Some((film, video_id, resume)) = failed else {
             self.send(Command::Retry, cx);
             return;
         };
         self.state
-            .update(cx, |state, cx| state.launch(film, resume, cx));
+            .update(cx, |state, cx| state.launch(film, video_id, resume, cx));
         self.mounted = false;
         self.model.apply(HostEvent::Resolving);
         cx.notify();

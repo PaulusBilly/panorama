@@ -1,5 +1,7 @@
 use stremio_core::types::library::LibraryItem;
 
+use crate::addons::Kind;
+
 use super::{CoreSession, FilmMeta, ResumePoint, progress::resume_point};
 
 const CAP: usize = 20;
@@ -34,7 +36,7 @@ impl CoreSession {
 pub(super) fn select<'a>(items: impl IntoIterator<Item = &'a LibraryItem>) -> Vec<ContinueItem> {
     let mut found: Vec<_> = items
         .into_iter()
-        .filter(|item| item.r#type == "movie" && (!item.removed || item.temp))
+        .filter(|item| Kind::parse(&item.r#type).is_some() && (!item.removed || item.temp))
         .filter_map(|item| Some((item, resume_point(&item.state)?)))
         .collect();
     let seen = |item: &LibraryItem| item.state.last_watched.unwrap_or(item.mtime);
@@ -42,13 +44,16 @@ pub(super) fn select<'a>(items: impl IntoIterator<Item = &'a LibraryItem>) -> Ve
     found
         .into_iter()
         .take(CAP)
-        .map(|(item, resume)| ContinueItem {
-            film: FilmMeta {
-                id: item.id.clone(),
-                name: item.name.clone(),
-                poster: item.poster.clone(),
-            },
-            resume,
+        .filter_map(|(item, resume)| {
+            Some(ContinueItem {
+                film: FilmMeta {
+                    id: item.id.clone(),
+                    kind: Kind::parse(&item.r#type)?,
+                    name: item.name.clone(),
+                    poster: item.poster.clone(),
+                },
+                resume,
+            })
         })
         .collect()
 }
@@ -111,11 +116,15 @@ mod tests {
     }
 
     #[test]
-    fn selects_only_movies_that_are_visible() {
+    fn selects_only_known_kinds_that_are_visible() {
         let cases = [
             Case {
                 kind: "series",
                 ..case("series")
+            },
+            Case {
+                kind: "anime",
+                ..case("anime")
             },
             Case {
                 kind: "other",
@@ -136,7 +145,10 @@ mod tests {
             },
             case("saved"),
         ];
-        assert_eq!(ids(&cases), ["removed-temp", "saved", "temp"]);
+        assert_eq!(
+            ids(&cases),
+            ["anime", "removed-temp", "saved", "series", "temp"]
+        );
     }
 
     #[test]
@@ -225,7 +237,7 @@ mod tests {
                 "_id": "m", "name": "Heat", "type": "movie", "removed": false,
                 "temp": false, "_mtime": T1, "poster": "https://img.test/m.jpg",
                 "state": {
-                    "timeWatched": 0, "timeOffset": 1_800_000, "overallTimeWatched": 0,
+                    "video_id": "m", "timeWatched": 0, "timeOffset": 1_800_000, "overallTimeWatched": 0,
                     "timesWatched": 0, "flaggedWatched": 0, "duration": 7_200_000,
                 },
             }))
@@ -237,12 +249,14 @@ mod tests {
             [ContinueItem {
                 film: FilmMeta {
                     id: "m".into(),
+                    kind: Kind::Movie,
                     name: "Heat".into(),
                     poster: Some("https://img.test/m.jpg".parse().unwrap()),
                 },
                 resume: ResumePoint {
                     offset_secs: 1800.0,
-                    duration_secs: 7200.0
+                    duration_secs: 7200.0,
+                    video_id: Some("m".into()),
                 },
             }]
         );

@@ -161,7 +161,7 @@ pub fn render(
     let size = |button: Button| if compact { button.compact() } else { button };
     let play = film.clone();
     let resume = featured.resume();
-    let left = resume.and_then(|point| {
+    let left = resume.as_ref().and_then(|point| {
         crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
     });
     let mut primary = Button::primary(
@@ -169,7 +169,7 @@ pub fn render(
         left.clone()
             .unwrap_or_else(|| featured.action_label().to_owned()),
     );
-    if let (Some(point), Some(_)) = (resume, &left) {
+    if let (Some(point), Some(_)) = (&resume, &left) {
         primary = primary.progress((point.offset_secs / point.duration_secs) as f32);
     }
     let primary = size(
@@ -181,9 +181,9 @@ pub fn render(
             })
             .focus(&focus.primary, view.keyboard)
             .tab_stop(view.active)
-            .on_click(
-                cx.listener(move |home, _, window, cx| home.play(play.clone(), resume, window, cx)),
-            ),
+            .on_click(cx.listener(move |home, _, window, cx| {
+                home.play(play.clone(), resume.clone(), window, cx)
+            })),
     );
     let save = state.signed_in.then(|| {
         let target = film.clone();

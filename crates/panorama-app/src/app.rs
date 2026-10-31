@@ -144,12 +144,14 @@ impl AppShell {
                 let resume = panorama_core::stremio::ResumePoint {
                     offset_secs: 1200.0,
                     duration_secs: 6100.0,
+                    video_id: None,
                 };
                 // What `home::play_film` does, from inside the shell.
                 let id = film.id.clone();
-                shell
-                    .state
-                    .update(cx, |state, cx| state.launch(film, Some(resume), cx));
+                let video_id = resume.video_id.clone().unwrap_or_else(|| id.clone());
+                shell.state.update(cx, |state, cx| {
+                    state.launch(film, video_id, Some(resume), cx)
+                });
                 shell.navigate(crate::router::Route::Player { id }, window, cx);
             });
         }

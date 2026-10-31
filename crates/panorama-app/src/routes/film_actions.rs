@@ -28,11 +28,13 @@ impl Film {
         if let (Some(source), Some(film)) = (self.selected, self.metadata.clone()) {
             let id = self.id.clone();
             let selection = crate::playback::selection::PlaybackSelection {
+                video_id: id.clone(),
                 film,
                 groups: self.groups.clone(),
                 source,
                 start: self
                     .resume
+                    .as_ref()
                     .map_or(crate::playback::selection::StartMode::Restart, |point| {
                         crate::playback::selection::StartMode::Resume(point.offset_secs)
                     }),
@@ -55,7 +57,7 @@ impl Film {
             self.selected.is_some(),
         );
         let remaining = (primary == Primary::Play)
-            .then_some(self.resume)
+            .then_some(self.resume.clone())
             .flatten()
             .and_then(|point| {
                 crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
@@ -91,7 +93,7 @@ impl Film {
             button = button.leading(Icon::Play);
         }
         if remaining.is_some()
-            && let Some(point) = self.resume
+            && let Some(point) = &self.resume
         {
             button = button.progress((point.offset_secs / point.duration_secs) as f32);
         }

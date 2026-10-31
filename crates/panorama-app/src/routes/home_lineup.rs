@@ -17,7 +17,7 @@ impl<'a> Featured<'a> {
     }
     pub fn resume(&self) -> Option<panorama_core::stremio::ResumePoint> {
         match self {
-            Self::Resume(card) => Some(card.resume),
+            Self::Resume(card) => Some(card.resume.clone()),
             Self::Pick(_) => None,
         }
     }
@@ -67,6 +67,7 @@ mod tests {
             resume: ResumePoint {
                 offset_secs: 10.0,
                 duration_secs: 100.0,
+                video_id: None,
             },
             progress: 0.1,
         }

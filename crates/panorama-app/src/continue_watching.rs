@@ -81,17 +81,22 @@ impl ContinueWatching {
         self.requested.retain(|id, _| keep.contains(id.as_str()));
         self.items = items.into();
         for id in wanted {
-            self.request(id, cx);
+            let kind = self
+                .items
+                .iter()
+                .find(|item| item.film.id == id)
+                .map_or(Kind::Movie, |item| item.film.kind);
+            self.request(kind, id, cx);
         }
         self.rebuild();
         cx.notify();
     }
 
-    fn request(&mut self, id: String, cx: &mut Context<Self>) {
+    fn request(&mut self, kind: Kind, id: String, cx: &mut Context<Self>) {
         let Some(services) = self.services.clone() else {
             return;
         };
-        let (job, mut receiver) = services.details(id.clone());
+        let (job, mut receiver) = services.details(kind, id.clone());
         let key = id.clone();
         let task = cx.spawn(async move |entity, cx| {
             let _job = job;
@@ -152,7 +157,7 @@ fn build_cards(
                 .get(&item.film.id)
                 .cloned()
                 .unwrap_or_else(|| stub(&item.film)),
-            resume: item.resume,
+            resume: item.resume.clone(),
             progress: item.progress(),
         })
         .collect()
@@ -161,7 +166,7 @@ fn build_cards(
 fn stub(meta: &FilmMeta) -> FilmDetails {
     FilmDetails {
         id: meta.id.clone(),
-        kind: Kind::Movie,
+        kind: meta.kind,
         name: meta.name.clone(),
         release_info: None,
         released: None,
@@ -190,12 +195,14 @@ mod tests {
         ContinueItem {
             film: FilmMeta {
                 id: id.into(),
+                kind: Kind::Movie,
                 name: id.to_uppercase(),
                 poster: None,
             },
             resume: ResumePoint {
                 offset_secs,
                 duration_secs: 100.0,
+                video_id: None,
             },
         }
     }

@@ -232,6 +232,7 @@ impl Home {
         let saved = !self.saved;
         let meta = FilmMeta {
             id: film.id.clone(),
+            kind: film.kind,
             name: film.name.clone(),
             poster: film.poster.clone(),
         };
@@ -331,7 +332,7 @@ impl GridHost for Home {
     }
     fn hover_card(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(film) = self.grid.films.get(index) {
-            crate::prefetch::hovered(&self.state, &film.id, cx);
+            crate::prefetch::hovered(&self.state, film.kind, &film.id, cx);
         }
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
@@ -366,7 +367,11 @@ pub(crate) fn play_film<V: 'static>(
         return;
     }
     let id = film.id.clone();
-    state.update(cx, |state, cx| state.launch(film, resume, cx));
+    let video_id = resume
+        .as_ref()
+        .and_then(|point| point.video_id.clone())
+        .unwrap_or_else(|| id.clone());
+    state.update(cx, |state, cx| state.launch(film, video_id, resume, cx));
     let _ = shell.update(cx, |shell, cx| {
         shell.navigate(Route::Player { id }, window, cx)
     });
