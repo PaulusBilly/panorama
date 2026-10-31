@@ -104,6 +104,7 @@ impl ProgressSink for CoreProgress {
         let film = &selection.film;
         presence.update(DiscordPlayback {
             film_id: film.id.clone(),
+            kind: film.kind,
             title: film.name.clone(),
             year: film.release_info.clone(),
             director_tmdb_id: None,
