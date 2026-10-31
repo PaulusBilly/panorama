@@ -323,7 +323,7 @@ impl FilmGrid {
     ) -> gpui::Stateful<Div> {
         let theme = view.theme;
         let width = grid.width * (1.0 + LIFT * lift);
-        let height = width * 9.0 / 16.0;
+        let height = width / 2.0;
         let x = (index % grid.columns) as f32 * (grid.width + GAP) - (width - grid.width) / 2.0;
         // The artwork grows upward so its bottom stays on the row's baseline, like the tiles beside it.
         let y = (index / grid.columns) as f32 * grid.stride() - (height - grid.height());
@@ -335,7 +335,7 @@ impl FilmGrid {
             images,
             services,
             film,
-            (full, full * 9.0 / 16.0),
+            (full, full / 2.0),
             true,
             window,
             cx,

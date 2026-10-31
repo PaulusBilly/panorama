@@ -25,9 +25,9 @@ impl Grid {
             width: ((column_width - gaps) / columns as f32).floor(),
         }
     }
-    /// 16:9, the same frame as the Continue row.
+    /// 2:1, a ticket's proportions: short enough for five small bites per half side.
     pub fn height(self) -> f32 {
-        (self.width * 9.0 / 16.0).round()
+        (self.width / 2.0).round()
     }
     pub fn total_width(self) -> f32 {
         self.width * self.columns as f32 + GAP * self.columns.saturating_sub(1) as f32
