@@ -22,34 +22,33 @@ Not included: series and episodes, or an addon discovery catalog.
 Install [rustup](https://rustup.rs); the workspace selects its own toolchain. Then:
 
 ```sh
-cd native
 cargo run -p panorama-app
 ```
 
 Playback needs a libmpv runtime. On macOS, build it once and point the app at it:
 
 ```sh
-python3 native/scripts/build-macos-libmpv.py
-native/scripts/stage-macos-libmpv.sh
-cd native && PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo run -p panorama-app
+python3 scripts/build-macos-libmpv.py
+scripts/stage-macos-libmpv.sh
+PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo run -p panorama-app
 ```
 
-On Windows, `pwsh native/scripts/stage-windows-libmpv.ps1` downloads and verifies the pinned build (it needs 7-Zip).
+On Windows, `pwsh scripts/stage-windows-libmpv.ps1` downloads and verifies the pinned build (it needs 7-Zip).
 
 To look around without an account, run on fixture data: `cargo run -p panorama-app -- --fixtures`.
 
 ## Project layout
 
 ```text
-native/crates/panorama-app    GPUI interface: routes, theme, motion, playback UI
-native/crates/panorama-core   UI-free logic: Stremio core, addons, store, images, media proxy, torrents, Discord
-native/crates/panorama-mpv    libmpv host, loaded at runtime
-native/libmpv                 Pinned libmpv sources, patches, and licence notices
-native/scripts                libmpv build and stage, macOS and Windows packaging
+crates/panorama-app    GPUI interface: routes, theme, motion, playback UI
+crates/panorama-core   UI-free logic: Stremio core, addons, store, images, media proxy, torrents, Discord
+crates/panorama-mpv    libmpv host, loaded at runtime
+libmpv                 Pinned libmpv sources, patches, and licence notices
+scripts                libmpv build and stage, macOS and Windows packaging
 native/spikes                 Phase 0 feasibility spikes
 ```
 
-Module-level detail, dependency rationale, and test coverage are in [native/README.md](native/README.md).
+Module-level detail, dependency rationale, and test coverage are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Security and privacy
 
@@ -59,7 +58,7 @@ Module-level detail, dependency rationale, and test coverage are in [native/READ
 
 ## Fonts
 
-The interface uses bundled Aspekta at weights 400, 500, and 700, under the SIL Open Font License 1.1 ([licence](native/crates/panorama-app/assets/fonts/OFL.txt)).
+The interface uses bundled Aspekta at weights 400, 500, and 700, under the SIL Open Font License 1.1 ([licence](crates/panorama-app/assets/fonts/OFL.txt)).
 
 ## Contributing
 

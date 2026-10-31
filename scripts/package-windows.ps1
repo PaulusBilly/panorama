@@ -1,12 +1,11 @@
 #requires -Version 7
-# Builds panorama.exe and assembles a deterministic Windows x64 zip under native/target/package/.
+# Builds panorama.exe and assembles a deterministic Windows x64 zip under target/package/.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$native = Split-Path -Parent $PSScriptRoot
-$repo = Split-Path -Parent $native
-$manifestPath = Join-Path $repo 'native/libmpv/windows.json'
-$appDir = Join-Path $native 'crates/panorama-app'
+$repo = Split-Path -Parent $PSScriptRoot
+$manifestPath = Join-Path $repo 'libmpv/windows.json'
+$appDir = Join-Path $repo 'crates/panorama-app'
 
 function Need([string]$path, [string]$what) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing $what`: $path" }
@@ -50,12 +49,12 @@ $version = (Select-String -Path (Join-Path $appDir 'Cargo.toml') -Pattern '^\s*v
 $commit = (git -C $repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed' }
 
-Push-Location $native
+Push-Location $repo
 try { cargo build -p panorama-app --release --locked; if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" } }
 finally { Pop-Location }
-$exe = Need (Join-Path $native 'target/release/panorama.exe') 'built panorama.exe'
+$exe = Need (Join-Path $repo 'target/release/panorama.exe') 'built panorama.exe'
 
-$out = Join-Path $native 'target/package'
+$out = Join-Path $repo 'target/package'
 $stage = Join-Path $out 'panorama-windows-x64'
 $zip = Join-Path $out "panorama-$version-windows-x64.zip"
 Remove-Item -Recurse -Force $stage, $zip, "$zip.sha256" -ErrorAction SilentlyContinue

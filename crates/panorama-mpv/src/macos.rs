@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// `panorama_surface_state` of the `panorama-macvk` mpv patch (native/libmpv/patches).
+/// `panorama_surface_state` of the `panorama-macvk` mpv patch (libmpv/patches).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct SurfaceState {

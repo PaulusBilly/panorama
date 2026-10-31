@@ -1,19 +1,18 @@
 #!/bin/sh
-# Copies the libmpv runtime built by native/scripts/build-macos-libmpv.py into DEST
-# (default native/target/libmpv), thinned to arm64 and loading its dependencies from
+# Copies the libmpv runtime built by scripts/build-macos-libmpv.py into DEST
+# (default target/libmpv), thinned to arm64 and loading its dependencies from
 # its own directory. An optional second argument receives the runtime's licenses.
 # Run the app against it with PANORAMA_LIBMPV_DIR=DEST.
 set -eu
 
-native=$(cd "$(dirname "$0")/.." && pwd)
-repo=$(dirname "$native")
-dest=${1:-"$native/target/libmpv"}
+repo=$(cd "$(dirname "$0")/.." && pwd)
+dest=${1:-"$repo/target/libmpv"}
 # A worktree has no build cache of its own; fall back to the main checkout's.
 main=$(dirname "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)")
 for prefix in "$repo/.cache/panorama/macos-libmpv/current" "$main/.cache/panorama/macos-libmpv/current"; do
   [ -f "$prefix/lib/libmpv.2.dylib" ] && break
 done
-[ -f "$prefix/lib/libmpv.2.dylib" ] || { echo "Missing libmpv; run python3 native/scripts/build-macos-libmpv.py" >&2; exit 1; }
+[ -f "$prefix/lib/libmpv.2.dylib" ] || { echo "Missing libmpv; run python3 scripts/build-macos-libmpv.py" >&2; exit 1; }
 
 mkdir -p "$dest"
 cp -L "$prefix"/lib/*.dylib "$dest/"

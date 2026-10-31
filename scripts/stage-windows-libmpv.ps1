@@ -1,12 +1,11 @@
 #requires -Version 7
-# Downloads the pinned libmpv archive from native/libmpv/windows.json, verifies it, and stages
+# Downloads the pinned libmpv archive from libmpv/windows.json, verifies it, and stages
 # its headers and DLL in .cache/panorama/windows-libmpv/current/. Needs 7-Zip (7z.exe).
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$native = Split-Path -Parent $PSScriptRoot
-$repo = Split-Path -Parent $native
-$manifest = Get-Content -Raw (Join-Path $repo 'native/libmpv/windows.json') | ConvertFrom-Json
+$repo = Split-Path -Parent $PSScriptRoot
+$manifest = Get-Content -Raw (Join-Path $repo 'libmpv/windows.json') | ConvertFrom-Json
 
 function Assert-SafePath([string]$value, [string]$label) {
     $n = $value.Replace('\', '/')

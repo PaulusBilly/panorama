@@ -10,5 +10,5 @@
     "runtime": ["libmpv-2.dll"],
     "rejectedLinkInputs": ["libmpv.dll.a"]
   },
-  "noticesDirectory": "native/libmpv/windows-licenses"
+  "noticesDirectory": "libmpv/windows-licenses"
 }

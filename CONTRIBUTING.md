@@ -4,15 +4,15 @@ Panorama keeps one shared `main` for macOS arm64 and Windows x64. Branch from it
 
 ## Setup
 
-Install rustup. `native/rust-toolchain.toml` selects Rust 1.99.0 with rustfmt and Clippy.
+Install rustup. `rust-toolchain.toml` selects Rust 1.99.0 with rustfmt and Clippy.
 
-**macOS arm64.** Install Xcode Command Line Tools, Python 3.12 or later, and `cmake`, `ninja`, `nasm`, and `pkg-config` from Homebrew. `python3 native/scripts/build-macos-libmpv.py` verifies the pinned source archives in `native/libmpv/macos.json`, applies the patches in `native/libmpv/patches/`, and builds mpv and its codec dependencies under `.cache/panorama/macos-libmpv/`. The first build needs network access and takes a while; later builds reuse the cache. `native/scripts/stage-macos-libmpv.sh` then stages it in `native/target/libmpv`.
+**macOS arm64.** Install Xcode Command Line Tools, Python 3.12 or later, and `cmake`, `ninja`, `nasm`, and `pkg-config` from Homebrew. `python3 scripts/build-macos-libmpv.py` verifies the pinned source archives in `libmpv/macos.json`, applies the patches in `libmpv/patches/`, and builds mpv and its codec dependencies under `.cache/panorama/macos-libmpv/`. The first build needs network access and takes a while; later builds reuse the cache. `scripts/stage-macos-libmpv.sh` then stages it in `target/libmpv`.
 
-**Windows x64.** Install the MSVC Build Tools ("Desktop development with C++" and a Windows SDK), PowerShell 7, and 7-Zip. `pwsh native/scripts/stage-windows-libmpv.ps1` downloads the archive pinned in `native/libmpv/windows.json`, verifies its SHA-256, and stages it under `.cache/panorama/windows-libmpv/current/`. Do not substitute a different DLL without updating and validating its manifest.
+**Windows x64.** Install the MSVC Build Tools ("Desktop development with C++" and a Windows SDK), PowerShell 7, and 7-Zip. `pwsh scripts/stage-windows-libmpv.ps1` downloads the archive pinned in `libmpv/windows.json`, verifies its SHA-256, and stages it under `.cache/panorama/windows-libmpv/current/`. Do not substitute a different DLL without updating and validating its manifest.
 
 ## Required checks
 
-Run from `native/`:
+Run from the repository root:
 
 ```sh
 cargo fmt --all --check
@@ -26,12 +26,12 @@ Set `PANORAMA_LIBMPV_DIR` to the staged runtime to include the mpv integration t
 ## Packaging
 
 ```sh
-native/scripts/package-macos.sh                 # native/target/package/Panorama.app, ad-hoc signed
-pwsh native/scripts/package-windows.ps1         # native/target/package/panorama-<version>-windows-x64.zip
-pwsh native/scripts/verify-windows-package.ps1
+scripts/package-macos.sh                 # target/package/Panorama.app, ad-hoc signed
+pwsh scripts/package-windows.ps1         # target/package/panorama-<version>-windows-x64.zip
+pwsh scripts/verify-windows-package.ps1
 ```
 
-Run each on its own OS. The Windows libmpv licence review is still open (`native/libmpv/windows-licenses/README.md`); do not share a Windows build outside testing until it is settled. Ad-hoc signing is not notarization.
+Run each on its own OS. The Windows libmpv licence review is still open (`libmpv/windows-licenses/README.md`); do not share a Windows build outside testing until it is settled. Ad-hoc signing is not notarization.
 
 ## Packaged validation
 

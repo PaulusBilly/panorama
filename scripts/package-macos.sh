@@ -1,25 +1,24 @@
 #!/bin/sh
-# Builds panorama in release mode and wraps it in native/target/package/Panorama.app.
+# Builds panorama in release mode and wraps it in target/package/Panorama.app.
 # A bare binary opens Terminal and has no icon; the bundle fixes both.
 set -eu
 
-native=$(cd "$(dirname "$0")/.." && pwd)
-repo=$(dirname "$native")
-icon="$native/assets/panorama.icns"
-version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$native/crates/panorama-app/Cargo.toml" | head -n 1)
+repo=$(cd "$(dirname "$0")/.." && pwd)
+icon="$repo/assets/panorama.icns"
+version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo/crates/panorama-app/Cargo.toml" | head -n 1)
 commit=$(git -C "$repo" rev-parse --short HEAD)
 
 [ -f "$icon" ] || { echo "Missing icon: $icon" >&2; exit 1; }
 
-(cd "$native" && cargo build -p panorama-app --release --locked)
+(cd "$repo" && cargo build -p panorama-app --release --locked)
 
-app="$native/target/package/Panorama.app"
+app="$repo/target/package/Panorama.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$native/target/release/panorama" "$app/Contents/MacOS/panorama"
+cp "$repo/target/release/panorama" "$app/Contents/MacOS/panorama"
 cp "$icon" "$app/Contents/Resources/panorama.icns"
 
-"$native/scripts/stage-macos-libmpv.sh" "$app/Contents/Frameworks" "$app/Contents/Resources/licenses/libmpv"
+"$repo/scripts/stage-macos-libmpv.sh" "$app/Contents/Frameworks" "$app/Contents/Resources/licenses/libmpv"
 
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
