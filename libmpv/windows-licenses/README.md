@@ -1,7 +1,7 @@
 # Windows libmpv redistribution review
 
 The internal Windows playback build uses the immutable archive declared in
-`native/libmpv/windows.json`. Before any external distribution, replace this review
+`libmpv/windows.json`. Before any external distribution, replace this review
 marker with the corresponding mpv, FFmpeg, build-provenance, and dependency
 license notices.
 

@@ -8,8 +8,8 @@ import subprocess
 import sys
 import tarfile
 
-root = pathlib.Path(__file__).resolve().parents[2]
-manifest_path = root / 'native/libmpv/macos.json'
+root = pathlib.Path(__file__).resolve().parents[1]
+manifest_path = root / 'libmpv/macos.json'
 manifest = json.loads(manifest_path.read_text())
 cache = root / '.cache/panorama/macos-libmpv'
 prefix = cache / 'current'
@@ -112,11 +112,11 @@ meson('fribidi', ['-Ddocs=false', '-Dbin=false', '-Dtests=false'])
 meson('libass', ['-Dfontconfig=disabled', '-Dcoretext=enabled', '-Dtest=disabled'])
 meson('dav1d', ['-Denable_tools=false', '-Denable_tests=false'])
 shutil.copytree(paths['fast-float'] / 'include', paths['libplacebo'] / '3rdparty/fast_float/include', dirs_exist_ok=True)
-placebo_patch = root / 'native/libmpv/patches/libplacebo-prefix.patch'
+placebo_patch = root / 'libmpv/patches/libplacebo-prefix.patch'
 if not (paths['libplacebo'] / '.panorama-patch').exists():
     run(['patch', '-p1', '-i', placebo_patch], paths['libplacebo'])
     (paths['libplacebo'] / '.panorama-patch').touch()
-host_import_patch = root / 'native/libmpv/patches/libplacebo-moltenvk-host-import.patch'
+host_import_patch = root / 'libmpv/patches/libplacebo-moltenvk-host-import.patch'
 if not (paths['libplacebo'] / '.panorama-host-import-patch').exists():
     run(['patch', '-p1', '-i', host_import_patch], paths['libplacebo'])
     (paths['libplacebo'] / '.panorama-host-import-patch').touch()
@@ -136,7 +136,7 @@ if not (ffmpeg / '.installed').exists():
     run(['make', 'install'], ffmpeg)
     (ffmpeg / '.installed').touch()
 
-patch = root / 'native/libmpv/patches/panorama-macvk.patch'
+patch = root / 'libmpv/patches/panorama-macvk.patch'
 if patch.exists():
     applied = paths['mpv'] / '.panorama-patch'
     digest = hashlib.sha256(patch.read_bytes()).hexdigest()
@@ -145,7 +145,7 @@ if patch.exists():
     if not applied.exists():
         run(['patch', '-p1', '-i', patch], paths['mpv'])
         applied.write_text(digest)
-audio_patch = root / 'native/libmpv/patches/mpv-coreaudio-channel-layout.patch'
+audio_patch = root / 'libmpv/patches/mpv-coreaudio-channel-layout.patch'
 audio_applied = paths['mpv'] / '.panorama-audio-patch'
 audio_digest = hashlib.sha256(audio_patch.read_bytes()).hexdigest()
 if audio_applied.exists() and audio_applied.read_text() != audio_digest:
@@ -169,8 +169,8 @@ for name, source in paths.items():
             relative = candidate.relative_to(source)
             (target / relative.parent).mkdir(parents=True, exist_ok=True)
             shutil.copy2(candidate, target / relative)
-shutil.copytree(root / 'native/libmpv/macos-licenses', licenses / 'moltenvk-dependencies', dirs_exist_ok=True)
-shutil.copy2(root / 'native/libmpv/patches/libplacebo-prefix.patch', licenses / 'libplacebo-prefix.patch')
+shutil.copytree(root / 'libmpv/macos-licenses', licenses / 'moltenvk-dependencies', dirs_exist_ok=True)
+shutil.copy2(root / 'libmpv/patches/libplacebo-prefix.patch', licenses / 'libplacebo-prefix.patch')
 shutil.copy2(host_import_patch, licenses / host_import_patch.name)
 shutil.copy2(audio_patch, licenses / audio_patch.name)
 shutil.copy2(manifest_path, licenses / 'macos-libmpv.json')

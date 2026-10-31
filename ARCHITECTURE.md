@@ -8,7 +8,7 @@ Install rustup; this workspace selects Rust 1.99.0 with rustfmt and Clippy.
 On Windows, install the MSVC Build Tools with Desktop development with C++
 and a Windows SDK for the `x86_64-pc-windows-msvc` target.
 
-Run these commands from `native/`:
+Run these commands from the repository root:
 
 ```sh
 cargo run -p panorama-app
@@ -397,7 +397,7 @@ the default background is `#AD000000` (black, approximately 68% opaque).
 
 ### Validation and playback example
 
-Run from `native/`:
+Run from the repository root:
 
 ```powershell
 $env:PANORAMA_LIBMPV_DIR = 'D:\codeOS\panorama\.cache\panorama\windows-libmpv\current'
@@ -988,7 +988,7 @@ logged; manifest text is shown as plain text and length-capped. Fixture flags:
 
 ## Playback on macOS
 
-macOS uses a patched libmpv (`native/libmpv/`): `gpu-next` renders through MoltenVK
+macOS uses a patched libmpv (`libmpv/`): `gpu-next` renders through MoltenVK
 into a `CAMetalLayer` that mpv reaches through `wid` and the `panorama-macvk` GPU
 context, and VideoToolbox decodes with zero-copy interop. The layer's view sits
 below GPUI's view in the window's content view, so the player route's transparent
@@ -998,9 +998,8 @@ Build the runtime once (Apple Silicon; needs `cmake`, `ninja`,
 `nasm` and `pkg-config` from Homebrew), then stage it for development:
 
 ```sh
-python3 native/scripts/build-macos-libmpv.py
-native/scripts/stage-macos-libmpv.sh
-cd native
+python3 scripts/build-macos-libmpv.py
+scripts/stage-macos-libmpv.sh
 PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo test -p panorama-mpv
 PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo run -p panorama-app -- \
   --screenshot player:tmdb:100 /tmp/player-video.png --play-file <absolute-media-path>
@@ -1013,7 +1012,7 @@ bundle's `Contents/Frameworks`, then beside the executable.
 
 ## Packaging (macOS)
 
-`native/scripts/package-macos.sh` builds `Panorama.app` with libmpv and MoltenVK
+`scripts/package-macos.sh` builds `Panorama.app` with libmpv and MoltenVK
 in `Contents/Frameworks` and their licences in `Contents/Resources/licenses/libmpv`,
 then signs it ad hoc. Build the runtime first, as above.
 
@@ -1022,11 +1021,11 @@ then signs it ad hoc. Build the runtime first, as above.
 Run from the repository root with PowerShell 7 (packaging runs locally; CI only checks the libmpv stage):
 
 ```powershell
-pwsh native/scripts/package-windows.ps1
-pwsh native/scripts/verify-windows-package.ps1
+pwsh scripts/package-windows.ps1
+pwsh scripts/verify-windows-package.ps1
 ```
 
-`package-windows.ps1` builds `panorama-app` in release mode with `--locked`, reuses the staged libmpv from `.cache/panorama/windows-libmpv/` (running `native/scripts/stage-windows-libmpv.ps1`, which needs 7-Zip, only if it is missing), and writes `native/target/package/panorama-<version>-windows-x64.zip` plus a `.sha256` file.
+`package-windows.ps1` builds `panorama-app` in release mode with `--locked`, reuses the staged libmpv from `.cache/panorama/windows-libmpv/` (running `scripts/stage-windows-libmpv.ps1`, which needs 7-Zip, only if it is missing), and writes `target/package/panorama-<version>-windows-x64.zip` plus a `.sha256` file.
 
 The zip contains `panorama.exe`, `libmpv-2.dll`, `BUILD.txt` (git commit, cargo version, libmpv manifest sha256) and `licenses/` (libmpv notices, plus `OFL.txt`, the Tabler icons licence and the repository `LICENSE` once those files exist in the repository; the script warns when one is absent).
 

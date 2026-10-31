@@ -23,6 +23,9 @@
 /CLAUDE.md
 /plans/
 
+# Build output
+/target
+
 # Caches (libmpv builds and downloads live in .cache/panorama/)
 .cache
 

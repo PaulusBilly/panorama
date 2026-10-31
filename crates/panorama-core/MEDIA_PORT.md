@@ -171,7 +171,7 @@ successful refresh. Dropping futures/bodies cancels obsolete upstream requests.
 
 ## Dependencies and Phase 3.3 calls
 
-Exact pins and reasons are in `native/README.md`: tokio 1.53.2, reqwest 0.12.28
+Exact pins and reasons are in `ARCHITECTURE.md`: tokio 1.53.2, reqwest 0.12.28
 (rustls; defaults disabled), hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5,
 http 1.5.0, bytes 1.12.1, futures 0.3.34, sha2 0.10.9, getrandom 0.3.4,
 httpdate 1.0.3 and dev-only tempfile 3.27.0 reuse locked versions. fs4 0.13.1 is
