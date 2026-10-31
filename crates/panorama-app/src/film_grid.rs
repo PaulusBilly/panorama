@@ -1,18 +1,21 @@
 use crate::{
     button::{Button, Icon},
     film_card::{self, CardProps},
-    home_layout::{GAP, Grid, ViewSettings},
+    home_layout::{GAP, Grid, TILE_RATIO, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
     theme::{Column, Theme, Typography, motion::*},
     transition::Tween,
+    zoom::CardArt,
 };
 use gpui::{
-    App, Context, Div, Entity, FocusHandle, PathBuilder, Pixels, Point, ScrollHandle, Window, div,
-    linear_color_stop, linear_gradient, point, prelude::*, px, relative,
+    App, Bounds, Context, Div, Entity, FocusHandle, PathBuilder, Pixels, Point, ScrollHandle,
+    Window, div, linear_color_stop, linear_gradient, point, prelude::*, px, relative, size,
 };
 use panorama_core::addons::FilmDetails;
 use std::{
+    cell::Cell,
+    rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -21,7 +24,7 @@ gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 
 const SKELETONS: usize = 9;
 /// How long the pointer rests on a card before its preview opens.
-const DWELL: Duration = Duration::ZERO;
+const DWELL: Duration = Duration::from_millis(500);
 /// The preview's artwork grows by this fraction of the tile.
 const LIFT: f32 = 0.08;
 
@@ -86,6 +89,16 @@ pub trait GridHost: Sized + 'static {
     /// The pointer entered card `index`.
     fn hover_card(&mut self, _index: usize, _cx: &mut Context<Self>) {}
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
+    /// Open from a clicked preview, for hosts that can hold still while its artwork grows.
+    fn zoom_film(
+        &mut self,
+        film: FilmDetails,
+        _card: CardArt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_film(film, window, cx);
+    }
     /// Open the film and let it start playback.
     fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>);
 }
@@ -103,6 +116,10 @@ pub struct FilmGrid {
     fading: Option<(usize, Tween)>,
     /// Captures pin the first card's preview; the real pointer must not move it.
     pinned: bool,
+    /// The rows' top-left in the window, written during paint for clicks to read.
+    origin: Rc<Cell<Point<Pixels>>>,
+    /// The card a film page just landed on, set by the host each frame.
+    pub quiet: Option<crate::zoom::Quiet>,
 }
 
 impl FilmGrid {
@@ -124,6 +141,8 @@ impl FilmGrid {
             },
             fading: None,
             pinned: hover_first,
+            origin: Rc::default(),
+            quiet: None,
         }
     }
     /// Replace the films, keeping one focus handle per card.
@@ -222,7 +241,19 @@ impl FilmGrid {
         let end = (((view.height - offset) / grid.stride()).ceil().max(0.0) as usize + 2).min(rows);
         let films = self.films.clone();
         let notes = self.notes.clone();
-        let mut result = div().relative().w(px(grid.total_width())).h(px(height));
+        let origin = self.origin.clone();
+        let mut result = div()
+            .relative()
+            .w(px(grid.total_width()))
+            .h(px(height))
+            .child(
+                gpui::canvas(
+                    move |bounds, _, _| origin.set(bounds.origin),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size(px(0.0)),
+            );
         for row in start..end {
             let y = offset + row as f32 * grid.stride();
             let visible = view.active && y + grid.height() > 0.0 && y < view.height;
@@ -255,6 +286,9 @@ impl FilmGrid {
                         unavailable,
                         focus: self.cards.get(index).unwrap_or(&self.spare),
                         note: notes.get(index).and_then(Option::as_deref),
+                        caption: film.map_or(1.0, |film| {
+                            crate::zoom::caption_opacity(self.quiet.as_ref(), &film.id)
+                        }),
                         index,
                     },
                     grid,
@@ -313,7 +347,7 @@ impl FilmGrid {
     ) -> gpui::Stateful<Div> {
         let theme = view.theme;
         let width = grid.width * (1.0 + LIFT * lift);
-        let height = width / 2.0;
+        let height = width * TILE_RATIO;
         let x = (index % grid.columns) as f32 * (grid.width + GAP) - (width - grid.width) / 2.0;
         // The artwork grows upward so its bottom stays on the row's baseline, like the tiles beside it.
         let y = (index / grid.columns) as f32 * grid.stride() - (height - grid.height());
@@ -321,8 +355,15 @@ impl FilmGrid {
         // rewraps or slides while the card grows; artwork is requested at that size for the same reason.
         let full = grid.width * (1.0 + LIFT);
         let inset = (full * 0.055).clamp(16.0, 28.0);
-        let (image, poster, _) =
-            artwork(images, services, film, (full, full / 2.0), true, window, cx);
+        let (image, poster, _) = artwork(
+            images,
+            services,
+            film,
+            (full, full * TILE_RATIO),
+            true,
+            window,
+            cx,
+        );
 
         let mut art = div()
             .id(("film-preview-art", index))
@@ -332,50 +373,47 @@ impl FilmGrid {
             .overflow_hidden()
             .bg(theme.surface)
             .cursor_pointer();
-        if let Some(image) = image {
+        if let Some(image) = &image {
             art = art.child(crate::hero::cover(
-                image.image,
+                image.image.clone(),
                 (width, height),
                 poster,
                 1.0,
             ));
         }
         let open = film.clone();
-        // The tile's own scrim, then, as the card lifts, the artwork melts into the details
-        // panel like a ticket stub: a long soft darkening and a short run to solid surface.
-        let fade = |share: f32, alpha: f32| {
-            div()
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .w_full()
-                .h(relative(share))
-                .bg(linear_gradient(
-                    180.0,
-                    linear_color_stop(theme.surface.opacity(0.0), 0.0),
-                    linear_color_stop(theme.surface.opacity(alpha * lift), 1.0),
-                ))
-        };
-        let scrim = theme.scrim.opacity(0.58);
+        let origin = self.origin.clone();
+        let note = self.note(index).map(str::to_owned);
+        let rest = point(
+            px((index % grid.columns) as f32 * (grid.width + GAP)),
+            px((index / grid.columns) as f32 * grid.stride()),
+        );
         let art = art
-            .child(
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .left_0()
-                    .w_full()
-                    .h(relative(0.46))
-                    .bg(linear_gradient(
-                        180.0,
-                        linear_color_stop(scrim.opacity(0.0), 0.0),
-                        linear_color_stop(scrim, 1.0),
-                    )),
-            )
-            .child(fade(0.75, 0.8))
-            .child(fade(0.3, 1.0))
-            .child(film_card::caption(film, self.note(index), theme))
+            .child(card_face(
+                film,
+                self.note(index),
+                lift,
+                crate::zoom::caption_opacity(self.quiet.as_ref(), &film.id),
+                theme,
+            ))
             .on_click(cx.listener(move |host: &mut V, _, window, cx| {
-                host.open_film(open.clone(), window, cx)
+                let Some(image) = &image else {
+                    return host.open_film(open.clone(), window, cx);
+                };
+                let card = CardArt {
+                    film: open.clone(),
+                    image: image.image.clone(),
+                    poster,
+                    bounds: Bounds::new(
+                        origin.get() + point(px(x), px(y)),
+                        size(px(width), px(height)),
+                    ),
+                    rest: Bounds::new(origin.get() + rest, size(px(grid.width), px(grid.height()))),
+                    lift,
+                    note: note.clone(),
+                };
+                host.film_grid().leave_preview(index);
+                host.zoom_film(open.clone(), card, window, cx)
             }));
 
         let play = film.clone();
@@ -472,6 +510,50 @@ impl FilmGrid {
             .child(stub(height, theme, lift))
             .child(details)
     }
+}
+
+/// The tile's own scrim, then, as the card lifts, the artwork melts into the details panel like a
+/// ticket stub: a long soft darkening and a short run to solid surface.
+pub fn card_face(
+    film: &FilmDetails,
+    note: Option<&str>,
+    lift: f32,
+    caption: f32,
+    theme: Theme,
+) -> Div {
+    let fade = |share: f32, alpha: f32| {
+        div()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .w_full()
+            .h(relative(share))
+            .bg(linear_gradient(
+                180.0,
+                linear_color_stop(theme.surface.opacity(0.0), 0.0),
+                linear_color_stop(theme.surface.opacity(alpha * lift), 1.0),
+            ))
+    };
+    let scrim = theme.scrim.opacity(0.58);
+    div()
+        .absolute()
+        .inset_0()
+        .child(
+            div()
+                .absolute()
+                .bottom_0()
+                .left_0()
+                .w_full()
+                .h(relative(0.46))
+                .bg(linear_gradient(
+                    180.0,
+                    linear_color_stop(scrim.opacity(0.0), 0.0),
+                    linear_color_stop(scrim, 1.0),
+                )),
+        )
+        .child(fade(0.75, 0.8))
+        .child(fade(0.3, 1.0))
+        .child(film_card::caption(film, note, theme).opacity(caption))
 }
 
 /// Ticket proportions measured from A24's AAA24 tickets, as fractions of the card's width.
@@ -613,16 +695,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preview_opens_on_the_next_frame_after_entering_a_card() {
+    fn preview_opens_after_resting_on_a_card() {
         let start = Instant::now();
         let ms = |n| start + Duration::from_millis(n);
 
         let resting = Preview::Closed.hover(2, true, start);
         assert_eq!(resting.open(), None);
-        assert_eq!(resting.tick(start).open(), Some(2));
+        assert_eq!(resting.tick(ms(499)).open(), None);
+        assert_eq!(resting.tick(ms(500)).open(), Some(2));
 
         let moved_on = resting.hover(3, true, ms(10));
-        assert_eq!(moved_on.tick(ms(10)).open(), Some(3));
+        assert_eq!(moved_on.tick(ms(500)).open(), None);
+        assert_eq!(moved_on.tick(ms(510)).open(), Some(3));
 
         let open = resting.tick(ms(500));
         assert_eq!(

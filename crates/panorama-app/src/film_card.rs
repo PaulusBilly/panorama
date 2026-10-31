@@ -6,13 +6,14 @@ use crate::{
     image_cache::CachedImage,
     theme::{Theme, focus_ring},
     transition::bezier,
+    zoom::CardArt,
 };
 use gpui::{
     Context, Div, FocusHandle, FontWeight, Window, div, linear_color_stop, linear_gradient,
     prelude::*, px, relative,
 };
 use panorama_core::addons::FilmDetails;
-use std::time::Instant;
+use std::{cell::Cell, rc::Rc, time::Instant};
 
 /// Resources and interaction state for one fixed-size tile.
 pub struct CardProps<'a> {
@@ -23,6 +24,8 @@ pub struct CardProps<'a> {
     pub(crate) focus: &'a FocusHandle,
     /// A line over the title, such as a festival result.
     pub(crate) note: Option<&'a str>,
+    /// How visible the title and credits are; held back on a card just landed on.
+    pub(crate) caption: f32,
     pub(crate) index: usize,
 }
 
@@ -49,6 +52,10 @@ pub fn render<V: GridHost>(
     let theme = view.theme;
     let height = grid.height();
     let index = props.index;
+    let zoom = props
+        .image
+        .as_ref()
+        .map(|image| (image.image.clone(), props.poster));
     let mut tile = div()
         .relative()
         .w(px(grid.width))
@@ -82,8 +89,21 @@ pub fn render<V: GridHost>(
             )),
     );
     if let Some(film) = props.film {
-        tile = tile.child(caption(film, props.note, theme));
+        tile = tile.child(caption(film, props.note, theme).opacity(props.caption));
         let target = film.clone();
+        let note = props.note.map(str::to_owned);
+        let on_screen = Rc::new(Cell::new(gpui::Bounds::default()));
+        tile = tile.child(
+            gpui::canvas(
+                {
+                    let on_screen = on_screen.clone();
+                    move |bounds, _, _| on_screen.set(bounds)
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        );
         let button = focus_ring(
             div()
                 .id(("film-card", index))
@@ -109,7 +129,20 @@ pub fn render<V: GridHost>(
                     cx.notify();
                 }))
                 .on_click(cx.listener(move |host: &mut V, _, window, cx| {
-                    host.open_film(target.clone(), window, cx)
+                    host.film_grid().hover(index, false);
+                    let Some((image, poster)) = zoom.clone() else {
+                        return host.open_film(target.clone(), window, cx);
+                    };
+                    let card = CardArt {
+                        film: target.clone(),
+                        image,
+                        poster,
+                        bounds: on_screen.get(),
+                        rest: on_screen.get(),
+                        lift: 0.0,
+                        note: note.clone(),
+                    };
+                    host.zoom_film(target.clone(), card, window, cx)
                 })),
             props.focus,
             theme,

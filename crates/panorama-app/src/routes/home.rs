@@ -337,6 +337,15 @@ impl GridHost for Home {
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         open_film(&self.state, &self.shell, film, window, cx);
     }
+    fn zoom_film(
+        &mut self,
+        film: FilmDetails,
+        card: crate::zoom::CardArt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        zoom_film(&self.state, &self.shell, film, card, window, cx);
+    }
     fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         self.play(film, None, window, cx);
     }
@@ -375,6 +384,19 @@ pub(crate) fn open_film<V: 'static>(
     let _ = shell.update(cx, |shell, cx| {
         shell.navigate(Route::Film { id }, window, cx)
     });
+}
+
+/// The film page mounts when the artwork lands, so its sources start now.
+pub(crate) fn zoom_film<V: 'static>(
+    state: &Entity<AppState>,
+    shell: &WeakEntity<AppShell>,
+    film: FilmDetails,
+    card: crate::zoom::CardArt,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) {
+    state.update(cx, |state, cx| state.prefetch_sources(&film.id, cx));
+    let _ = shell.update(cx, |shell, cx| shell.zoom_to_film(film, card, window, cx));
 }
 
 fn fixture_benchmark() -> Vec<FilmDetails> {

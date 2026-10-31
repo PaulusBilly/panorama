@@ -284,6 +284,15 @@ impl GridHost for Search {
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         super::home::open_film(&self.state, &self.shell, film, window, cx);
     }
+    fn zoom_film(
+        &mut self,
+        film: FilmDetails,
+        card: crate::zoom::CardArt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        super::home::zoom_film(&self.state, &self.shell, film, card, window, cx);
+    }
     fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         super::home::play_film(&self.state, &self.shell, film, None, window, cx);
     }
@@ -365,6 +374,7 @@ impl Render for Search {
             let offset = Self::grid_top(view.width) - top;
             let services = self.state.read(cx).services.clone();
             let images = self.images.clone();
+            self.grid.quiet = self.state.read(cx).quiet.clone();
             section = section.child(
                 self.grid
                     .render_rows(

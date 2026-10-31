@@ -12,8 +12,8 @@ use crate::{
     titlebar::Titlebar,
 };
 use gpui::{
-    AnyView, Context, Entity, FocusHandle, KeyDownEvent, NavigationDirection, Render, Window, div,
-    prelude::*, px,
+    AnyView, Context, Entity, FocusHandle, KeyDownEvent, NavigationDirection, Render, Task, Window,
+    div, prelude::*, px,
 };
 use gpui_component::WindowExt;
 use std::{
@@ -56,6 +56,10 @@ pub struct AppShell {
     history: History,
     cache: VecDeque<Rc<Mounted>>,
     mounted: Option<Rc<Mounted>>,
+    /// A card growing into its film page, over the route that is still mounted.
+    zoom: Option<crate::zoom::Zoom>,
+    /// The card the open film page grew from.
+    returning: Option<crate::zoom::Returning>,
     focus: FocusHandle,
     _keystrokes: gpui::Subscription,
     titlebar: Titlebar,
@@ -100,6 +104,8 @@ impl AppShell {
             history: History::new(args.route),
             cache: VecDeque::new(),
             mounted: None,
+            zoom: None,
+            returning: None,
             focus,
             _keystrokes: keystrokes,
             titlebar: Titlebar::new(cx, state.clone()),
