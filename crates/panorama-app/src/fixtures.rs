@@ -79,12 +79,14 @@ pub fn continue_items() -> Vec<ContinueItem> {
             Some(ContinueItem {
                 film: FilmMeta {
                     id: film.id,
+                    kind: film.kind,
                     name: film.name,
                     poster: film.poster,
                 },
                 resume: ResumePoint {
                     offset_secs: duration_secs * fraction,
                     duration_secs,
+                    video_id: None,
                 },
             })
         })

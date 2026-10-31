@@ -65,9 +65,11 @@ impl ProgressSink for CoreProgress {
                         PlaybackTarget {
                             film: FilmMeta {
                                 id: selection.film.id.clone(),
+                                kind: selection.film.kind,
                                 name: selection.film.name.clone(),
                                 poster: selection.film.poster.clone(),
                             },
+                            video_id: selection.video_id.clone(),
                             stream: source.stream.clone(),
                             meta_base,
                             stream_base: descriptor.as_core().transport_url.clone(),
