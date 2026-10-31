@@ -66,6 +66,18 @@ pub fn first_source(groups: &[StreamGroup]) -> Option<SourceRef> {
     ranked(groups).first().copied()
 }
 
+/// The best stream in an addon's binge group, so an episode continues the last one's release.
+pub fn binge_source(groups: &[StreamGroup], group: &str) -> Option<SourceRef> {
+    ranked(groups).into_iter().find(|source| {
+        match groups.get(source.group).map(|item| &item.state) {
+            Some(StreamState::Ready(streams)) => streams.get(source.stream).is_some_and(|item| {
+                item.stream.behavior_hints.binge_group.as_deref() == Some(group)
+            }),
+            _ => false,
+        }
+    })
+}
+
 /// Every playable stream, most reliable first: direct links, then torrents by seeders, with
 /// 1080p ahead of 4K unless the 4K stream is healthy, oversized files pushed down and dead
 /// torrents last. Ties keep the account's addon order.

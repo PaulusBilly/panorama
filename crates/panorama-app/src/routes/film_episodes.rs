@@ -165,8 +165,9 @@ impl Film {
             .resume
             .clone()
             .filter(|point| point.video_id.as_ref() == Some(&episode.id));
-        self.state
-            .update(cx, |state, cx| state.launch(film, episode.id, resume, cx));
+        self.state.update(cx, |state, cx| {
+            state.launch(film, episode.id, resume, None, cx)
+        });
         let route = crate::router::Route::Player {
             id: self.id.clone(),
         };
