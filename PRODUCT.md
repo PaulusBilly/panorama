@@ -6,11 +6,11 @@ product
 
 ## Users
 
-People with a Stremio account and their own installed addons who want to sit down and watch a film on a Mac (Apple Silicon) or Windows PC. Usually evening, lean-back, often a dim room. The jobs are picking up a film they were already watching, finding something to watch, and getting it playing with good audio and subtitles.
+People with a Stremio account and their own installed addons who want to sit down and watch a film or a show on a Mac (Apple Silicon) or Windows PC. Usually evening, lean-back, often a dim room. The jobs are picking up a film they were already watching, finding something to watch, and getting it playing with good audio and subtitles.
 
 ## Product Purpose
 
-An unofficial native Stremio client for films. It turns the user's addons into a place to browse, search and watch, with native mpv playback. Success is opening the app and being one click from the film you were watching, and the app feeling like a cinema rather than a file browser.
+An unofficial native Stremio client for films, shows and anime. It turns the user's addons into a place to browse, search and watch, with native mpv playback. Success is opening the app and being one click from the film you were watching, and the app feeling like a cinema rather than a file browser.
 
 ## Brand Personality
 

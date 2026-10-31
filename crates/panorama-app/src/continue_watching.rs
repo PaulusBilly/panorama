@@ -19,6 +19,14 @@ pub struct ContinueCard {
     pub progress: f32,
 }
 
+impl ContinueCard {
+    /// The episode in progress, once the show's details have arrived.
+    pub fn episode(&self) -> Option<&panorama_core::addons::Episode> {
+        let id = self.resume.video_id.as_ref()?;
+        self.film.episodes.iter().find(|episode| episode.id == *id)
+    }
+}
+
 /// Owned by AppState and shared by every Home history entry. The single writer of continue state.
 pub struct ContinueWatching {
     items: Arc<[ContinueItem]>,

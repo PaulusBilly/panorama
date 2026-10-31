@@ -19,6 +19,8 @@ pub enum PlaybackState {
 pub struct DiscordPlayback {
     /// Opaque film ID; `tmdb:<n>` IDs link to The Movie Database.
     pub film_id: String,
+    /// Whether the title is a film or a show, which TMDB keeps under separate paths.
+    pub kind: crate::addons::Kind,
     /// Trimmed, non-empty title.
     pub title: String,
     /// Four-digit release year.
@@ -93,9 +95,13 @@ pub fn discord_activity(playback: &DiscordPlayback, now_ms: f64) -> Value {
     fields.insert("name".into(), json!("in Panorama"));
     fields.insert("details".into(), json!(details));
     if let Some(id) = tmdb_id {
+        let section = match playback.kind {
+            crate::addons::Kind::Movie => "movie",
+            _ => "tv",
+        };
         fields.insert(
             "details_url".into(),
-            json!(format!("https://www.themoviedb.org/movie/{id}")),
+            json!(format!("https://www.themoviedb.org/{section}/{id}")),
         );
     }
     fields.insert("status_display_type".into(), json!(2));
@@ -217,6 +223,11 @@ pub fn parse_discord_playback(value: &Value) -> Result<Option<DiscordPlayback>, 
     };
     Ok(Some(DiscordPlayback {
         film_id,
+        kind: input
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(crate::addons::Kind::parse)
+            .unwrap_or_default(),
         title,
         year,
         director_tmdb_id,

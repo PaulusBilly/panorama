@@ -25,7 +25,7 @@ pub fn flatten(groups: &[CatalogGroup]) -> Vec<CatalogRef> {
 }
 
 fn same(a: &CatalogRef, b: &CatalogRef) -> bool {
-    a.addon == b.addon && a.catalog_id == b.catalog_id
+    a.addon == b.addon && a.kind == b.kind && a.catalog_id == b.catalog_id
 }
 
 /// The entry of `flat` that names `wanted`, if the catalog is still offered.

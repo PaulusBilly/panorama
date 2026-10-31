@@ -128,26 +128,31 @@ pub fn watched(episodes: &[Episode]) -> std::collections::HashSet<String> {
 }
 
 pub fn continue_items() -> Vec<ContinueItem> {
-    [("tmdb:101", 0.2), ("tmdb:105", 0.55), ("tmdb:106", 0.8)]
-        .into_iter()
-        .filter_map(|(id, fraction)| {
-            let film = films().into_iter().find(|film| film.id == id)?;
-            let duration_secs = 6600.0;
-            Some(ContinueItem {
-                film: FilmMeta {
-                    id: film.id,
-                    kind: film.kind,
-                    name: film.name,
-                    poster: film.poster,
-                },
-                resume: ResumePoint {
-                    offset_secs: duration_secs * fraction,
-                    duration_secs,
-                    video_id: None,
-                },
-            })
+    [
+        ("tmdb:101", 0.2),
+        ("tmdb:105", 0.55),
+        ("tmdb:106", 0.8),
+        (SHOW, 0.35),
+    ]
+    .into_iter()
+    .filter_map(|(id, fraction)| {
+        let film = details(id)?;
+        let duration_secs = 6600.0;
+        Some(ContinueItem {
+            film: FilmMeta {
+                id: film.id,
+                kind: film.kind,
+                name: film.name,
+                poster: film.poster,
+            },
+            resume: ResumePoint {
+                offset_secs: duration_secs * fraction,
+                duration_secs,
+                video_id: resume_episode(id),
+            },
         })
-        .collect()
+    })
+    .collect()
 }
 
 /// One fixture addon with a single HD, 5.1 source, or none when `empty`.
@@ -212,7 +217,10 @@ mod tests {
             .into_iter()
             .map(|item| item.film.name)
             .collect::<Vec<_>>();
-        assert_eq!(names, ["Perfect Days", "Past Lives", "Aftersun"]);
+        assert_eq!(
+            names,
+            ["Perfect Days", "Past Lives", "Aftersun", "The Long Coast"]
+        );
     }
     #[test]
     fn preview_films() {

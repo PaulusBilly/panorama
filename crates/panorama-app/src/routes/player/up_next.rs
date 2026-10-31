@@ -158,7 +158,7 @@ impl Player {
 }
 
 /// How the player names an episode.
-pub(super) fn episode_line(episode: &Episode) -> String {
+pub(crate) fn episode_line(episode: &Episode) -> String {
     format!(
         "S{} E{} · {}",
         episode.season, episode.number, episode.title

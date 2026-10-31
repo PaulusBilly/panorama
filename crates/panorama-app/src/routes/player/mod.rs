@@ -23,7 +23,7 @@ mod stepper_view;
 pub(crate) mod subtitles;
 mod subtitles_view;
 mod time;
-mod up_next;
+pub(crate) mod up_next;
 mod view;
 mod widgets;
 
