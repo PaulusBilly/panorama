@@ -464,4 +464,8 @@ fn a_film_and_a_show_with_one_id_cache_apart() {
         Key::typed_meta("series", "tmdb:1").unwrap(),
         Key::meta("tmdb:1").unwrap()
     );
+    assert_ne!(
+        Key::typed_meta("series", "tmdb:1").unwrap(),
+        Key::typed_meta("movie", "series|tmdb:1").unwrap()
+    );
 }

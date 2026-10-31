@@ -59,13 +59,14 @@ impl Key {
     }
 
     /// Like [`Key::meta`] for a title of the given addon type: a film and a show can share an
-    /// id. Movies keep the untyped form so existing caches stay valid.
+    /// id. Movies keep the untyped form so existing caches stay valid. The `/` cannot appear in
+    /// a film id, so no movie's key can land on a show's.
     pub fn typed_meta(kind: &str, film_id: &str) -> Result<Self, StoreError> {
         let Self(key) = Self::meta(film_id)?;
         if kind == "movie" {
             return Ok(Self(key));
         }
-        Ok(Self(format!("meta:{kind}|{film_id}")))
+        Ok(Self(format!("meta:{kind}/{film_id}")))
     }
 
     /// Identifies a film's cached awards; validated like [`Key::meta`]. It lives under `meta:`

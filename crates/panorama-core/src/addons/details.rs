@@ -31,6 +31,9 @@ impl AddonClient {
             .read::<CachedMeta>(Key::typed_meta(kind.stremio(), film_id).ok()?)
             .await
             .ok()??;
+        if cached.details.id != film_id {
+            return None;
+        }
         let cinemeta = self.cinemeta();
         self.installations(addons)
             .chain(film_id.starts_with("tt").then_some(cinemeta))
