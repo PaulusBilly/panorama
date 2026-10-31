@@ -5,7 +5,7 @@ use stremio_core::types::addon::ManifestResource;
 
 use super::{CoreSession, Descriptor, env::State};
 use crate::{
-    addons::{AddonClient, AddonKey, CatalogRef, manage::InstallError},
+    addons::{AddonClient, AddonKey, CatalogRef, Kind, manage::InstallError},
     store::Key,
 };
 
@@ -53,7 +53,7 @@ fn valid_meta(client: &AddonClient, addons: &[Descriptor], key: &AddonKey) -> bo
                         (name, types.as_ref().unwrap_or(&manifest.types))
                     }
                 };
-                name == "meta" && types.iter().any(|kind| kind == "movie")
+                name == "meta" && types.iter().any(|kind| Kind::parse(kind).is_some())
             })
     })
 }
@@ -85,7 +85,9 @@ async fn home(
         .as_ref()
         .and_then(|saved| {
             catalogs.iter().find(|catalog| {
-                catalog.addon == saved.addon && catalog.catalog_id == saved.catalog_id
+                catalog.addon == saved.addon
+                    && catalog.catalog_id == saved.catalog_id
+                    && catalog.kind == saved.kind
             })
         })
         .cloned();
@@ -95,7 +97,9 @@ async fn home(
     if saved.is_some() {
         write::<CatalogRef>(state, "homeCatalog", None).await?;
     }
-    Ok(catalogs.into_iter().next())
+    Ok(catalogs
+        .into_iter()
+        .find(|catalog| catalog.kind == Kind::Movie))
 }
 
 pub(super) async fn cleanup(
@@ -151,7 +155,9 @@ impl CoreSession {
                     .catalogs(&self.installed_addons())
                     .into_iter()
                     .find(|catalog| {
-                        catalog.addon == selected.addon && catalog.catalog_id == selected.catalog_id
+                        catalog.addon == selected.addon
+                            && catalog.catalog_id == selected.catalog_id
+                            && catalog.kind == selected.kind
                     })
                     .ok_or(InstallError::InvalidSelection)?,
             ),

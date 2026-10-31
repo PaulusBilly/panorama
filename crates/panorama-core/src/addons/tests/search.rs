@@ -262,7 +262,7 @@ async fn search_enriches_missing_names_and_delivers_cached_then_fresh_details_in
         Reply::json(json!({"meta":movie("custom:1","Cached")})),
     );
     client
-        .details(&addons, "custom:1", None)
+        .details(&addons, Kind::Movie, "custom:1", None)
         .collect::<Vec<_>>()
         .await;
     fake.set(

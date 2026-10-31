@@ -6,7 +6,7 @@ use crate::{
 use futures::{StreamExt, channel::mpsc};
 use gpui::{AppContext, Context, Task};
 use panorama_core::{
-    addons::{CatalogRef, FailureKind, ResourceEvent},
+    addons::{CatalogRef, FailureKind, Kind, ResourceEvent},
     stremio::{CoreChange, CoreErrorKind, Descriptor},
 };
 use std::sync::{
@@ -292,7 +292,9 @@ impl AppState {
                         Some((key, display_text(&addon.summary().name, NAME_CAP)))
                     })
                     .collect();
-                catalog_groups(&names, &client.catalogs(&self.installed))
+                let mut catalogs = client.catalogs(&self.installed);
+                catalogs.retain(|catalog| catalog.kind == Kind::Movie); // series: removed in the show page stage
+                catalog_groups(&names, &catalogs)
             }
             Some(None) => crate::addons_screen::fixture::groups(),
         };

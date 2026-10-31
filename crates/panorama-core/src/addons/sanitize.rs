@@ -1,7 +1,10 @@
-use stremio_core::types::{addon::ResourceResponse, resource::MetaItemPreview};
+use stremio_core::types::{
+    addon::ResourceResponse,
+    resource::{MetaItemPreview, Video},
+};
 use url::Url;
 
-use super::{FailureKind, FilmDetails, StreamSource, TransportResponse};
+use super::{Episode, FailureKind, FilmDetails, Kind, StreamSource, TransportResponse};
 
 pub(super) const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
@@ -171,7 +174,8 @@ pub(super) fn parse(response: TransportResponse) -> Result<Response, FailureKind
 
 pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> {
     let name = text(&preview.name, 300);
-    if !valid_id(&preview.id) || preview.r#type != "movie" || (!thin && name.trim().is_empty()) {
+    let kind = Kind::parse(&preview.r#type)?;
+    if !valid_id(&preview.id) || (!thin && name.trim().is_empty()) {
         return None;
     }
     let category = |name: &str| {
@@ -202,6 +206,7 @@ pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> 
         .collect();
     Some(FilmDetails {
         id: preview.id,
+        kind,
         name,
         released: preview.released.map(|date| date.format("%F").to_string()),
         release_info: optional(
@@ -223,7 +228,43 @@ pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> 
         logo: image(preview.logo),
         imdb_rating,
         links,
+        episodes: vec![],
     })
+}
+
+/// At most this many episodes per title; long-running anime reach the thousands.
+const EPISODE_LIMIT: usize = 5000;
+
+/// Episodes in watch order with specials last. A video without `series_info` is numbered by
+/// its position in season 1. Videos with unusable ids are dropped; ids are kept verbatim.
+pub(super) fn episodes(videos: &[Video]) -> Vec<Episode> {
+    let mut episodes = videos
+        .iter()
+        .enumerate()
+        .filter(|(_, video)| valid_id(&video.id))
+        .map(|(position, video)| {
+            let (season, number) = match &video.series_info {
+                Some(info) => (info.season, info.episode),
+                None => (1, u32::try_from(position + 1).unwrap_or(u32::MAX)),
+            };
+            Episode {
+                id: video.id.clone(),
+                season,
+                number,
+                title: text(&video.title, 300),
+                overview: optional(video.overview.clone(), 5000),
+                thumbnail: video
+                    .thumbnail
+                    .as_deref()
+                    .and_then(|value| Url::parse(value).ok())
+                    .and_then(|url| image(Some(url))),
+                released: video.released.map(|date| date.format("%F").to_string()),
+            }
+        })
+        .collect::<Vec<_>>();
+    episodes.sort_by_key(|episode| (episode.season == 0, episode.season, episode.number));
+    episodes.truncate(EPISODE_LIMIT);
+    episodes
 }
 
 pub(super) fn films(response: Response, thin: bool) -> Result<Vec<FilmDetails>, FailureKind> {

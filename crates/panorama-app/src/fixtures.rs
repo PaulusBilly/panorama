@@ -1,5 +1,5 @@
 use panorama_core::{
-    addons::{AddonKey, FilmDetails, StreamGroup, StreamSource, StreamState, StreamsEvent},
+    addons::{AddonKey, FilmDetails, Kind, StreamGroup, StreamSource, StreamState, StreamsEvent},
     stremio::{ContinueItem, FilmMeta, ResumePoint},
 };
 
@@ -22,6 +22,7 @@ pub fn films() -> Vec<FilmDetails> {
     (0..9)
         .map(|index| FilmDetails {
             id: format!("tmdb:{}", 100 + index),
+            kind: Kind::Movie,
             name: ["Aftersun", "Perfect Days", "Past Lives"][index % 3].into(),
             release_info: Some((2022 + index % 3).to_string()),
             released: None,
@@ -39,6 +40,7 @@ pub fn films() -> Vec<FilmDetails> {
             logo: None,
             imdb_rating: Some(["7.6", "7.9", "7.8"][index % 3].into()),
             links: vec![],
+            episodes: vec![],
         })
         .collect()
 }

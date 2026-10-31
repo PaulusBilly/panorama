@@ -19,6 +19,7 @@ mod details;
 mod manifests;
 mod search;
 mod security;
+mod series;
 
 #[derive(Clone)]
 struct Reply {

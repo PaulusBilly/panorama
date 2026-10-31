@@ -34,7 +34,7 @@ async fn spoofed_addon_id_cannot_poison_another_addons_cache() {
         .collect::<Vec<_>>()
         .await;
     client
-        .details(&[spoof], "tt1", None)
+        .details(&[spoof], Kind::Movie, "tt1", None)
         .collect::<Vec<_>>()
         .await;
     fake.set("real.test", "catalog", "top", page("tt1", "Real"));
@@ -51,7 +51,7 @@ async fn spoofed_addon_id_cannot_poison_another_addons_cache() {
     assert_eq!(events.len(), 1);
     assert_eq!(fresh_page(&events).items[0].name, "Real");
     let events = client
-        .details(&[real], "tt1", None)
+        .details(&[real], Kind::Movie, "tt1", None)
         .collect::<Vec<_>>()
         .await;
     assert!(matches!(&events[..], [ResourceEvent::Fresh(details)] if details.name == "Real"));
@@ -108,7 +108,7 @@ async fn non_https_images_dropped_and_oversized_fields_truncated() {
             {"name":"8.1","category":"imdb","url":"https://imdb.com/title/tt1"}]
     }})));
     let events = client
-        .details(&[home_addon("meta.test")], "tt1", None)
+        .details(&[home_addon("meta.test")], Kind::Movie, "tt1", None)
         .collect::<Vec<_>>()
         .await;
     let ResourceEvent::Fresh(film) = &events[0] else {
@@ -147,12 +147,15 @@ async fn film_id_validation_rejects_path_injection() {
         &"a".repeat(201),
     ] {
         assert_eq!(
-            client.details(&[], id, None).collect::<Vec<_>>().await,
+            client
+                .details(&[], Kind::Movie, id, None)
+                .collect::<Vec<_>>()
+                .await,
             [ResourceEvent::Failed(FailureKind::InvalidInput)]
         );
         assert_eq!(
             client
-                .streams(&[home_addon("test.test")], id)
+                .streams(&[home_addon("test.test")], Kind::Movie, id)
                 .collect::<Vec<_>>()
                 .await,
             [StreamsEvent::Failed(FailureKind::InvalidInput)]
@@ -182,7 +185,12 @@ async fn responses_over_eight_mib_rejected_and_lists_capped() {
     );
     assert_eq!(
         client
-            .details(&[home_addon("large.test")], "custom:large", None)
+            .details(
+                &[home_addon("large.test")],
+                Kind::Movie,
+                "custom:large",
+                None
+            )
             .collect::<Vec<_>>()
             .await,
         [ResourceEvent::Failed(FailureKind::TooLarge)]
@@ -203,7 +211,7 @@ async fn responses_over_eight_mib_rejected_and_lists_capped() {
     assert_eq!(fresh_page(&events).items.len(), 200);
     fake.set("cap.test", "stream", "tt1", Reply::json(json!({"streams":(0..250).map(|_| json!({"url":"https://video.test/a","name":"n".repeat(400),"title":"d".repeat(6000)})).collect::<Vec<_>>()})));
     let events = client
-        .streams(&[home_addon("cap.test")], "tt1")
+        .streams(&[home_addon("cap.test")], Kind::Movie, "tt1")
         .collect::<Vec<_>>()
         .await;
     let StreamsEvent::Groups(groups) = &events[0] else {
@@ -233,7 +241,10 @@ async fn unicode_film_ids_and_installation_key_characters_are_supported() {
         &id,
         Reply::json(json!({"meta":movie(&id,"Unicode")})),
     );
-    let events = client.details(&addons, &id, None).collect::<Vec<_>>().await;
+    let events = client
+        .details(&addons, Kind::Movie, &id, None)
+        .collect::<Vec<_>>()
+        .await;
     assert!(matches!(&events[..], [ResourceEvent::Fresh(film)] if film.id == id));
     assert!(client.store.get(&key).unwrap().is_some());
 }
@@ -289,7 +300,7 @@ async fn sign_out_clears_addon_caches_but_retains_random_installation_salt() {
     );
     client.catalog(&addons, None).collect::<Vec<_>>().await;
     client
-        .details(&addons, "tt1", None)
+        .details(&addons, Kind::Movie, "tt1", None)
         .collect::<Vec<_>>()
         .await;
     let identity = client.addon_key(&addons[0]).unwrap();

@@ -6,7 +6,7 @@ use crate::{
 };
 use futures::{StreamExt, channel::mpsc};
 use gpui::{Context, Task};
-use panorama_core::addons::{StreamGroup, StreamsEvent};
+use panorama_core::addons::{Kind, StreamGroup, StreamsEvent};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -114,7 +114,7 @@ fn lookup_task(
             if fixture.hold {
                 std::future::pending::<()>().await;
             } else if let Some(client) = &services.addons {
-                let mut events = client.streams(&addons, &id);
+                let mut events = client.streams(&addons, Kind::Movie, &id);
                 while let Some(event) = events.next().await {
                     if sender.unbounded_send(event).is_err() {
                         break;

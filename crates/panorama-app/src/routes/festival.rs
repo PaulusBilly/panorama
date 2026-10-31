@@ -25,7 +25,7 @@ use gpui::{
     WeakEntity, Window, div, img, point, prelude::*, px, relative,
 };
 use panorama_core::{
-    addons::{FilmDetails, ResourceEvent},
+    addons::{FilmDetails, Kind, ResourceEvent},
     credits::AwardResult,
     mubi::{Festival as Event, FestivalFilm},
 };
@@ -438,7 +438,8 @@ async fn first_match(
 ) -> Option<FilmDetails> {
     while let Some(event) = receiver.next().await {
         match event {
-            ResourceEvent::CacheHit(results) | ResourceEvent::Fresh(results) => {
+            ResourceEvent::CacheHit(mut results) | ResourceEvent::Fresh(mut results) => {
+                results.retain(|result| result.kind == Kind::Movie); // series: removed in the show page stage
                 if let Some(found) = same_film(film, results) {
                     return Some(found);
                 }
@@ -479,6 +480,7 @@ pub(crate) fn release_year(info: &str) -> Option<i32> {
 fn details(index: usize, film: &FestivalFilm) -> FilmDetails {
     FilmDetails {
         id: format!("mubi-festival:{index}"),
+        kind: Kind::Movie,
         name: film.title.clone(),
         original_name: None,
         release_info: film.year.map(|year| year.to_string()),
@@ -495,6 +497,7 @@ fn details(index: usize, film: &FestivalFilm) -> FilmDetails {
         logo: None,
         imdb_rating: None,
         links: vec![],
+        episodes: vec![],
     }
 }
 

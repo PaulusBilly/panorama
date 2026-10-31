@@ -175,7 +175,7 @@ impl CatalogSwitcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use panorama_core::addons::AddonKey;
+    use panorama_core::addons::{AddonKey, Kind};
 
     fn group(name: &str, count: usize) -> CatalogGroup {
         let addon: AddonKey = serde_json::from_value(format!("{name}#1").into()).expect("key");
@@ -186,6 +186,7 @@ mod tests {
                     addon: addon.clone(),
                     catalog_id: i.to_string(),
                     name: i.to_string(),
+                    kind: Kind::Movie,
                 })
                 .collect(),
         }
