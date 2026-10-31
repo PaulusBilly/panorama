@@ -9,13 +9,13 @@ Panorama is not affiliated with Stremio. It does not host or provide any content
 - **Browse.** A featured film, then a grid from your addons' catalogs, with a switcher that remembers your choice. Signed out, it uses Cinemeta.
 - **Search.** Films across your search-capable addons.
 - **Sign in with Stremio.** Your password goes to Stremio only and is never stored.
-- **Watch.** Film details and playable sources from every installed stream addon. Torrent sources play through a built-in engine, so no Stremio Service is needed.
+- **Watch.** Film and show details, seasons and episodes, and playable sources from every installed stream addon. Torrent sources play through a built-in engine, so no Stremio Service is needed.
 - **Audio and subtitles.** Pick audio tracks, choose embedded or addon subtitles, and adjust how subtitles look.
 - **Resume.** Progress syncs through your Stremio account.
 - **Addons.** List, install by URL, configure, reorder, and remove addons, and choose the metadata source.
 - **Discord activity (optional).** Shows what you're watching. Off by default.
 
-Not included: series and episodes, or an addon discovery catalog.
+Not included: an addon discovery catalog.
 
 ## Quick start
 

@@ -152,6 +152,10 @@ impl ContinueRow {
         let col = view.column();
         let size = card_size(view);
         let on_screen = Rc::new(Cell::new(gpui::Bounds::default()));
+        let note = card
+            .episode()
+            .map(crate::routes::player::up_next::episode_line);
+        let zoom_note = note.clone();
         let zoom = image
             .as_ref()
             .map(|(image, poster)| (image.image.clone(), *poster));
@@ -194,7 +198,7 @@ impl ContinueRow {
                                 bounds: on_screen.get(),
                                 rest: on_screen.get(),
                                 lift: 0.0,
-                                note: None,
+                                note: zoom_note.clone(),
                             };
                             home.zoom_film(film.clone(), card, window, cx)
                         }
@@ -231,12 +235,9 @@ impl ContinueRow {
                         linear_color_stop(fade, 1.0),
                     )),
             )
-            .child(
-                caption(&card.film, None, theme).opacity(crate::zoom::caption_opacity(
-                    self.quiet.as_ref(),
-                    &card.film.id,
-                )),
-            )
+            .child(caption(&card.film, note.as_deref(), theme).opacity(
+                crate::zoom::caption_opacity(self.quiet.as_ref(), &card.film.id),
+            ))
             .child(
                 div()
                     .absolute()

@@ -292,9 +292,23 @@ impl AppState {
                         Some((key, display_text(&addon.summary().name, NAME_CAP)))
                     })
                     .collect();
-                let mut catalogs = client.catalogs(&self.installed);
-                catalogs.retain(|catalog| catalog.kind == Kind::Movie); // series: removed in the show page stage
-                catalog_groups(&names, &catalogs)
+                let catalogs = client.catalogs(&self.installed);
+                [
+                    (Kind::Movie, ""),
+                    (Kind::Series, "Shows · "),
+                    (Kind::Anime, "Anime · "),
+                ]
+                .into_iter()
+                .flat_map(|(kind, prefix)| {
+                    let (of_kind, _): (Vec<_>, Vec<_>) =
+                        catalogs.iter().cloned().partition(|c| c.kind == kind);
+                    let mut groups = catalog_groups(&names, &of_kind);
+                    for group in &mut groups {
+                        group.addon = format!("{prefix}{}", group.addon);
+                    }
+                    groups
+                })
+                .collect()
             }
             Some(None) => crate::addons_screen::fixture::groups(),
         };

@@ -48,11 +48,7 @@ impl Home {
         self.switcher.toggle();
         if self.switcher.open {
             self.switcher.active = current
-                .and_then(|current| {
-                    flat.iter().position(|catalog| {
-                        catalog.addon == current.addon && catalog.catalog_id == current.catalog_id
-                    })
-                })
+                .and_then(|current| flat.iter().position(|catalog| *catalog == current))
                 .unwrap_or(0);
             self.switcher.menu.focus(window, cx);
         }
@@ -75,11 +71,8 @@ impl Home {
         let groups = self.state.read(cx).switcher_groups().to_vec();
         let flat = flatten(&groups);
         let current = self.current_catalog(&flat, cx);
-        let is_current = |catalog: &CatalogRef| {
-            current.as_ref().is_some_and(|current| {
-                current.addon == catalog.addon && current.catalog_id == catalog.catalog_id
-            })
-        };
+        let is_current =
+            |catalog: &CatalogRef| current.as_ref().is_some_and(|current| *current == *catalog);
         let (name, addon) = current.as_ref().map_or_else(
             || (String::new(), String::new()),
             |current| {
