@@ -1,5 +1,7 @@
 use panorama_core::{
-    addons::{AddonKey, FilmDetails, Kind, StreamGroup, StreamSource, StreamState, StreamsEvent},
+    addons::{
+        AddonKey, Episode, FilmDetails, Kind, StreamGroup, StreamSource, StreamState, StreamsEvent,
+    },
     stremio::{ContinueItem, FilmMeta, ResumePoint},
 };
 
@@ -62,12 +64,67 @@ pub fn search(query: &str) -> Vec<FilmDetails> {
 
 /// The film-details fixture, with the selected card's opaque identifier.
 pub fn details(id: &str) -> Option<FilmDetails> {
+    if id == SHOW {
+        return Some(show());
+    }
     let mut film = films().into_iter().find(|film| film.id == id)?;
     // The first film stands in for a TMDB-backed metadata addon; the rest for Cinemeta.
     if film.id == "tmdb:100" {
         film.people = people();
     }
     Some(film)
+}
+
+/// The fixture show: seasons, specials and an unaired episode on one page.
+pub const SHOW: &str = "tmdb:200";
+
+fn show() -> FilmDetails {
+    let mut film = films().remove(1);
+    film.id = SHOW.into();
+    film.kind = Kind::Series;
+    film.name = "The Long Coast".into();
+    film.original_name = None;
+    film.origin_country = None;
+    film.runtime = None;
+    film.release_info = Some("2024–".into());
+    let episode = |season: u32, number: u32, released: &str| Episode {
+        id: format!("{SHOW}:{season}:{number}"),
+        season,
+        number,
+        numbered: true,
+        title: [
+            "The Harbour",
+            "Low Tide",
+            "A Letter Home",
+            "Fog",
+            "The Keeper",
+            "Landfall",
+        ][(number as usize - 1) % 6]
+            .into(),
+        overview: Some("A quiet, observant hour shaped by memory and time.".into()),
+        thumbnail: url::Url::parse(&format!(
+            "fixture://{}",
+            STILLS[(season + number) as usize % 3].0
+        ))
+        .ok(),
+        released: Some(released.into()),
+    };
+    film.episodes = (1..=6)
+        .map(|number| episode(1, number, "2024-03-01"))
+        .chain((1..=5).map(|number| episode(2, number, "2025-03-01")))
+        .chain([episode(2, 6, "2099-03-01"), episode(0, 1, "2024-12-24")])
+        .collect();
+    film
+}
+
+/// `--film-resume` on the fixture show is partway through this episode.
+pub fn resume_episode(id: &str) -> Option<String> {
+    (id == SHOW).then(|| format!("{SHOW}:1:3"))
+}
+
+/// The first two episodes, so a fixture page shows both states.
+pub fn watched(episodes: &[Episode]) -> std::collections::HashSet<String> {
+    episodes.iter().take(2).map(|ep| ep.id.clone()).collect()
 }
 
 pub fn continue_items() -> Vec<ContinueItem> {

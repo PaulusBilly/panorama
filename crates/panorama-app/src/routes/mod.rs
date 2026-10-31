@@ -25,8 +25,8 @@ pub fn create(
         Route::Search { query } => cx
             .new(|cx| search::Search::new(shell, state, args, id, query.clone(), window, cx))
             .into(),
-        Route::Film { id: film_id } => cx
-            .new(|cx| film::Film::new(film_id.clone(), id, shell, state, args, cx))
+        Route::Film { id: film_id, kind } => cx
+            .new(|cx| film::Film::new(film_id.clone(), *kind, id, shell, state, args, cx))
             .into(),
         Route::Festival { slug, year } => cx
             .new(|cx| festival::Festival::new(shell, state, args, id, slug.clone(), *year, cx))
