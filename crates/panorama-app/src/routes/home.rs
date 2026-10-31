@@ -16,7 +16,10 @@ use gpui::{
     Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window, point,
     prelude::*, px,
 };
-use panorama_core::{addons::FilmDetails, stremio::FilmMeta};
+use panorama_core::{
+    addons::{FilmDetails, Kind},
+    stremio::FilmMeta,
+};
 use std::{sync::Arc, time::Instant};
 
 #[path = "home_alert.rs"]
@@ -362,7 +365,9 @@ pub(crate) fn play_film<V: 'static>(
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    if !matches!(state.read(cx).account, Account::SignedIn(_)) {
+    // A show's card does not know its episodes; only a resume point names one.
+    let unnamed = film.kind != Kind::Movie && resume.is_none();
+    if unnamed || !matches!(state.read(cx).account, Account::SignedIn(_)) {
         open_film(state, shell, film, window, cx);
         return;
     }
@@ -384,10 +389,10 @@ pub(crate) fn open_film<V: 'static>(
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    let id = film.id.clone();
+    let (id, kind) = (film.id.clone(), film.kind);
     state.update(cx, |state, _| state.film_preview = Some(film));
     let _ = shell.update(cx, |shell, cx| {
-        shell.navigate(Route::Film { id }, window, cx)
+        shell.navigate(Route::Film { id, kind }, window, cx)
     });
 }
 
@@ -400,7 +405,9 @@ pub(crate) fn zoom_film<V: 'static>(
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    state.update(cx, |state, cx| state.prefetch_sources(&film.id, cx));
+    if film.kind == Kind::Movie {
+        state.update(cx, |state, cx| state.prefetch_sources(&film.id, cx));
+    }
     let _ = shell.update(cx, |shell, cx| shell.zoom_to_film(film, card, window, cx));
 }
 

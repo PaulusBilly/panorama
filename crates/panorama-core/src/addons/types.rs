@@ -154,6 +154,11 @@ impl FilmDetails {
     }
 }
 
+/// Today as `YYYY-MM-DD`, which compares as text with the dates addons send.
+pub fn today() -> String {
+    Utc::now().format("%F").to_string()
+}
+
 /// Keep what can be watched: an exact date decides, then a year, which only proves anything
 /// once it is a later one. A film with neither goes too, unless nothing in the list has one,
 /// since then the addon just doesn't send them. Festival pages skip this: a screened film

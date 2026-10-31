@@ -131,10 +131,10 @@ impl AppShell {
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         self.zoom = None;
-        let id = film.id.clone();
+        let (id, kind) = (film.id.clone(), film.kind);
         self.state
             .update(cx, |state, _| state.film_preview = Some(film));
-        self.navigate(Route::Film { id }, window, cx);
+        self.navigate(Route::Film { id, kind }, window, cx);
     }
     pub fn navigate(&mut self, route: Route, window: &mut Window, cx: &mut Context<Self>) {
         if self.history.push(route) {
@@ -150,7 +150,12 @@ impl AppShell {
     }
 
     pub fn back_to_film(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        if self.history.leave_for(Route::Film { id }) {
+        let state = self.state.read(cx);
+        let kind = (state.playback.as_ref().map(|playing| &playing.film))
+            .or(state.launch.as_ref().map(|launch| &launch.film))
+            .filter(|film| film.id == id)
+            .map_or(Default::default(), |film| film.kind);
+        if self.history.leave_for(Route::Film { id, kind }) {
             self.changed(window, cx);
         }
     }
@@ -172,7 +177,7 @@ impl AppShell {
             return;
         }
         let returning = match self.history.current() {
-            Route::Film { id } => self
+            Route::Film { id, .. } => self
                 .returning
                 .take()
                 .filter(|r| r.film.id == *id && r.viewport == window.viewport_size()),

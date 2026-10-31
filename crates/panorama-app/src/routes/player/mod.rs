@@ -268,7 +268,11 @@ impl Player {
         let Some((id, groups)) = self.state.read(cx).streams.clone() else {
             return;
         };
-        if id != self.id || Arc::ptr_eq(&groups, &self.groups) || *groups == *self.groups {
+        let playing = self.selection(cx).map(|selection| selection.video_id);
+        if Some(&id) != playing.as_ref() && id != self.id
+            || Arc::ptr_eq(&groups, &self.groups)
+            || *groups == *self.groups
+        {
             return;
         }
         self.send(Command::Groups(groups.as_ref().clone()), cx);

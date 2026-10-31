@@ -56,13 +56,14 @@ impl AppState {
     /// The film page's lookup: reuses a fresh or running one unless `again` forces a new ask.
     pub fn open_sources(
         &mut self,
+        kind: Kind,
         id: &str,
         again: bool,
         fixture: FixtureSources,
         cx: &mut Context<Self>,
     ) {
         if again || !self.source_lookups.fresh(id, Instant::now()) {
-            self.start_sources(id, fixture, cx);
+            self.start_sources(kind, id, fixture, cx);
         }
         self.streams_for = Some(id.to_owned());
         if let Some(lookup) = self.source_lookups.get(id).filter(|l| !l.groups.is_empty()) {
@@ -70,14 +71,20 @@ impl AppState {
         }
     }
 
-    /// Ahead of a click, at most one at a time.
+    /// A film's, ahead of a click, at most one at a time.
     pub fn prefetch_sources(&mut self, id: &str, cx: &mut Context<Self>) {
         if !self.source_lookups.busy() && !self.source_lookups.fresh(id, Instant::now()) {
-            self.start_sources(id, FixtureSources::default(), cx);
+            self.start_sources(Kind::Movie, id, FixtureSources::default(), cx);
         }
     }
 
-    fn start_sources(&mut self, id: &str, fixture: FixtureSources, cx: &mut Context<Self>) {
+    fn start_sources(
+        &mut self,
+        kind: Kind,
+        id: &str,
+        fixture: FixtureSources,
+        cx: &mut Context<Self>,
+    ) {
         let Some(services) = self.services.clone() else {
             return;
         };
@@ -85,7 +92,14 @@ impl AppState {
         self.source_lookups
             .films
             .retain(|_, lookup| now.duration_since(lookup.started) < FRESH);
-        let task = lookup_task(services, self.installed.clone(), id.to_owned(), fixture, cx);
+        let task = lookup_task(
+            services,
+            self.installed.clone(),
+            kind,
+            id.to_owned(),
+            fixture,
+            cx,
+        );
         self.source_lookups.films.insert(
             id.to_owned(),
             SourceLookup {
@@ -103,6 +117,7 @@ impl AppState {
 fn lookup_task(
     services: Arc<Services>,
     addons: Vec<panorama_core::stremio::Descriptor>,
+    kind: Kind,
     id: String,
     fixture: FixtureSources,
     cx: &mut Context<AppState>,
@@ -114,7 +129,7 @@ fn lookup_task(
             if fixture.hold {
                 std::future::pending::<()>().await;
             } else if let Some(client) = &services.addons {
-                let mut events = client.streams(&addons, Kind::Movie, &id);
+                let mut events = client.streams(&addons, kind, &id);
                 while let Some(event) = events.next().await {
                     if sender.unbounded_send(event).is_err() {
                         break;
