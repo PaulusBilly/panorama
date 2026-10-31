@@ -17,6 +17,8 @@ use std::sync::Arc;
 pub struct Launch {
     /// The film's id, matching the player route.
     pub id: String,
+    /// What is playing: the film's id, or an episode's.
+    pub video_id: String,
     /// The film and resume point, for the player while it waits and to look again.
     pub film: FilmDetails,
     pub resume: Option<ResumePoint>,
@@ -52,6 +54,7 @@ impl AppState {
     pub fn launch(
         &mut self,
         film: FilmDetails,
+        video_id: String,
         resume: Option<ResumePoint>,
         cx: &mut Context<Self>,
     ) {
@@ -62,7 +65,7 @@ impl AppState {
         let kind = film.kind;
         let kept = film.clone();
         let addons = self.installed.clone();
-        let subtitles = subtitle_lookup(&services, addons.clone(), film.kind, id.clone());
+        let subtitles = subtitle_lookup(&services, addons.clone(), film.kind, video_id.clone());
         // Which metadata addon the progress belongs to; ready long before the streams.
         let meta_base = Job(services.runtime.clone().spawn({
             let (services, id) = (services.clone(), id.clone());
@@ -70,11 +73,11 @@ impl AppState {
         }));
         let (sender, mut receiver) = mpsc::unbounded();
         let job = Job(services.runtime.clone().spawn({
-            let id = id.clone();
+            let video_id = video_id.clone();
             async move {
                 match &services.addons {
                     Some(client) => {
-                        let mut events = client.streams(&addons, kind, &id);
+                        let mut events = client.streams(&addons, kind, &video_id);
                         while let Some(event) = events.next().await {
                             if sender.unbounded_send(event).is_err() {
                                 break;
@@ -87,11 +90,12 @@ impl AppState {
                 }
             }
         }));
-        let start = resume.map_or(StartMode::Restart, |point| {
+        let start = resume.as_ref().map_or(StartMode::Restart, |point| {
             StartMode::Resume(point.offset_secs)
         });
         let task = cx.spawn({
             let id = id.clone();
+            let video_id = video_id.clone();
             async move |state, cx| {
                 let _job = job;
                 let mut meta_base = meta_base;
@@ -108,6 +112,7 @@ impl AppState {
                         {
                             state.playback = Some(PlaybackSelection {
                                 film,
+                                video_id: video_id.clone(),
                                 groups,
                                 source,
                                 start,
@@ -135,6 +140,7 @@ impl AppState {
         self.playback = None;
         self.launch = Some(Launch {
             id,
+            video_id,
             film: kept,
             resume,
             failed: false,

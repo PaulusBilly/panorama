@@ -72,6 +72,9 @@ pub struct Episode {
     pub season: u32,
     /// Episode number within the season.
     pub number: u32,
+    /// Whether the addon numbered it. The watched bitfield lists unnumbered videos first.
+    #[serde(default)]
+    pub numbered: bool,
     /// Display title.
     pub title: String,
     /// Synopsis.
@@ -80,6 +83,20 @@ pub struct Episode {
     pub thumbnail: Option<Url>,
     /// `YYYY-MM-DD` air date; a later date is shown but not playable.
     pub released: Option<String>,
+}
+
+/// The episode after `video_id` in watch order, crossing seasons and skipping any released
+/// after `today` (`YYYY-MM-DD`). Specials (season 0) are only followed by other specials.
+pub fn next_after<'a>(episodes: &'a [Episode], video_id: &str, today: &str) -> Option<&'a Episode> {
+    let mut ordered: Vec<_> = episodes.iter().collect();
+    ordered.sort_by_key(|episode| (episode.season == 0, episode.season, episode.number));
+    let current = ordered.iter().position(|episode| episode.id == video_id)?;
+    let special = ordered[current].season == 0;
+    ordered[current + 1..]
+        .iter()
+        .copied()
+        .filter(|episode| (episode.season == 0) == special)
+        .find(|episode| episode.released.as_deref().is_none_or(|date| date <= today))
 }
 
 /// Sanitized fields needed by film cards and the Film screen.

@@ -18,7 +18,11 @@ impl Film {
             let (_held, receiver) = mpsc::unbounded();
             (None, receiver)
         } else {
-            let (job, receiver) = services.details(id.clone());
+            let kind = self
+                .metadata
+                .as_ref()
+                .map_or(panorama_core::addons::Kind::Movie, |film| film.kind);
+            let (job, receiver) = services.details(kind, id.clone());
             (Some(job), receiver)
         };
         self.details_task = Some(cx.spawn(async move |entity, cx| {
@@ -228,6 +232,7 @@ impl Film {
                 self.resume = Some(panorama_core::stremio::ResumePoint {
                     offset_secs: 1200.0,
                     duration_secs: 6100.0,
+                    video_id: None,
                 });
             }
             return;
@@ -276,6 +281,7 @@ impl Film {
             let result = if let Some(session) = &services.session {
                 let film = FilmMeta {
                     id: meta.id.clone(),
+                    kind: meta.kind,
                     name: meta.name.clone(),
                     poster: meta.poster.clone(),
                 };

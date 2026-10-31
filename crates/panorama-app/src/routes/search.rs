@@ -279,7 +279,7 @@ impl GridHost for Search {
     }
     fn hover_card(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(film) = self.grid.films.get(index) {
-            crate::prefetch::hovered(&self.state, &film.id, cx);
+            crate::prefetch::hovered(&self.state, film.kind, &film.id, cx);
         }
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
