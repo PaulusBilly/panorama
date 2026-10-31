@@ -150,7 +150,7 @@ impl AppShell {
                 let id = film.id.clone();
                 let video_id = resume.video_id.clone().unwrap_or_else(|| id.clone());
                 shell.state.update(cx, |state, cx| {
-                    state.launch(film, video_id, Some(resume), cx)
+                    state.launch(film, video_id, Some(resume), None, cx)
                 });
                 shell.navigate(crate::router::Route::Player { id }, window, cx);
             });
