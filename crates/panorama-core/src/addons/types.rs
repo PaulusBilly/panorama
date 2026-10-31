@@ -1,3 +1,4 @@
+use chrono::{Datelike, Utc};
 use std::{fmt, pin::Pin};
 
 use futures::Stream;
@@ -39,6 +40,9 @@ pub struct FilmDetails {
     pub original_name: Option<String>,
     /// Year or release information supplied by the addon.
     pub release_info: Option<String>,
+    /// `YYYY-MM-DD` release date, when the addon gives one.
+    #[serde(default)]
+    pub released: Option<String>,
     /// Display runtime supplied by the addon.
     pub runtime: Option<String>,
     /// Genre names.
@@ -65,6 +69,29 @@ pub struct FilmDetails {
     pub imdb_rating: Option<String>,
     /// HTTP(S) links only.
     pub links: Vec<Link>,
+}
+
+impl FilmDetails {
+    fn year(&self) -> Option<i32> {
+        self.release_info.as_deref()?.get(..4)?.parse().ok()
+    }
+}
+
+/// Keep what can be watched: an exact date decides, then a year, which only proves anything
+/// once it is a later one. A film with neither goes too, unless nothing in the list has one,
+/// since then the addon just doesn't send them. Festival pages skip this: a screened film
+/// belongs there even while its general release is ahead.
+pub fn only_released(films: &mut Vec<FilmDetails>) {
+    let now = Utc::now();
+    let today = now.format("%F").to_string();
+    let dated = films
+        .iter()
+        .any(|film| film.released.is_some() || film.year().is_some());
+    films.retain(|film| match (&film.released, film.year()) {
+        (Some(date), _) => *date <= today,
+        (None, Some(year)) => year <= now.year(),
+        (None, None) => !dated,
+    });
 }
 
 /// A catalog page and the installation that actually supplied it.
@@ -204,7 +231,8 @@ pub struct StreamGroup {
 pub enum StreamsEvent {
     /// No installed stream resource recognizes this film.
     NoSources,
-    /// Results in account order, including isolated failures.
+    /// Results in account order, including isolated failures. Sent each time an addon answers
+    /// with something playable, holding the addons heard from so far, and once all have.
     Groups(Vec<StreamGroup>),
     /// Invalid input or offline failure.
     Failed(FailureKind),

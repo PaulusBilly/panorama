@@ -329,6 +329,11 @@ impl GridHost for Home {
     ) {
         self.step_card(index, forward, window, cx);
     }
+    fn hover_card(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(film) = self.grid.films.get(index) {
+            crate::prefetch::hovered(&self.state, &film.id, cx);
+        }
+    }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         open_film(&self.state, &self.shell, film, window, cx);
     }

@@ -14,7 +14,7 @@ impl Film {
         }
         if self.selected.is_none() {
             if !self.sources_loading {
-                self.load_sources(cx);
+                self.load_sources(true, cx);
             }
             return;
         }

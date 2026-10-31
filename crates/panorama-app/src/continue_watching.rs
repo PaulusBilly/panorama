@@ -163,6 +163,7 @@ fn stub(meta: &FilmMeta) -> FilmDetails {
         id: meta.id.clone(),
         name: meta.name.clone(),
         release_info: None,
+        released: None,
         runtime: None,
         genres: vec![],
         description: None,

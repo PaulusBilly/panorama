@@ -7,9 +7,7 @@ use super::{
 use crate::{
     alert_row::AlertRow,
     button::{Button, Icon},
-    film_card,
-    home_layout::ViewSettings,
-    theme::{SHIMMER, Typography},
+    theme::Typography,
 };
 use gpui::{Context, Div, KeyDownEvent, Window, div, prelude::*, px};
 use std::time::Instant;
@@ -312,28 +310,7 @@ impl Addons {
 
 fn skeletons(view: View) -> gpui::Stateful<Div> {
     let theme = view.theme;
-    let settings = ViewSettings {
-        width: view.width,
-        height: 0.0,
-        theme,
-        active: view.active,
-        keyboard: view.keyboard,
-        reduced: view.reduced,
-    };
-    let phase = if view.reduced {
-        0.0
-    } else {
-        (view.spin / std::f32::consts::TAU * 1000.0 / SHIMMER.duration.as_millis() as f32) % 1.0
-    };
-    let bar = |width: f32, height: f32| {
-        div()
-            .relative()
-            .w(px(width))
-            .h(px(height))
-            .overflow_hidden()
-            .bg(theme.surface_strong)
-            .child(film_card::shimmer(settings, phase))
-    };
+    let bar = |width: f32, height: f32| div().w(px(width)).h(px(height)).bg(theme.surface_strong);
     let mut list = panel(theme).id("addon-skeleton").role(gpui::Role::Status);
     for index in 0..3 {
         list = list.child(

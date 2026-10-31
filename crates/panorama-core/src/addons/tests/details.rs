@@ -143,7 +143,13 @@ async fn streams_grouped_by_addon_in_account_order_with_failures_isolated() {
         Reply::error(FailureKind::Network).delayed(1),
     );
     let events = client.streams(&addons, "tt1").collect::<Vec<_>>().await;
-    let StreamsEvent::Groups(groups) = &events[0] else {
+    assert_eq!(events.len(), 2);
+    let StreamsEvent::Groups(first) = &events[0] else {
+        panic!("expected groups");
+    };
+    assert!(first.iter().any(|group| group.name == "ready.test"));
+    assert!(!first.iter().any(|group| group.name == "slow.test"));
+    let StreamsEvent::Groups(groups) = &events[1] else {
         panic!("expected groups");
     };
     assert_eq!(

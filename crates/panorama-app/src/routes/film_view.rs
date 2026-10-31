@@ -5,7 +5,7 @@ use crate::{
     film_display::{self, Quality},
     hero,
     theme::{
-        DURATION_STANDARD, EASE_EDITORIAL, SHIMMER, Typography, caps,
+        DURATION_STANDARD, EASE_EDITORIAL, Typography, caps,
         scrim::{Edge, scrim},
         typography::{BODY, CREDIT_PLACE, LABEL},
     },
@@ -20,11 +20,26 @@ const GENRE_GAP: f32 = 12.0;
 const SPLIT_MIN: f32 = 960.0;
 const SPLIT_GAP: f32 = 64.0;
 use crate::hero::FILM_LOGO;
+use std::time::Duration;
 /// Width of the left column when the synopsis is split out.
 fn info_width(view: ViewSettings) -> f32 {
     (view.column().width * 0.3).clamp(380.0, 460.0)
 }
 const SYNOPSIS_WIDTH: f32 = 620.0;
+/// With nothing playable yet, sources can take 15 s; the page stops holding for them here.
+const REVEAL_LIMIT: Duration = Duration::from_secs(4);
+/// A text title wraps here. On wide windows it has its own row, so it never moves the synopsis.
+const TITLE_WIDTH: f32 = 560.0;
+/// The hero stays sharp until this share of the window has scrolled by.
+const BLUR_START: f32 = 0.12;
+/// Fully blurred by here, just before the sections below the hero reach mid-window.
+const BLUR_END: f32 = 0.45;
+/// How far the blurred still dims under the sections' text.
+const BLUR_WASH: f32 = 0.6;
+
+fn blur_progress(top: f32, height: f32) -> f32 {
+    ((top / height.max(1.0) - BLUR_START) / (BLUR_END - BLUR_START)).clamp(0.0, 1.0)
+}
 /// Quality badge height; the clock's visible disc matches it.
 const BADGE: f32 = 18.0;
 /// The clock glyph's disc is 20 of the icon's 24 units, so the icon is drawn this much larger.
@@ -43,7 +58,7 @@ impl Film {
             .logo
             .as_ref()
             .map(|url| self.image(url, FILM_LOGO, view, window, cx));
-        let mut title = div();
+        let mut title = div().max_w(px(TITLE_WIDTH));
         if let Some((Some(logo), false)) = logo.as_ref() {
             let size = logo.image.size(0);
             let ratio = (FILM_LOGO.0 / size.width.0 as f32)
@@ -58,7 +73,7 @@ impl Film {
             title = title.child(
                 hero::title_style(view.width)
                     .apply(div())
-                    .line_clamp(2)
+                    .line_clamp(3)
                     .child(caps(&meta.name)),
             );
         }
@@ -71,13 +86,21 @@ impl Film {
             })
             .map(Quality::from_source)
             .unwrap_or_default();
+        // Wide windows give the synopsis its own column from the middle of the page, bottom
+        // aligned with the actions, under the title's row; narrow ones keep it all in one column.
+        let split = view.width > SPLIT_MIN;
+        let (above, inline) = if split {
+            (Some(title), None)
+        } else {
+            (None, Some(title))
+        };
         let mut column = div()
             .w_full()
             .max_w(px(640.0))
             .flex()
             .flex_col()
             .text_color(theme.ink)
-            .child(title)
+            .children(inline)
             .child(hero::byline(meta))
             .when(!meta.genres.is_empty(), |column| {
                 column.child(
@@ -137,8 +160,9 @@ impl Film {
                     .child(film_display::runtime(runtime)),
             );
         }
-        if any {
-            column = column.child(facts.mt(px(GENRE_GAP)));
+        // The row holds its height for quality badges, so late sources never move the title.
+        if any || self.sources_loading {
+            column = column.child(facts.min_h(px(BADGE)).mt(px(GENRE_GAP)));
         }
         let synopsis = BODY
             .apply(div())
@@ -150,21 +174,20 @@ impl Film {
                     .filter(|text| !text.trim().is_empty())
                     .unwrap_or_else(|| "No synopsis is available for this film.".into()),
             );
-        // Wide windows give the synopsis its own column from the middle of the page, bottom
-        // aligned with the actions; narrow ones keep it in the single column.
-        let split = view.width > SPLIT_MIN;
         if !split {
             column = column.child(synopsis.mt(px(20.0)));
             return self.finish_column(column, view, cx);
         }
         let column = self.finish_column(column, view, cx);
-        div()
-            .w_full()
-            .flex()
-            .items_end()
-            .gap(px(SPLIT_GAP))
-            .child(column.flex_none().w(px(info_width(view))))
-            .child(synopsis.flex_1().max_w(px(SYNOPSIS_WIDTH)))
+        div().w_full().flex().flex_col().children(above).child(
+            div()
+                .w_full()
+                .flex()
+                .items_end()
+                .gap(px(SPLIT_GAP))
+                .child(column.flex_none().w(px(info_width(view))))
+                .child(synopsis.flex_1().max_w(px(SYNOPSIS_WIDTH))),
+        )
     }
     fn finish_column(
         &mut self,
@@ -212,21 +235,26 @@ impl Render for Film {
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         }
-        // The card's preview metadata seeds the page, but its artwork differs from the details',
-        // so nothing paints until the details, backdrop and logo are all in; then it fades in once.
-        let (artwork, poster, art_pending) = if self.loading && self.revealed.is_none() {
-            (None, false, true)
+        // The card's preview artwork differs from the details', so wait for the details.
+        let (artwork, poster, source) = if self.loading && self.revealed.is_none() {
+            (None, false, None)
         } else {
             self.artwork(view, window, cx)
         };
+        let blurred = source
+            .as_ref()
+            .filter(|_| view.active)
+            .and_then(|url| self.blurred(url, window, cx));
         if self.revealed.is_none() {
             let logo = self.metadata.as_ref().and_then(|meta| meta.logo.clone());
             let logo_pending = logo.is_some_and(|url| {
                 matches!(self.image(&url, FILM_LOGO, view, window, cx), (None, false))
             });
-            // Hold the shimmer until the sources are in too, so the quality badges and the
-            // primary action arrive with everything else instead of popping in after.
-            if view.active && !art_pending && !logo_pending && !self.sources_loading {
+            let art_pending = source.is_some() && artwork.is_none();
+            let waiting =
+                art_pending || logo_pending || self.sources_loading || self.original_pending;
+            if view.active && !self.loading && (!waiting || self.launched.elapsed() >= REVEAL_LIMIT)
+            {
                 self.revealed = Some(Instant::now());
             }
         }
@@ -242,31 +270,45 @@ impl Render for Film {
             .relative()
             .w_full()
             .min_h(px(view.height))
-            .bg(theme.canvas)
             .text_color(theme.ink);
-        // The still fills the first viewport only; the bottom scrim lands on canvas, so a page
-        // taller than the window continues without a seam.
-        if let Some(art) = artwork.filter(|_| self.revealed.is_some()) {
-            page = page.child(
+        let blur = blur_progress(-f32::from(self.scroll.offset().y), view.height);
+        // The page scrolls over this. The card's color holds until the still fades in; past the
+        // threshold the blurred copy takes over under an even wash. The bottom scrim stays.
+        let bounds = (view.width, view.height);
+        let backdrop = div()
+            .absolute()
+            .inset_0()
+            .overflow_hidden()
+            .bg(theme.canvas)
+            .when_some(self.tint, |backdrop, tint| {
+                backdrop.child(div().absolute().inset_0().bg(tint))
+            })
+            .when_some(artwork.filter(|_| reveal > 0.0), |backdrop, art| {
+                backdrop.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .opacity(reveal * film_card::fade_in(&art, view.reduced))
+                        .bg(theme.artwork_empty)
+                        .child(hero::cover(art.image, bounds, poster, 1.0)),
+                )
+            })
+            .when_some(blurred.filter(|_| blur > 0.0), |backdrop, art| {
+                backdrop.child(hero::cover(art.image, bounds, poster, 1.0).opacity(blur))
+            })
+            .child(div().absolute().inset_0().opacity(1.0 - blur).child(scrim(
+                theme,
+                Edge::Top,
+                relative(0.3),
+                0.6,
+            )))
+            .child(scrim(theme, Edge::Bottom, relative(0.45), 1.0))
+            .child(
                 div()
                     .absolute()
-                    .opacity(reveal)
-                    .top_0()
-                    .left_0()
-                    .w_full()
-                    .h(px(view.height))
-                    .bg(theme.artwork_empty)
-                    .child(hero::cover(
-                        art.image,
-                        (view.width, view.height),
-                        poster,
-                        1.0,
-                    ))
-                    .child(scrim(theme, Edge::Top, relative(0.3), 0.6))
-                    .child(scrim(theme, Edge::Left, relative(0.65), 0.92))
-                    .child(scrim(theme, Edge::Bottom, relative(0.45), 1.0)),
+                    .inset_0()
+                    .bg(theme.canvas.opacity(BLUR_WASH * blur)),
             );
-        }
         let metadata = self.metadata.clone();
         let mut content = div()
             .relative()
@@ -317,58 +359,11 @@ impl Render for Film {
                     .opacity(reveal),
             );
         } else {
-            let phase = if view.reduced {
-                0.0
-            } else {
-                (self.launched.elapsed().as_secs_f32() / SHIMMER.duration.as_secs_f32()) % 1.0
-            };
-            let split = view.width > SPLIT_MIN;
-            let skeleton_info = if split { info_width(view) } else { col.width };
-            let bar = |width: f32, height: f32| {
-                div()
-                    .relative()
-                    .w(px(width))
-                    .max_w_full()
-                    .h(px(height))
-                    .overflow_hidden()
-                    .bg(theme.surface_strong)
-                    .child(film_card::shimmer(view, phase))
-            };
             content = content.child(
                 div()
                     .id("film-loading")
                     .role(gpui::Role::Status)
-                    .aria_label("Loading film metadata")
-                    .w_full()
-                    .flex()
-                    .items_end()
-                    .gap(px(SPLIT_GAP))
-                    .child(
-                        div()
-                            .flex_none()
-                            .w(px(skeleton_info))
-                            .flex()
-                            .flex_col()
-                            .child(bar(420.0, 44.0))
-                            .child(bar(220.0, 14.0).mt(px(20.0)))
-                            .child(bar(160.0, 14.0).mt(px(GENRE_GAP)))
-                            .when(!split, |column| {
-                                column
-                                    .child(bar(560.0, 14.0).mt(px(28.0)))
-                                    .child(bar(380.0, 14.0).mt(px(10.0)))
-                            })
-                            .child(bar(176.0, 52.0).mt(px(32.0))),
-                    )
-                    .when(split, |row| {
-                        row.child(
-                            div()
-                                .flex_1()
-                                .max_w(px(SYNOPSIS_WIDTH))
-                                .pb(px(16.0))
-                                .child(bar(560.0, 14.0))
-                                .child(bar(380.0, 14.0).mt(px(10.0))),
-                        )
-                    }),
+                    .aria_label("Loading film metadata"),
             );
         }
         page = page.child(content);
@@ -381,7 +376,8 @@ impl Render for Film {
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());
         }
-        if self.sources_loading && !view.reduced
+        let holding = self.revealed.is_none() && self.launched.elapsed() < REVEAL_LIMIT;
+        if holding
             || reveal < 1.0 && !view.reduced
             || view.active && self.images.read(cx).moving()
             || self.people_rail.moving(view.reduced)
@@ -391,7 +387,7 @@ impl Render for Film {
             cx.on_next_frame(window, |film, window, cx| film.tick(window, cx));
             window.request_animation_frame();
         }
-        div()
+        let scroller = div()
             .id("film-scroll")
             .size_full()
             .overflow_y_scroll()
@@ -404,6 +400,21 @@ impl Render for Film {
                 // request_animation_frame panics outside render; notify schedules the frame instead.
                 cx.notify();
             }))
-            .child(page)
+            .child(page);
+        div().relative().size_full().child(backdrop).child(scroller)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blur_holds_off_until_the_threshold_then_finishes() {
+        assert_eq!(blur_progress(0.0, 1000.0), 0.0);
+        assert_eq!(blur_progress(120.0, 1000.0), 0.0);
+        assert!((blur_progress(285.0, 1000.0) - 0.5).abs() < 0.001);
+        assert_eq!(blur_progress(450.0, 1000.0), 1.0);
+        assert_eq!(blur_progress(5000.0, 1000.0), 1.0);
     }
 }

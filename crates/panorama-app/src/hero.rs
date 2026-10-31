@@ -20,6 +20,8 @@ use std::sync::Arc;
 const TOP: f32 = 72.0;
 const ORIGINAL_GAP: f32 = 6.0;
 const CREDITS_GAP: f32 = 16.0;
+/// The credits' gap under a foreign title, which belongs with them more than the title does.
+const CREDITS_GAP_AFTER_ORIGINAL: f32 = 8.0;
 const PLACE_GAP: f32 = 2.0;
 const ACTIONS_GAP: f32 = 28.0;
 pub const ROW_GAP: f32 = 56.0;
@@ -27,7 +29,7 @@ pub const FOLD_PAD: f32 = 48.0;
 /// Share of the window the hero takes, leaving the Continue row in view beneath it.
 const HERO_SHARE: f32 = 0.72;
 /// The film page has more room than the home hero, so its logo cap is larger.
-pub const FILM_LOGO: (f32, f32) = (280.0, 112.0);
+pub const FILM_LOGO: (f32, f32) = (370.0, 112.0);
 pub const LOGO: (f32, f32) = (200.0, 80.0);
 /// Largest text title; the logo cap keeps image titles to the same weight on the page.
 const TITLE_MAX: f32 = 44.0;
@@ -252,6 +254,11 @@ pub fn byline(film: &panorama_core::addons::FilmDetails) -> Div {
                 .line_clamp(1)
                 .child(caps(original))
         });
+    let credits_gap = if original.is_some() {
+        CREDITS_GAP_AFTER_ORIGINAL
+    } else {
+        CREDITS_GAP
+    };
     div()
         .flex()
         .flex_col()
@@ -262,7 +269,7 @@ pub fn byline(film: &panorama_core::addons::FilmDetails) -> Div {
         ])))
         .child(
             div()
-                .mt(px(CREDITS_GAP))
+                .mt(px(credits_gap))
                 .min_h(line(CREDIT_NAME))
                 .flex()
                 .items_baseline()

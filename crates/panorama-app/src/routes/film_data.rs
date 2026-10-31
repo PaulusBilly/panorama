@@ -1,7 +1,7 @@
 use super::*;
 use futures::{StreamExt, channel::mpsc};
 use panorama_core::{
-    addons::{ResourceEvent, StreamState, StreamsEvent},
+    addons::{ResourceEvent, StreamState},
     stremio::FilmMeta,
 };
 
@@ -38,6 +38,9 @@ impl Film {
                         film.loading = false;
                         match event {
                             ResourceEvent::CacheHit(meta) | ResourceEvent::Fresh(meta) => {
+                                let mut meta = trusted(film.card.as_ref(), meta);
+                                meta.original_name =
+                                    meta.original_name.or_else(|| film.original_title.clone());
                                 film.metadata = Some(meta);
                                 film.details_error = false;
                             }
@@ -49,6 +52,7 @@ impl Film {
                         // that tells MUBI's namesakes apart.
                         if !film.details_error && film.metadata.is_some() {
                             film.load_credits(cx);
+                            film.load_original_title(cx);
                         }
                         cx.notify();
                     })
@@ -114,65 +118,78 @@ impl Film {
             }
         }));
     }
-    pub(super) fn load_sources(&mut self, cx: &mut Context<Self>) {
+    fn load_original_title(&mut self, cx: &mut Context<Self>) {
         let Some(services) = self.state.read(cx).services.clone() else {
             return;
         };
+        let known = self
+            .metadata
+            .as_ref()
+            .is_none_or(|meta| meta.original_name.is_some());
+        if known || self.original_task.is_some() {
+            return;
+        }
+        self.original_pending = true;
+        let mut job = services.original_title(self.id.clone());
+        self.original_task = Some(cx.spawn(async move |entity, cx| {
+            let title = (&mut job.0).await.ok().flatten();
+            let _ = entity.update(cx, |film, cx| {
+                film.original_pending = false;
+                if let Some(title) = title {
+                    if let Some(meta) = &mut film.metadata {
+                        meta.original_name.get_or_insert_with(|| title.clone());
+                    }
+                    film.original_title = Some(title);
+                }
+                cx.notify();
+            });
+        }));
+    }
+    /// `again` asks the addons afresh; otherwise a lookup hovering already began or finished
+    /// is used as it stands.
+    pub(super) fn load_sources(&mut self, again: bool, cx: &mut Context<Self>) {
+        let Some(services) = self.state.read(cx).services.clone() else {
+            return;
+        };
+        self.look_up_subtitles(&services, cx);
+        let fixture = crate::source_lookup::FixtureSources {
+            hold: self.args.fixtures && self.args.film_loading,
+            none: self.args.no_sources,
+        };
+        self.sources_seen = None;
         self.sources_loading = true;
         self.sources_error = false;
-        self.look_up_subtitles(&services, cx);
         self.groups.clear();
         self.selected = None;
-        let addons = self.installed.clone();
         let id = self.id.clone();
-        let no_sources = self.args.no_sources;
-        let hold = self.args.fixtures && self.args.film_loading;
-        let (sender, mut receiver) = mpsc::unbounded();
-        let job = Job(services.runtime.clone().spawn(async move {
-            if let Some(client) = &services.addons {
-                let mut events = client.streams(&addons, &id);
-                while let Some(event) = events.next().await {
-                    if sender.unbounded_send(event).is_err() {
-                        break;
-                    }
-                }
-            } else {
-                if !hold {
-                    let _ = sender.unbounded_send(crate::fixtures::streams(no_sources));
-                }
-            }
-        }));
-        self.sources_task = Some(cx.spawn(async move |entity, cx| {
-            let _job = job;
-            while let Some(event) = receiver.next().await {
-                if entity
-                    .update(cx, |film, cx| {
-                        film.sources_loading = false;
-                        match event {
-                            StreamsEvent::Groups(groups) => {
-                                film.sources_error = groups
-                                    .iter()
-                                    .any(|group| matches!(group.state, StreamState::Failed(_)));
-                                film.selected = crate::playback::selection::first_source(&groups);
-                                film.groups = groups;
-                                let shared = (film.id.clone(), Arc::new(film.groups.clone()));
-                                film.state.update(cx, |state, cx| {
-                                    state.streams = Some(shared);
-                                    cx.notify();
-                                });
-                            }
-                            StreamsEvent::Failed(_) => film.sources_error = true,
-                            StreamsEvent::NoSources => {}
-                        }
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        }));
+        self.state.update(cx, |state, cx| {
+            state.open_sources(&id, again, fixture, cx);
+            cx.notify();
+        });
         cx.notify();
+    }
+    /// Take what the shared lookup has so far. One playable source is enough to show the page.
+    pub(super) fn sync_sources(&mut self, state: &crate::app_state::AppState) {
+        let Some(lookup) = state.source_lookups.get(&self.id) else {
+            return;
+        };
+        let seen = self
+            .sources_seen
+            .as_ref()
+            .is_some_and(|seen| Arc::ptr_eq(seen, &lookup.groups));
+        if !seen {
+            self.sources_seen = Some(lookup.groups.clone());
+            self.groups = (*lookup.groups).clone();
+            self.selected = crate::playback::selection::first_source(&self.groups);
+        }
+        self.sources_error = lookup.failed
+            || self
+                .groups
+                .iter()
+                .any(|group| matches!(group.state, StreamState::Failed(_)));
+        if lookup.finished || self.selected.is_some() {
+            self.sources_loading = false;
+        }
     }
     /// Ask the addons for subtitle files alongside the sources. Fixture runs have none.
     fn look_up_subtitles(
@@ -289,6 +306,18 @@ impl Film {
     }
 }
 
+/// Details outrank the card, unless they are blank where the card is not. Metadata addons can
+/// answer an id with a different film of the same name, as a bare short with no year or director.
+fn trusted(card: Option<&FilmDetails>, details: FilmDetails) -> FilmDetails {
+    let blank = |film: &FilmDetails| {
+        film.director.is_empty() && film.release_info.as_deref().is_none_or(str::is_empty)
+    };
+    match card {
+        Some(card) if blank(&details) && !blank(card) => card.clone(),
+        _ => details,
+    }
+}
+
 /// MUBI's awards and festivals for the film, else Wikidata's awards, and whether every source
 /// asked gave an answer rather than a network failure.
 async fn fetch_awards(
@@ -352,6 +381,20 @@ fn fresh_awards(
 mod tests {
     use super::*;
 
+    #[test]
+    fn blank_details_never_replace_a_richer_card() {
+        let mut card = crate::fixtures::films().remove(0);
+        card.description = Some("The film on the card".into());
+        let mut blank = card.clone();
+        blank.description = Some("Another film".into());
+        blank.director = vec![];
+        blank.release_info = Some(String::new());
+        assert_eq!(trusted(Some(&card), blank.clone()), card);
+        assert_eq!(trusted(None, blank.clone()), blank);
+        let mut richer = card.clone();
+        richer.description = Some("Fuller synopsis".into());
+        assert_eq!(trusted(Some(&card), richer.clone()), richer);
+    }
     #[test]
     fn cached_awards_expire_after_two_weeks() {
         let cached = serde_json::json!({ "fetched": 1_000, "awards": [] });

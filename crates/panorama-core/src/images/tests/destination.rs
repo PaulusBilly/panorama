@@ -81,3 +81,22 @@ async fn redirect_to_loopback_literal_is_rejected_before_connect() {
     assert_eq!(server.requests(), 1);
     assert_eq!(server.connections(), 1);
 }
+
+#[test]
+fn tmdb_originals_are_sized_to_their_slot_and_other_images_left_alone() {
+    let url = |url: &str| ImageUrl::parse(url).unwrap();
+    let original = url("https://image.tmdb.org/t/p/original/a.jpg");
+    assert_eq!(
+        original.sized_for(768),
+        url("https://image.tmdb.org/t/p/w780/a.jpg")
+    );
+    assert_eq!(
+        original.sized_for(1024),
+        url("https://image.tmdb.org/t/p/w1280/a.jpg")
+    );
+    assert_eq!(original.sized_for(2560), original);
+    let poster = url("https://image.tmdb.org/t/p/w600_and_h900_bestv2/a.jpg");
+    assert_eq!(poster.sized_for(768), poster);
+    let other = url("https://images.test/t/p/original/a.jpg");
+    assert_eq!(other.sized_for(768), other);
+}

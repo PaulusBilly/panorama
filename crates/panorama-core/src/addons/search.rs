@@ -211,6 +211,7 @@ fn fill_gaps(film: &mut FilmDetails, details: FilmDetails) {
     }
     film.origin_country = film.origin_country.take().or(details.origin_country);
     film.release_info = film.release_info.take().or(details.release_info);
+    film.released = film.released.take().or(details.released);
     if film.description.is_none() {
         film.description = details.description;
     }
@@ -267,6 +268,7 @@ mod enrichment {
             id: "tt1".into(),
             name: name.into(),
             release_info: None,
+            released: None,
             runtime: None,
             genres: Vec::new(),
             description: None,
@@ -298,6 +300,7 @@ mod enrichment {
             origin_country: Some("United Kingdom".into()),
             original_name: None,
             release_info: Some("2022".into()),
+            released: None,
             ..film("Aftersun (2022)")
         };
         fill_gaps(&mut card, details);

@@ -28,7 +28,7 @@ use panorama_core::{
     credits::AwardResult,
     mubi::{Festival as Event, FestivalFilm},
 };
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc};
 
 /// The festival's white logo is drawn inside this box, as large as MUBI's.
 const LOGO: (f32, f32) = (360.0, 140.0);
@@ -69,7 +69,6 @@ pub struct Festival {
     retry: FocusHandle,
     more: FocusHandle,
     years: Vec<FocusHandle>,
-    launched: Instant,
     request: Option<Task<()>>,
     _images: Subscription,
     _shell: Option<Subscription>,
@@ -111,7 +110,6 @@ impl Festival {
             retry: cx.focus_handle(),
             more: cx.focus_handle(),
             years: vec![],
-            launched: Instant::now(),
             request: None,
             _images: image_observer,
             _shell: shell_observer,
@@ -456,6 +454,7 @@ fn details(index: usize, film: &FestivalFilm) -> FilmDetails {
         name: film.title.clone(),
         original_name: None,
         release_info: film.year.map(|year| year.to_string()),
+        released: None,
         runtime: film.minutes.map(|minutes| format!("{minutes} min")),
         genres: film.genres.clone(),
         description: film.synopsis.clone(),
@@ -598,15 +597,6 @@ impl Render for Festival {
                 crate::hero::cover(cover.image, (view.width, hero_height), false, 1.0)
                     .opacity(fade),
             );
-        } else if event.is_none() && self.error.is_none() {
-            let phase = if view.reduced {
-                0.0
-            } else {
-                (self.launched.elapsed().as_secs_f32()
-                    / crate::theme::SHIMMER.duration.as_secs_f32())
-                    % 1.0
-            };
-            hero = hero.child(film_card::shimmer(view, phase));
         }
         hero = hero
             .child(scrim(theme, Edge::Top, relative(0.3), 0.6))

@@ -3,7 +3,7 @@ use stremio_core::types::addon::{ExtraValue, ResourcePath, ResourceResponse};
 
 use super::{
     AddonClient, CatalogRef, CatalogStream, FailureKind, Installation, Page, ResourceEvent,
-    delivery, sanitize,
+    delivery, only_released, sanitize,
 };
 use crate::{store::Key, stremio::Descriptor};
 
@@ -204,9 +204,12 @@ fn page(
             .iter()
             .find(|c| c.id == catalog.catalog_id && c.r#type == "movie")
             .is_some_and(|c| c.extra.iter().any(|e| e.name == "skip"));
+    let mut items = sanitize::films(response, false)?;
+    only_released(&mut items);
+    // `next_skip` keeps counting hidden films: skip addresses the addon's raw list.
     Ok(Page {
         catalog,
-        items: sanitize::films(response, false)?,
+        items,
         next_skip: skip.saturating_add(count),
         has_more: paging && count > 0,
     })

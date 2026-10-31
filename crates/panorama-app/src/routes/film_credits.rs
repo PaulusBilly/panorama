@@ -4,7 +4,6 @@ use crate::{
     carousel::Carousel,
     theme::{
         Theme, Typography, caps, focus_ring,
-        scrim::{Edge, scrim},
         typography::{CAPTION, CREDIT_NAME, CREDIT_PLACE, SECTION, TITLE, TypeStyle},
     },
 };
@@ -168,11 +167,7 @@ fn rail(
                 .flex_shrink_0()
                 .w(px((view.width - col.left - col.width - gap).max(0.0))),
         );
-    // Items scrolled past fade into the gutter rather than ending at the window's edge.
-    div()
-        .relative()
-        .child(row)
-        .child(scrim(view.theme, Edge::Left, px(col.left), 1.0))
+    div().child(row)
 }
 
 fn heading(title: &str, theme: Theme) -> Div {

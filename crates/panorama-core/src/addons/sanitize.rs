@@ -203,6 +203,7 @@ pub(super) fn film(preview: MetaItemPreview, thin: bool) -> Option<FilmDetails> 
     Some(FilmDetails {
         id: preview.id,
         name,
+        released: preview.released.map(|date| date.format("%F").to_string()),
         release_info: optional(
             preview
                 .release_info
