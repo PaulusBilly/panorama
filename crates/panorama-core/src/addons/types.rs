@@ -17,7 +17,39 @@ impl AddonKey {
     }
 }
 
-/// A movie catalog belonging to one local addon installation.
+/// What a title is, as an addon types it. A catalog's kind and its items' kinds are
+/// independent: Kitsu lists `anime` catalogs whose items are typed `series`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    #[default]
+    Movie,
+    Series,
+    Anime,
+}
+
+impl Kind {
+    /// The type string addon requests carry.
+    pub fn stremio(self) -> &'static str {
+        match self {
+            Self::Movie => "movie",
+            Self::Series => "series",
+            Self::Anime => "anime",
+        }
+    }
+
+    /// `None` for types Panorama has no screen for, such as `tv` or `channel`.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "movie" => Some(Self::Movie),
+            "series" => Some(Self::Series),
+            "anime" => Some(Self::Anime),
+            _ => None,
+        }
+    }
+}
+
+/// A catalog belonging to one local addon installation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CatalogRef {
     /// Local installation identity.
@@ -26,6 +58,28 @@ pub struct CatalogRef {
     pub catalog_id: String,
     /// Display name.
     pub name: String,
+    /// The catalog's own type; stored selections from before series support are movies.
+    #[serde(default)]
+    pub kind: Kind,
+}
+
+/// One episode of a series or anime.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Episode {
+    /// The addon's `Video.id`, opaque: `tt0386676:5:1`, `kitsu:12:5`. Never composed.
+    pub id: String,
+    /// Season number; 0 is specials, which sort last.
+    pub season: u32,
+    /// Episode number within the season.
+    pub number: u32,
+    /// Display title.
+    pub title: String,
+    /// Synopsis.
+    pub overview: Option<String>,
+    /// HTTPS still.
+    pub thumbnail: Option<Url>,
+    /// `YYYY-MM-DD` air date; a later date is shown but not playable.
+    pub released: Option<String>,
 }
 
 /// Sanitized fields needed by film cards and the Film screen.
@@ -33,6 +87,9 @@ pub struct CatalogRef {
 pub struct FilmDetails {
     /// Opaque addon film ID.
     pub id: String,
+    /// The item's own type, which may differ from the type of the catalog that listed it.
+    #[serde(default)]
+    pub kind: Kind,
     /// Display name.
     pub name: String,
     /// Original-language title, when the addon supplies one.
@@ -69,6 +126,9 @@ pub struct FilmDetails {
     pub imdb_rating: Option<String>,
     /// HTTP(S) links only.
     pub links: Vec<Link>,
+    /// Episodes in watch order, specials last. Only details fetches fill this.
+    #[serde(default)]
+    pub episodes: Vec<Episode>,
 }
 
 impl FilmDetails {
@@ -99,7 +159,7 @@ pub fn only_released(films: &mut Vec<FilmDetails>) {
 pub struct Page {
     /// Source catalog; may differ from the requested catalog after fallback.
     pub catalog: CatalogRef,
-    /// At most 200 usable movie cards.
+    /// At most 200 usable cards.
     pub items: Vec<FilmDetails>,
     /// Raw source offset for the next request, before unusable cards are removed.
     #[serde(default)]

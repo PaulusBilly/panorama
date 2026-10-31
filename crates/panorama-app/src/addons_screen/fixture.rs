@@ -2,7 +2,7 @@
 use super::model::{
     Capability, CatalogGroup, InstalledRow, MetaChoice, PreviewCard, RowPending, catalog_groups,
 };
-use panorama_core::addons::{AddonKey, CatalogRef};
+use panorama_core::addons::{AddonKey, CatalogRef, Kind};
 
 fn key(id: &str) -> Option<AddonKey> {
     serde_json::from_value(format!("{id}#fixture").into()).ok()
@@ -106,6 +106,7 @@ pub fn catalogs() -> Vec<CatalogRef> {
                     addon: addon.clone()?,
                     catalog_id: name.to_lowercase().replace(' ', "-"),
                     name: (*name).into(),
+                    kind: Kind::Movie,
                 })
             })
         })

@@ -201,6 +201,7 @@ impl Film {
         let shared = crate::playback::launch::subtitle_lookup(
             services,
             self.installed.clone(),
+            panorama_core::addons::Kind::Movie,
             self.id.clone(),
         );
         self.subtitle_lookup = Some(shared.clone());

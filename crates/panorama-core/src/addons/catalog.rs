@@ -2,13 +2,13 @@ use futures::{FutureExt, SinkExt};
 use stremio_core::types::addon::{ExtraValue, ResourcePath, ResourceResponse};
 
 use super::{
-    AddonClient, CatalogRef, CatalogStream, FailureKind, Installation, Page, ResourceEvent,
+    AddonClient, CatalogRef, CatalogStream, FailureKind, Installation, Kind, Page, ResourceEvent,
     delivery, only_released, sanitize,
 };
 use crate::{store::Key, stremio::Descriptor};
 
 impl AddonClient {
-    /// Lists movie catalogs with no required extras, in account order.
+    /// Lists catalogs of every kind with no required extras, in account order.
     /// An empty installation list exposes only Cinemeta's top movie catalog.
     pub fn catalogs(&self, addons: &[Descriptor]) -> Vec<CatalogRef> {
         self.catalog_plan(addons)
@@ -29,23 +29,25 @@ impl AddonClient {
                     .catalogs
                     .iter()
                     .take(100)
-                    .filter(|catalog| {
-                        catalog.r#type == "movie"
-                            && catalog.extra.iter().all(|extra| !extra.is_required)
-                            && Key::catalog(addon.key.as_str(), &catalog.id).is_ok()
-                    })
-                    .map(|catalog| {
-                        (
-                            addon.clone(),
-                            CatalogRef {
-                                addon: addon.key.clone(),
-                                catalog_id: catalog.id.clone(),
-                                name: sanitize::text(
-                                    catalog.name.as_deref().unwrap_or(&catalog.id),
-                                    300,
-                                ),
-                            },
-                        )
+                    .filter_map(|catalog| {
+                        let kind = Kind::parse(&catalog.r#type)?;
+                        (catalog.extra.iter().all(|extra| !extra.is_required)
+                            && Key::typed_catalog(addon.key.as_str(), &catalog.r#type, &catalog.id)
+                                .is_ok())
+                        .then(|| {
+                            (
+                                addon.clone(),
+                                CatalogRef {
+                                    addon: addon.key.clone(),
+                                    catalog_id: catalog.id.clone(),
+                                    name: sanitize::text(
+                                        catalog.name.as_deref().unwrap_or(&catalog.id),
+                                        300,
+                                    ),
+                                    kind,
+                                },
+                            )
+                        })
                     })
                     .collect::<Vec<_>>()
             })
@@ -58,21 +60,27 @@ impl AddonClient {
             addon: addon.key.clone(),
             catalog_id: "top".into(),
             name: "Cinemeta".into(),
+            kind: Kind::Movie,
         };
         (addon, catalog)
     }
 
-    /// Delivers a cached page, then tries the selected catalog, remaining catalogs,
-    /// and Cinemeta. Removed selections use the first current catalog.
+    /// Delivers a cached page, then tries the selected catalog, remaining movie catalogs,
+    /// and Cinemeta. Other kinds are tried only when selected. Removed selections use the
+    /// first current movie catalog.
     pub fn catalog(&self, addons: &[Descriptor], remembered: Option<CatalogRef>) -> CatalogStream {
         let client = self.for_request();
         let mut plan = self.catalog_plan(addons);
-        if let Some(index) = remembered.and_then(|remembered| {
-            plan.iter().position(|(_, catalog)| {
-                catalog.addon == remembered.addon && catalog.catalog_id == remembered.catalog_id
-            })
-        }) {
-            let selected = plan.remove(index);
+        let selected = remembered.and_then(|remembered| {
+            let index = plan.iter().position(|(_, catalog)| {
+                catalog.addon == remembered.addon
+                    && catalog.catalog_id == remembered.catalog_id
+                    && catalog.kind == remembered.kind
+            })?;
+            Some(plan.remove(index))
+        });
+        plan.retain(|(_, catalog)| catalog.kind == Kind::Movie);
+        if let Some(selected) = selected {
             plan.insert(0, selected);
         }
         let fallback = self.cinemeta_catalog();
@@ -82,7 +90,7 @@ impl AddonClient {
         delivery(&self.runtime, move |mut sender| {
             async move {
                 for (_, catalog) in &plan {
-                    let Ok(key) = Key::catalog(catalog.addon.as_str(), &catalog.catalog_id) else {
+                    let Ok(key) = catalog_key(catalog) else {
                         continue;
                     };
                     match client.read::<Page>(key).await {
@@ -101,7 +109,11 @@ impl AddonClient {
                 }
                 let mut failure = FailureKind::InvalidResponse;
                 for (addon, catalog) in plan {
-                    let path = ResourcePath::without_extra("catalog", "movie", &catalog.catalog_id);
+                    let path = ResourcePath::without_extra(
+                        "catalog",
+                        catalog.kind.stremio(),
+                        &catalog.catalog_id,
+                    );
                     let result = client
                         .request(&addon, path, 8)
                         .await
@@ -115,11 +127,10 @@ impl AddonClient {
                         });
                     match result {
                         Ok(page) => {
-                            let result =
-                                match Key::catalog(catalog.addon.as_str(), &catalog.catalog_id) {
-                                    Ok(key) => client.write(key, &page).await,
-                                    Err(_) => Err(FailureKind::Storage),
-                                };
+                            let result = match catalog_key(&catalog) {
+                                Ok(key) => client.write(key, &page).await,
+                                Err(_) => Err(FailureKind::Storage),
+                            };
                             let _ = sender.send(ResourceEvent::Fresh(page)).await;
                             if let Err(kind) = result {
                                 let _ = sender.send(ResourceEvent::Failed(kind)).await;
@@ -160,7 +171,7 @@ impl AddonClient {
                     Some(addon) if skip <= 100_000 => {
                         let path = ResourcePath::with_extra(
                             "catalog",
-                            "movie",
+                            catalog.kind.stremio(),
                             &catalog.catalog_id,
                             &[ExtraValue {
                                 name: "skip".into(),
@@ -185,6 +196,14 @@ impl AddonClient {
     }
 }
 
+fn catalog_key(catalog: &CatalogRef) -> Result<Key, crate::store::StoreError> {
+    Key::typed_catalog(
+        catalog.addon.as_str(),
+        catalog.kind.stremio(),
+        &catalog.catalog_id,
+    )
+}
+
 fn page(
     response: sanitize::Response,
     addon: &Installation,
@@ -202,7 +221,7 @@ fn page(
             .manifest
             .catalogs
             .iter()
-            .find(|c| c.id == catalog.catalog_id && c.r#type == "movie")
+            .find(|c| c.id == catalog.catalog_id && c.r#type == catalog.kind.stremio())
             .is_some_and(|c| c.extra.iter().any(|e| e.name == "skip"));
     let mut items = sanitize::films(response, false)?;
     only_released(&mut items);

@@ -38,6 +38,16 @@ impl Key {
         Ok(Self(format!("catalog:{addon_id}|{catalog_id}")))
     }
 
+    /// Like [`Key::catalog`] for a catalog of the given addon type. Movie catalogs keep the
+    /// untyped form so existing caches stay valid; other types get a segment of their own.
+    pub fn typed_catalog(addon_id: &str, kind: &str, catalog_id: &str) -> Result<Self, StoreError> {
+        let Self(key) = Self::catalog(addon_id, catalog_id)?;
+        if kind == "movie" {
+            return Ok(Self(key));
+        }
+        Ok(Self(format!("catalog:{addon_id}|{kind}|{catalog_id}")))
+    }
+
     /// Identifies cached film details; supports 200 Unicode characters (800 bytes).
     pub fn meta(film_id: &str) -> Result<Self, StoreError> {
         if film_id.chars().count() <= 200 {

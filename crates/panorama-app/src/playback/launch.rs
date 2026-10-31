@@ -8,7 +8,7 @@ use crate::{
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use gpui::{Context, Task};
 use panorama_core::{
-    addons::{FilmDetails, StreamsEvent},
+    addons::{FilmDetails, Kind, StreamsEvent},
     stremio::{Descriptor, ResumePoint},
 };
 use std::sync::Arc;
@@ -30,12 +30,13 @@ pub struct Launch {
 pub fn subtitle_lookup(
     services: &Arc<Services>,
     addons: Vec<Descriptor>,
+    kind: Kind,
     id: String,
 ) -> SubtitleLookup {
     let lookup = services.clone();
     let mut job = Job(services.runtime.clone().spawn(async move {
         match &lookup.addons {
-            Some(client) => client.subtitles(&addons, &id).await,
+            Some(client) => client.subtitles(&addons, kind, &id).await,
             None => vec![],
         }
     }));
@@ -58,9 +59,10 @@ impl AppState {
             return;
         };
         let id = film.id.clone();
+        let kind = film.kind;
         let kept = film.clone();
         let addons = self.installed.clone();
-        let subtitles = subtitle_lookup(&services, addons.clone(), id.clone());
+        let subtitles = subtitle_lookup(&services, addons.clone(), film.kind, id.clone());
         // Which metadata addon the progress belongs to; ready long before the streams.
         let meta_base = Job(services.runtime.clone().spawn({
             let (services, id) = (services.clone(), id.clone());
@@ -72,7 +74,7 @@ impl AppState {
             async move {
                 match &services.addons {
                     Some(client) => {
-                        let mut events = client.streams(&addons, &id);
+                        let mut events = client.streams(&addons, kind, &id);
                         while let Some(event) = events.next().await {
                             if sender.unbounded_send(event).is_err() {
                                 break;

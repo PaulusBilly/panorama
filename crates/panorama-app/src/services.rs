@@ -1,6 +1,6 @@
 use futures::{StreamExt, channel::mpsc};
 use panorama_core::{
-    addons::{AddonClient, CatalogRef, CoreAddonTransport, FilmDetails, ResourceEvent},
+    addons::{AddonClient, CatalogRef, CoreAddonTransport, FilmDetails, Kind, ResourceEvent},
     images::{ImageLoader, ImageLoaderOptions, ImageRequest, ImageTarget, ImageUrl},
     store::{self, Store, StoreError},
     stremio::{
@@ -352,7 +352,7 @@ impl Services {
                 return;
             };
             let addons = session.lock().await.installed_addons();
-            let mut events = client.details(&addons, &id, None);
+            let mut events = client.details(&addons, Kind::Movie, &id, None);
             while let Some(event) = events.next().await {
                 if sender.unbounded_send(event).is_err() {
                     break;
