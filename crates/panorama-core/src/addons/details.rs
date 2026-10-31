@@ -1,4 +1,4 @@
-use futures::{FutureExt, SinkExt, future::join_all};
+use futures::{FutureExt, SinkExt, StreamExt, future::join_all, stream::FuturesUnordered};
 use serde::{Deserialize, Serialize};
 use stremio_core::types::addon::{ResourcePath, ResourceResponse};
 
@@ -212,7 +212,8 @@ impl AddonClient {
                     let _ = sender.send(StreamsEvent::NoSources).await;
                     return;
                 }
-                let requests = plan.into_iter().map(|addon| {
+                let mut answered = vec![None; plan.len()];
+                let requests = plan.into_iter().enumerate().map(|(index, addon)| {
                     let client = client.clone();
                     let path = path.clone();
                     async move {
@@ -225,14 +226,26 @@ impl AddonClient {
                             Ok(sources) => StreamState::Ready(sources),
                             Err(kind) => StreamState::Failed(kind),
                         };
-                        StreamGroup {
+                        let group = StreamGroup {
                             addon: addon.key,
                             name: sanitize::text(&addon.descriptor.manifest.name, 300),
                             state,
-                        }
+                        };
+                        (index, group)
                     }
                 });
-                let groups = join_all(requests).await;
+                let mut pending = requests.collect::<FuturesUnordered<_>>();
+                while let Some((index, group)) = pending.next().await {
+                    let playable = matches!(group.state, StreamState::Ready(_));
+                    answered[index] = Some(group);
+                    if playable && !pending.is_empty() {
+                        let partial = answered.iter().flatten().cloned().collect();
+                        if sender.send(StreamsEvent::Groups(partial)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                let groups = answered.into_iter().flatten().collect::<Vec<_>>();
                 let offline = groups
                     .iter()
                     .all(|group| group.state == StreamState::Failed(FailureKind::Offline));

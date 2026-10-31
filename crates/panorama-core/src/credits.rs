@@ -90,15 +90,7 @@ impl CreditsClient {
 
     /// Awards won and nominated for, newest first.
     pub async fn awards(&self, film_id: &str) -> Result<Vec<Award>, CreditsError> {
-        let film = if is_imdb(film_id) {
-            format!("?film wdt:P345 \"{film_id}\".")
-        } else {
-            let id = film_id
-                .strip_prefix("tmdb:")
-                .and_then(|id| id.parse::<u64>().ok())
-                .ok_or(CreditsError::Invalid)?;
-            format!("?film wdt:P4947 \"{id}\".")
-        };
+        let film = film_clause(film_id)?;
         let query = format!(
             "SELECT ?won ?awardLabel ?time WHERE {{ {film} \
              {{ ?film p:P166 ?s. ?s ps:P166 ?award. BIND(true AS ?won) }} UNION \
@@ -113,6 +105,40 @@ impl CreditsClient {
             .header(reqwest::header::ACCEPT, "application/sparql-results+json");
         Ok(awards_from_sparql(&json(request).await?))
     }
+
+    /// The film's original title, when it is not an English one. Going by the title and not
+    /// the film's languages keeps multilingual films such as Le Mépris.
+    pub async fn original_title(&self, film_id: &str) -> Result<Option<String>, CreditsError> {
+        let film = film_clause(film_id)?;
+        let query = format!(
+            "SELECT ?title WHERE {{ {film} ?film wdt:P1476 ?title. \
+             FILTER(!LANGMATCHES(LANG(?title), \"en\")) \
+             FILTER NOT EXISTS {{ ?film wdt:P1476 ?english. \
+             FILTER(LANGMATCHES(LANG(?english), \"en\")) }} }} LIMIT 1"
+        );
+        let request = self
+            .http
+            .get(WIKIDATA_SPARQL)
+            .query(&[("query", query.as_str())])
+            .header(reqwest::header::ACCEPT, "application/sparql-results+json");
+        Ok(original_from_sparql(&json(request).await?))
+    }
+}
+
+/// Ids are checked here because they are written into the query.
+fn film_clause(film_id: &str) -> Result<String, CreditsError> {
+    if is_imdb(film_id) {
+        return Ok(format!("?film wdt:P345 \"{film_id}\"."));
+    }
+    let id = film_id
+        .strip_prefix("tmdb:")
+        .and_then(|id| id.parse::<u64>().ok())
+        .ok_or(CreditsError::Invalid)?;
+    Ok(format!("?film wdt:P4947 \"{id}\"."))
+}
+
+fn original_from_sparql(results: &Value) -> Option<String> {
+    text(&results["results"]["bindings"][0]["title"]["value"])
 }
 
 pub(crate) async fn json(request: reqwest::RequestBuilder) -> Result<Value, CreditsError> {
@@ -314,10 +340,23 @@ mod tests {
     }
 
     #[test]
+    fn original_title_reads_the_first_answer_and_tolerates_none() {
+        let answer = json!({"results": {"bindings": [{"title": {"value": " 花樣年華 "}}]}});
+        assert_eq!(original_from_sparql(&answer).as_deref(), Some("花樣年華"));
+        assert_eq!(
+            original_from_sparql(&json!({"results": {"bindings": []}})),
+            None
+        );
+        assert_eq!(original_from_sparql(&json!(null)), None);
+    }
+
+    #[test]
     fn only_well_formed_ids_reach_the_queries() {
         assert!(is_imdb("tt19770238"));
         assert!(!is_imdb("tt"));
         assert!(!is_imdb("tt12\" }"));
         assert!(!is_imdb("tmdb:1"));
+        assert_eq!(film_clause("tt12\" }"), Err(CreditsError::Invalid));
+        assert_eq!(film_clause("tmdb:7").unwrap(), "?film wdt:P4947 \"7\".");
     }
 }

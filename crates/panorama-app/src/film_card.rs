@@ -4,7 +4,7 @@ use crate::{
     hero,
     home_layout::{Grid, ViewSettings},
     image_cache::CachedImage,
-    theme::{Theme, focus_ring, motion::SHIMMER},
+    theme::{Theme, focus_ring},
     transition::bezier,
 };
 use gpui::{
@@ -24,49 +24,6 @@ pub struct CardProps<'a> {
     /// A line over the title, such as a festival result.
     pub(crate) note: Option<&'a str>,
     pub(crate) index: usize,
-    pub(crate) shimmer: f32,
-}
-
-/// Moving surface highlight for unloaded artwork and skeleton cards. The band is two tiles
-/// wide with its peak in the middle, so the peak travels from one tile-width before the left
-/// edge to one past the right: each cycle starts and ends with the band wholly off the tile,
-/// and the loop has no seam.
-pub fn shimmer(view: ViewSettings, phase: f32) -> Div {
-    let phase = bezier(phase, SHIMMER.easing);
-    div().absolute().inset_0().overflow_hidden().child(
-        div()
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .w(gpui::relative(2.0))
-            .left(gpui::relative(-2.0 + 3.0 * phase))
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(gpui::relative(0.5))
-                    .bg(linear_gradient(
-                        90.0,
-                        linear_color_stop(view.theme.surface, 0.0),
-                        linear_color_stop(view.theme.surface_strong, 1.0),
-                    )),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .right_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(gpui::relative(0.5))
-                    .bg(linear_gradient(
-                        90.0,
-                        linear_color_stop(view.theme.surface_strong, 0.0),
-                        linear_color_stop(view.theme.surface, 1.0),
-                    )),
-            ),
-    )
 }
 
 pub fn fade_in(image: &CachedImage, reduced: bool) -> f32 {
@@ -103,9 +60,6 @@ pub fn render<V: GridHost>(
         } else {
             theme.surface
         });
-    if !props.unavailable && props.image.is_none() {
-        tile = tile.child(shimmer(view, props.shimmer));
-    }
     if let Some(image) = props.image {
         let fade = fade_in(&image, view.reduced);
         tile = tile
@@ -174,22 +128,6 @@ pub fn render<V: GridHost>(
                     .border_color(theme.image_outline),
             )
             .child(button);
-    } else {
-        tile = tile.child(
-            div()
-                .absolute()
-                .left(px(18.0))
-                .right(px(18.0))
-                .bottom(px(14.0))
-                .child(div().h(px(11.0)).w(relative(0.58)).bg(theme.glass))
-                .child(
-                    div()
-                        .mt(px(8.0))
-                        .h(px(11.0))
-                        .w(relative(0.28))
-                        .bg(theme.glass),
-                ),
-        );
     }
     tile
 }

@@ -25,13 +25,15 @@ pub mod hero;
 pub mod home_layout;
 pub mod image_cache;
 pub mod login;
-pub mod motion;
 pub mod playback;
+pub mod prefetch;
 pub mod router;
 pub mod routes;
 pub mod services;
 pub mod sidebar;
+pub mod source_lookup;
 pub mod theme;
+pub mod tint;
 pub mod titlebar;
 pub mod transition;
 #[allow(unsafe_code)]

@@ -66,6 +66,12 @@ pub struct AppState {
     pub continue_watching: gpui::Entity<crate::continue_watching::ContinueWatching>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
+    /// Source lookups by film, reused between the hover prefetch and the film page.
+    pub source_lookups: crate::source_lookup::SourceLookups,
+    /// The film whose lookup feeds `streams`; a prefetch must not overwrite an open Player's.
+    pub streams_for: Option<String>,
+    /// Films warmed ahead of a click.
+    pub prefetch: crate::prefetch::Prefetch,
     /// Stream groups for a film; Film keeps this current so an open Player follows late addons.
     pub streams: Option<(String, Arc<Vec<panorama_core::addons::StreamGroup>>)>,
     /// Source selected by Film for the next Player mount.
@@ -104,6 +110,9 @@ impl AppState {
             images,
             continue_watching,
             film_preview: None,
+            source_lookups: Default::default(),
+            streams_for: None,
+            prefetch: Default::default(),
             streams: None,
             playback: None,
             launch: None,

@@ -169,7 +169,6 @@ component radii are zero because the CSS supplies no general radius.
 GPUI 0.3.8 provides Windows caption hit-test areas (including snap layouts) and
 keyboard click activation for focused controls. Raw SVG elements require an explicit
 text color; parent text color is not inherited, so caption icon hover uses group hover.
-It has no exit animation primitive; the shell retains outgoing views during their fades.
 Windows application activation is a no-op, so debug captures activate the window
 explicitly. Frame callbacks have no current view; animation requests must be made
 during rendering. Its text-input focus query is component-owned, so future custom
@@ -217,6 +216,29 @@ timeout; clear during downloads; zero-budget retention and abandoned temporary c
 The GPUI adapter remains separate: own a byte-bounded memory LRU of `RenderImage`s,
 convert straight RGBA8 to BGRA, and call `cx.drop_image` on eviction. Avoid synchronous
 logging or file work on the UI thread, as established by Phase 0 Gate 2.
+
+`tint::dominant` runs in the same off-thread step as that conversion and each
+`CachedImage` keeps its result. `ImageCache::tint` reads it by URL, so the film page
+opens on its card's color while the backdrop loads. Tints live and die with the LRU.
+
+The film page holds on the card's color until details, still, logo, foreign title and
+the first playable source are in, then fades them in together. Addons answer sources
+independently and later ones join after. With none playable it waits for them all, so
+past `REVEAL_LIMIT` the page shows without them. Resting on a Home or Search card warms that film (`prefetch.rs`):
+details land in the store and artwork on disk, so the page opens from cache and
+revalidates. A longer pause starts the film's source lookup (`source_lookup.rs`), one
+at a time, kept in memory for ten minutes and joined by the page. Links never reach disk.
+TMDB `original` images are requested at `w780` or `w1280` when their slot allows.
+
+Catalogs and the Search route apply `only_released`: films dated after today, named
+for a later year, or undated in a list that has dates elsewhere are hidden. A list with
+no dates at all is left alone. Festival pages skip it, so screened films stay reachable.
+`next_skip` counts the addon's raw list, so paging is unaffected.
+
+The film page scrolls over a fixed backdrop. GPUI has no blur, so `ImageCache` bakes a
+small blurred copy off-thread (`request_blurred`) and the page crossfades to it by scroll
+position. Film pages take a missing original title from Wikidata (`CreditsClient::original_title`),
+only when that title is not an English one, and keep the answer under `meta:foreign|`.
 
 ## Home and account services
 
@@ -725,8 +747,7 @@ options retain PR 4.1 defaults under the initially absent
 The player route is deliberately not retained in the history view cache.
 Close replaces its history entry with Film, matching Electron backToDetails.
 `routes/player/{mod,view,overlays,keyboard}.rs` mounts the bottom child surface,
-renders the frame, and handles close/retry/replay. Player transitions skip route
-fades, so an outgoing Film cannot cover the video. While mounted, the window
+renders the frame, and handles close/retry/replay. While mounted, the window
 uses `WindowBackgroundAppearance::Transparent`, the component theme's
 background is transparent (including its semantic/Base projection),
 `app_view.rs` omits the shell canvas fill, and route/Player layers omit opaque

@@ -27,12 +27,7 @@ impl AppShell {
         self.cache
             .iter()
             .find(|entry| entry.id == id)
-            .or_else(|| {
-                self.presence
-                    .iter()
-                    .map(|presence| &presence.view)
-                    .find(|entry| entry.id == id)
-            })
+            .or(self.mounted.as_ref().filter(|entry| entry.id == id))
             .and_then(|entry| entry.view.clone().downcast::<T>().ok())
     }
 
@@ -89,19 +84,13 @@ impl AppShell {
     }
 
     pub(super) fn present(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let now = Instant::now();
         let id = self.history.current_id();
         let existing = self
             .cache
             .iter()
             .position(|entry| entry.id == id)
             .and_then(|index| self.cache.remove(index))
-            .or_else(|| {
-                self.presence
-                    .iter()
-                    .find(|presence| presence.view.id == id)
-                    .map(|presence| presence.view.clone())
-            });
+            .or_else(|| self.mounted.clone().filter(|entry| entry.id == id));
         let mounted = existing.unwrap_or_else(|| {
             let route = self.history.current().clone();
             Rc::new(Mounted {
@@ -118,11 +107,6 @@ impl AppShell {
                 route,
             })
         });
-        let player_transition = matches!(mounted.route, Route::Player { .. })
-            || self
-                .presence
-                .iter()
-                .any(|presence| matches!(presence.view.route, Route::Player { .. }));
         self.cache.retain(|entry| {
             self.history.contains(entry.id) && !matches!(entry.route, Route::Player { .. })
         });
@@ -132,20 +116,7 @@ impl AppShell {
         while self.cache.len() > 8 {
             self.cache.pop_front();
         }
-        if self.reduced_motion || player_transition {
-            self.presence.clear();
-        }
-        for presence in &mut self.presence {
-            if presence.view.id == id {
-                presence.resume(now);
-            } else {
-                presence.exit(now);
-            }
-        }
-        if !self.presence.iter().any(|presence| presence.view.id == id) {
-            self.presence.push(Presence::enter(mounted, now));
-        }
-        self.presence.sort_by_key(|presence| !presence.exiting);
+        self.mounted = Some(mounted);
     }
 
     pub(super) fn key_down(

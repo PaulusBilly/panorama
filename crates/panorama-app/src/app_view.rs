@@ -27,11 +27,7 @@ impl Render for AppShell {
             self.viewport = window.viewport_size();
             self.menu.dismiss();
         }
-        self.presence
-            .retain(|presence| !presence.exiting || !presence.settled(now));
-        let moving = !self.reduced_motion
-            && (self.presence.iter().any(|presence| !presence.settled(now))
-                || self.menu.moving(false));
+        let moving = !self.reduced_motion && self.menu.moving(false);
         let real_playback =
             self.args.play_file.is_some() || self.args.play_url.is_some() || self.args.play_torrent;
         let playback_ready = !real_playback
@@ -56,33 +52,19 @@ impl Render for AppShell {
             self.capture_scheduled = true;
             debug::screenshot::schedule(window, cx, path, self.outcome.clone(), self.state.clone());
         }
-        let mut body = div().absolute().inset_0().overflow_hidden();
-        for presence in &self.presence {
-            let pose = if self.reduced_motion || matches!(presence.view.route, Route::Player { .. })
-            {
-                Pose {
-                    opacity: 1.0,
-                    y: 0.0,
-                }
-            } else {
-                presence.pose(now)
-            };
-            let mounted = &presence.view;
-            let mut layer = div()
-                .id(("route-presence", mounted.id))
-                .absolute()
-                .inset_0()
-                .top(px(pose.y))
-                .bottom(px(-pose.y))
-                .opacity(pose.opacity)
-                .flex()
-                .flex_col();
-            layer = layer.child(div().flex_1().min_h_0().child(mounted.view.clone()));
-            if presence.exiting {
-                layer = layer.child(div().absolute().inset_0().occlude());
-            }
-            body = body.child(layer);
-        }
+        let body = div()
+            .absolute()
+            .inset_0()
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .children(self.mounted.as_ref().map(|mounted| {
+                div()
+                    .id(("route", mounted.id))
+                    .flex_1()
+                    .min_h_0()
+                    .child(mounted.view.clone())
+            }));
         let view = crate::home_layout::ViewSettings {
             theme: self.theme,
             keyboard: self.keyboard_navigation,
@@ -143,18 +125,13 @@ impl Render for AppShell {
                     return;
                 }
                 if let Route::Player { id } = shell.history.current()
-                    && let Some(player) = shell
-                        .presence
-                        .iter()
-                        .find(|presence| !presence.exiting)
-                        .and_then(|presence| {
-                            presence
-                                .view
-                                .view
-                                .clone()
-                                .downcast::<routes::player::Player>()
-                                .ok()
-                        })
+                    && let Some(player) = shell.mounted.as_ref().and_then(|mounted| {
+                        mounted
+                            .view
+                            .clone()
+                            .downcast::<routes::player::Player>()
+                            .ok()
+                    })
                 {
                     let id = id.clone();
                     let action = player.update(cx, |player, cx| player.key_down(event, window, cx));

@@ -21,11 +21,11 @@ gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 
 const SKELETONS: usize = 9;
 /// How long the pointer rests on a card before its preview opens.
-const DWELL: Duration = Duration::from_millis(500);
+const DWELL: Duration = Duration::ZERO;
 /// The preview's artwork grows by this fraction of the tile.
 const LIFT: f32 = 0.08;
 
-/// The hover preview: resting on a card for `DWELL` opens a larger card with its details.
+/// The hover preview: `DWELL` after the pointer enters a card, a larger card opens with its details.
 #[derive(Clone, Copy)]
 enum Preview {
     Closed,
@@ -103,7 +103,6 @@ pub struct FilmGrid {
     fading: Option<(usize, Tween)>,
     /// Captures pin the first card's preview; the real pointer must not move it.
     pinned: bool,
-    launched: Instant,
 }
 
 impl FilmGrid {
@@ -125,7 +124,6 @@ impl FilmGrid {
             },
             fading: None,
             pinned: hover_first,
-            launched: Instant::now(),
         }
     }
     /// Replace the films, keeping one focus handle per card.
@@ -222,13 +220,6 @@ impl FilmGrid {
         let start = (-offset / grid.stride()).floor().max(0.0) as usize;
         let start = start.saturating_sub(1).min(rows);
         let end = (((view.height - offset) / grid.stride()).ceil().max(0.0) as usize + 2).min(rows);
-        let phase = if view.reduced {
-            0.0
-        } else {
-            (Instant::now().duration_since(self.launched).as_secs_f32()
-                / SHIMMER.duration.as_secs_f32())
-                % 1.0
-        };
         let films = self.films.clone();
         let notes = self.notes.clone();
         let mut result = div().relative().w(px(grid.total_width())).h(px(height));
@@ -265,7 +256,6 @@ impl FilmGrid {
                         focus: self.cards.get(index).unwrap_or(&self.spare),
                         note: notes.get(index).and_then(Option::as_deref),
                         index,
-                        shimmer: phase,
                     },
                     grid,
                     view,
@@ -331,15 +321,8 @@ impl FilmGrid {
         // rewraps or slides while the card grows; artwork is requested at that size for the same reason.
         let full = grid.width * (1.0 + LIFT);
         let inset = (full * 0.055).clamp(16.0, 28.0);
-        let (image, poster, _) = artwork(
-            images,
-            services,
-            film,
-            (full, full / 2.0),
-            true,
-            window,
-            cx,
-        );
+        let (image, poster, _) =
+            artwork(images, services, film, (full, full / 2.0), true, window, cx);
 
         let mut art = div()
             .id(("film-preview-art", index))
@@ -630,20 +613,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preview_opens_only_after_resting_on_one_card() {
+    fn preview_opens_on_the_next_frame_after_entering_a_card() {
         let start = Instant::now();
         let ms = |n| start + Duration::from_millis(n);
 
         let resting = Preview::Closed.hover(2, true, start);
-        assert_eq!(resting.tick(ms(499)).open(), None);
-        assert_eq!(resting.tick(ms(500)).open(), Some(2));
+        assert_eq!(resting.open(), None);
+        assert_eq!(resting.tick(start).open(), Some(2));
 
-        let passed_over = resting.hover(2, false, ms(300)).tick(ms(2000));
-        assert_eq!(passed_over.open(), None);
-
-        let moved_on = resting.hover(3, true, ms(300));
-        assert_eq!(moved_on.tick(ms(700)).open(), None);
-        assert_eq!(moved_on.tick(ms(800)).open(), Some(3));
+        let moved_on = resting.hover(3, true, ms(10));
+        assert_eq!(moved_on.tick(ms(10)).open(), Some(3));
 
         let open = resting.tick(ms(500));
         assert_eq!(

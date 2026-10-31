@@ -1,6 +1,6 @@
 use crate::services::{Job, Services};
 use futures::{StreamExt, channel::mpsc};
-use gpui::{Context, RenderImage, Task, Window};
+use gpui::{Context, Hsla, RenderImage, Task, Window};
 use panorama_core::images::{DecodedImage, ImageError, ImageRequest, ImageTarget, ImageUrl};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -33,6 +33,31 @@ pub fn render_image(mut decoded: DecodedImage) -> Result<Arc<RenderImage>, Image
     let rgba = image::RgbaImage::from_raw(decoded.width, decoded.height, decoded.rgba)
         .ok_or(ImageError::Decode)?;
     Ok(Arc::new(RenderImage::new(vec![image::Frame::new(rgba)])))
+}
+
+/// GPUI has no blur filter, so a blurred copy is baked here: small, since it is all low
+/// frequencies and scales up without showing it.
+const BLURRED: (f32, f32) = (640.0, 360.0);
+const BLUR_SIGMA: f32 = 18.0;
+
+fn blur(decoded: DecodedImage) -> Result<DecodedImage, ImageError> {
+    let (width, height) = (decoded.width, decoded.height);
+    let rgba = image::RgbaImage::from_raw(width, height, decoded.rgba).ok_or(ImageError::Decode)?;
+    Ok(DecodedImage {
+        width,
+        height,
+        rgba: image::imageops::fast_blur(&rgba, BLUR_SIGMA).into_raw(),
+    })
+}
+
+/// Everything a finished load needs, computed before the pixels reach GPUI.
+fn prepare(
+    decoded: DecodedImage,
+    blurred: bool,
+) -> Result<(Arc<RenderImage>, Option<Hsla>), ImageError> {
+    let tint = crate::tint::dominant(&decoded.rgba);
+    let decoded = if blurred { blur(decoded)? } else { decoded };
+    Ok((render_image(decoded)?, tint))
 }
 
 /// Byte-bounded least-recently-used cache with explicit disposal on removal.
@@ -111,6 +136,7 @@ struct Key {
     url: Source,
     width: u32,
     height: u32,
+    blurred: bool,
 }
 
 /// Cached renderer handle and its fade-in origin.
@@ -120,6 +146,8 @@ pub struct CachedImage {
     pub image: Arc<RenderImage>,
     /// Completion time for image opacity.
     pub loaded: Instant,
+    /// The color this image reads as, for placeholders of its larger siblings.
+    pub tint: Option<Hsla>,
 }
 
 /// 160 MiB pixel LRU and up to six cancellable visible image loads.
@@ -194,12 +222,18 @@ impl ImageCache {
             url,
             width: bucket(bounds.0, scale),
             height: bucket(bounds.1, scale),
+            blurred: false,
         })
     }
     /// Read a cached offscreen tile without keeping a load alive.
     pub fn cached(&mut self, url: &str, bounds: (f32, f32), scale: f32) -> Option<CachedImage> {
         let key = self.key(url, bounds, scale)?;
         self.lru.get(&key).cloned()
+    }
+    /// The color of `url` at whatever size it was last decoded, without touching eviction order.
+    pub fn tint(&self, url: &str) -> Option<Hsla> {
+        let key = self.key(url, (0.0, 0.0), 1.0)?;
+        self.lru.latest(|cached| cached.url == key.url)?.tint
     }
     /// Request only images used by this frame; conversion also stays off GPUI.
     pub fn request(
@@ -211,6 +245,29 @@ impl ImageCache {
         cx: &mut Context<Self>,
     ) -> Option<CachedImage> {
         let key = self.key(url, bounds, window.scale_factor())?;
+        self.fetch(key, services, window, cx)
+    }
+    /// The heavily blurred copy of an image, for crossfading over the sharp one.
+    pub fn request_blurred(
+        &mut self,
+        url: &str,
+        services: &Arc<Services>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<CachedImage> {
+        let key = Key {
+            blurred: true,
+            ..self.key(url, BLURRED, 1.0)?
+        };
+        self.fetch(key, services, window, cx)
+    }
+    fn fetch(
+        &mut self,
+        key: Key,
+        services: &Arc<Services>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<CachedImage> {
         self.visible.insert(key.clone());
         if let Some(entry) = self.lru.get(&key) {
             self.fading |=
@@ -219,17 +276,21 @@ impl ImageCache {
         }
         // A resize changes the size bucket every few pixels; show the same image at its last
         // size until this one decodes, otherwise the artwork blanks for the whole drag.
-        let stale = self.lru.latest(|cached| cached.url == key.url).cloned();
+        let stale = self
+            .lru
+            .latest(|cached| cached.url == key.url && cached.blurred == key.blurred)
+            .cloned();
         if self.failed.contains(&key) || self.pending.contains_key(&key) || self.pending.len() >= 6
         {
             return stale;
         }
+        let blurred = key.blurred;
         let (sender, mut receiver) = mpsc::unbounded();
         let job = match &key.url {
             Source::Remote(url) => {
                 let loader = services.images.clone()?;
                 let request = ImageRequest {
-                    url: url.clone(),
+                    url: url.sized_for(key.width),
                     target: ImageTarget {
                         max_width: key.width,
                         max_height: key.height,
@@ -237,9 +298,11 @@ impl ImageCache {
                 };
                 Job(services.runtime.spawn(async move {
                     let result = match loader.load(request).await {
-                        Ok(decoded) => tokio::task::spawn_blocking(move || render_image(decoded))
-                            .await
-                            .unwrap_or(Err(ImageError::Decode)),
+                        Ok(decoded) => {
+                            tokio::task::spawn_blocking(move || prepare(decoded, blurred))
+                                .await
+                                .unwrap_or(Err(ImageError::Decode))
+                        }
                         Err(error) => Err(error),
                     };
                     let _ = sender.unbounded_send(result);
@@ -252,11 +315,14 @@ impl ImageCache {
                         let rgba = image::load_from_memory(bytes)
                             .map_err(|_| ImageError::Decode)?
                             .into_rgba8();
-                        render_image(DecodedImage {
-                            width: rgba.width(),
-                            height: rgba.height(),
-                            rgba: rgba.into_raw(),
-                        })
+                        prepare(
+                            DecodedImage {
+                                width: rgba.width(),
+                                height: rgba.height(),
+                                rgba: rgba.into_raw(),
+                            },
+                            blurred,
+                        )
                     })
                     .await
                     .unwrap_or(Err(ImageError::Decode));
@@ -272,16 +338,23 @@ impl ImageCache {
                     entity.update(cx, |cache, cx| {
                         cache.pending.remove(&completed);
                         match result {
-                            Ok(image) => {
+                            Ok((image, tint)) => {
                                 let bytes = image.as_bytes(0).map_or(0, |b| b.len());
                                 // A resized copy of an image already shown must not fade in again.
                                 let loaded = cache
                                     .lru
-                                    .latest(|cached| cached.url == completed.url)
+                                    .latest(|cached| {
+                                        cached.url == completed.url
+                                            && cached.blurred == completed.blurred
+                                    })
                                     .map_or_else(Instant::now, |entry| entry.loaded);
                                 cache.lru.insert(
                                     completed,
-                                    CachedImage { image, loaded },
+                                    CachedImage {
+                                        image,
+                                        loaded,
+                                        tint,
+                                    },
                                     bytes,
                                     |entry| {
                                         cx.drop_image(entry.image, Some(window));
@@ -367,6 +440,43 @@ mod tests {
         assert!(key(&fixtures, "fixture://missing.jpg").is_none());
         assert!(key(&fixtures, "http://dusk.jpg").is_none());
         assert!(key(&live, "fixture://dusk.jpg").is_none());
+    }
+    #[test]
+    fn blur_spreads_a_hard_edge() {
+        let (width, height) = (64, 8);
+        let rgba = (0..width * height)
+            .flat_map(|i| [if i % width < width / 2 { 0 } else { 255 }, 0, 0, 255])
+            .collect();
+        let blurred = blur(DecodedImage {
+            width,
+            height,
+            rgba,
+        })
+        .unwrap();
+        let red = |x: u32| blurred.rgba[(x * 4) as usize];
+        assert!(red(30) > 40 && red(33) < 215, "{} {}", red(30), red(33));
+        assert!(red(30) < red(33));
+    }
+    #[test]
+    fn tint_is_found_from_any_decoded_size() {
+        let mut cache = ImageCache::default();
+        let url = "https://example.com/still.jpg";
+        let image = render_image(DecodedImage {
+            width: 1,
+            height: 1,
+            rgba: vec![0, 0, 0, 255],
+        })
+        .unwrap();
+        let tint = gpui::red();
+        let key = cache.key(url, (372.0, 186.0), 2.0).unwrap();
+        let entry = CachedImage {
+            image,
+            loaded: Instant::now(),
+            tint: Some(tint),
+        };
+        cache.lru.insert(key, entry, 1, |_| {});
+        assert_eq!(cache.tint(url), Some(tint));
+        assert_eq!(cache.tint("https://example.com/other.jpg"), None);
     }
     #[test]
     fn alpha_is_straight_and_channels_are_bgra() {

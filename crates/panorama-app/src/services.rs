@@ -1,7 +1,7 @@
 use futures::{StreamExt, channel::mpsc};
 use panorama_core::{
     addons::{AddonClient, CatalogRef, CoreAddonTransport, FilmDetails, ResourceEvent},
-    images::{ImageLoader, ImageLoaderOptions},
+    images::{ImageLoader, ImageLoaderOptions, ImageRequest, ImageTarget, ImageUrl},
     store::{self, Store, StoreError},
     stremio::{
         ContinueItem, CoreChange, CoreSession, Descriptor, ResumePoint,
@@ -360,6 +360,58 @@ impl Services {
             }
         });
         (Job(job), receiver)
+    }
+
+    /// Bring a film's backdrop and logo into the disk cache. The small target skips keeping a
+    /// full-size decode; the page decodes the cached original at its own size.
+    pub fn warm_artwork(self: &Arc<Self>, film: &FilmDetails) -> Job<()> {
+        let loader = self.images.clone();
+        let parse = |url: Option<&url::Url>| ImageUrl::parse(url?.as_str()).ok();
+        let banner = parse(film.background.as_ref().or(film.poster.as_ref()));
+        // The page's slot is unknown here; a logo always fits w780 and a banner may not.
+        let logo = parse(film.logo.as_ref()).map(|url| url.sized_for(768));
+        let requests = [banner, logo]
+            .into_iter()
+            .flatten()
+            .map(|url| ImageRequest {
+                url,
+                target: ImageTarget {
+                    max_width: 64,
+                    max_height: 64,
+                },
+            })
+            .collect::<Vec<_>>();
+        Job(self.runtime.spawn(async move {
+            if let Some(loader) = loader {
+                futures::future::join_all(requests.into_iter().map(|request| loader.load(request)))
+                    .await;
+            }
+        }))
+    }
+
+    /// A film's foreign title. Addons rarely send one, so it comes from Wikidata, once per film:
+    /// the answer, even none, is kept in the store. A network failure is retried next visit.
+    pub fn original_title(self: &Arc<Self>, id: String) -> Job<Option<String>> {
+        let (wikidata, store) = (self.credits.clone(), self.store.clone());
+        Job(self.runtime.spawn(async move {
+            let wikidata = wikidata?;
+            let key = panorama_core::store::Key::original_title(&id).ok();
+            let cached = store
+                .as_ref()
+                .zip(key.as_ref())
+                .and_then(|(store, key)| store.get(key).ok().flatten())
+                .and_then(|bytes| serde_json::from_slice::<Option<String>>(&bytes).ok());
+            if let Some(title) = cached {
+                return title;
+            }
+            let title = wikidata.original_title(&id).await;
+            if let (Ok(title), Some(store), Some(key)) = (&title, &store, &key)
+                && let Ok(bytes) = serde_json::to_vec(title)
+            {
+                let _ = store.set(key, &bytes);
+            }
+            title.ok().flatten()
+        }))
     }
 
     /// The addon transport that supplied a film's cached metadata, for the playback target.

@@ -64,16 +64,25 @@ pub struct Film {
     watchlist: FocusHandle,
     retry_details: FocusHandle,
     launched: Instant,
-    /// When details, backdrop and logo were first all ready; the page shimmers until then.
+    /// When everything was in, or the wait ran out; the page holds on its color until then.
     revealed: Option<Instant>,
+    /// The foreign title lookup is still out.
+    original_pending: bool,
+    /// The title in the film's own language, when its metadata has none.
+    original_title: Option<String>,
+    /// The card this page was opened from.
+    card: Option<FilmDetails>,
+    /// The color of the card this page was opened from, if its artwork is still cached.
+    tint: Option<gpui::Hsla>,
     debug_step: usize,
     images: Entity<ImageCache>,
     details_task: Option<Task<()>>,
-    sources_task: Option<Task<()>>,
+    sources_seen: Option<Arc<Vec<panorama_core::addons::StreamGroup>>>,
     subtitles_task: Option<Task<()>>,
     library_task: Option<Task<()>>,
     save_task: Option<Task<()>>,
     credits_task: Option<Task<()>>,
+    original_task: Option<Task<()>>,
     _state: Subscription,
     _shell: Subscription,
     _images: Subscription,
@@ -103,7 +112,14 @@ impl Film {
                     .find(|film| film.id == id)
                     .cloned()
             });
+        let card = metadata.clone();
         let images = current.images.clone();
+        let tint = metadata.as_ref().and_then(|film| {
+            [&film.background, &film.poster]
+                .into_iter()
+                .flatten()
+                .find_map(|url| images.read(cx).tint(url.as_str()))
+        });
         let awards_expanded = if args.awards_expand_first {
             std::collections::HashSet::from([0])
         } else {
@@ -116,8 +132,9 @@ impl Film {
             let changed = film.account != state.account || film.installed != state.installed;
             film.account = state.account.clone();
             film.installed = state.installed.clone();
+            film.sync_sources(state);
             if changed {
-                film.load_sources(cx);
+                film.load_sources(true, cx);
                 film.subscribe_library(cx);
             }
             cx.notify();
@@ -162,20 +179,25 @@ impl Film {
             retry_details: cx.focus_handle(),
             launched: Instant::now(),
             revealed: None,
+            original_pending: false,
+            original_title: None,
+            card,
+            tint,
             debug_step: 0,
             images,
             details_task: None,
-            sources_task: None,
+            sources_seen: None,
             subtitles_task: None,
             library_task: None,
             save_task: None,
             credits_task: None,
+            original_task: None,
             _state: observer,
             _shell: shell_observer,
             _images: image_observer,
         };
         film.load_details(cx);
-        film.load_sources(cx);
+        film.load_sources(false, cx);
         film.load_credits(cx);
         film.subscribe_library(cx);
         film

@@ -27,6 +27,23 @@ use std::{error::Error, fmt, path::PathBuf, time::Duration};
 pub struct ImageUrl(reqwest::Url);
 
 impl ImageUrl {
+    /// TMDB's copy of this image for a slot `width` pixels wide. Addons link `original`, up to
+    /// 3840 wide and megabytes large, even for a card; other images are returned as they are.
+    pub fn sized_for(&self, width: u32) -> Self {
+        let tier = match width {
+            0..=780 => "w780",
+            781..=1280 => "w1280",
+            _ => return self.clone(),
+        };
+        match self.0.path().strip_prefix("/t/p/original/") {
+            Some(name) if self.0.host_str() == Some("image.tmdb.org") => {
+                let mut url = self.0.clone();
+                url.set_path(&format!("/t/p/{tier}/{name}"));
+                Self(url)
+            }
+            _ => self.clone(),
+        }
+    }
     /// Validates HTTPS, a host, no userinfo, and at most 2,048 characters.
     /// Fragments are removed because they do not identify an HTTP resource.
     pub fn parse(input: &str) -> Result<Self, ImageError> {

@@ -24,6 +24,7 @@ pub fn films() -> Vec<FilmDetails> {
             id: format!("tmdb:{}", 100 + index),
             name: ["Aftersun", "Perfect Days", "Past Lives"][index % 3].into(),
             release_info: Some((2022 + index % 3).to_string()),
+            released: None,
             director: vec![["Charlotte Wells", "Wim Wenders", "Celine Song"][index % 3].into()],
             origin_country: (index % 3 == 1).then(|| "Japan".into()),
             original_name: (index % 3 == 1).then(|| "パーフェクト・デイズ".into()),

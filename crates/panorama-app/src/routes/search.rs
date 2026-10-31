@@ -166,12 +166,12 @@ impl Search {
                     search.loading = false;
                     match event {
                         ResourceEvent::CacheHit(films) | ResourceEvent::Fresh(films) => {
-                            let films = films
+                            let mut films = films
                                 .into_iter()
                                 .filter(|film| !film.name.trim().is_empty())
-                                .collect::<Vec<_>>()
-                                .into();
-                            search.grid.set_films(films, cx);
+                                .collect::<Vec<_>>();
+                            panorama_core::addons::only_released(&mut films);
+                            search.grid.set_films(films.into(), cx);
                         }
                         ResourceEvent::Failed(kind) => {
                             search.error = Some(
@@ -231,7 +231,7 @@ impl Search {
     }
 
     fn status(&self) -> String {
-        // The shimmering grid shows a search is under way; no line of text repeats it.
+        // The blank grid shows a search is under way; no line of text repeats it.
         if self.query.is_empty() || self.loading || self.error.is_some() {
             String::new()
         } else {
@@ -275,6 +275,11 @@ impl GridHost for Search {
         }
         cx.stop_propagation();
         cx.notify();
+    }
+    fn hover_card(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(film) = self.grid.films.get(index) {
+            crate::prefetch::hovered(&self.state, &film.id, cx);
+        }
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         super::home::open_film(&self.state, &self.shell, film, window, cx);
