@@ -221,8 +221,16 @@ logging or file work on the UI thread, as established by Phase 0 Gate 2.
 `CachedImage` keeps its result. `ImageCache::tint` reads it by URL, so the film page
 opens on its card's color while the backdrop loads. Tints live and die with the LRU.
 
-The film page holds on the card's color until details, still, logo, foreign title and
-the first playable source are in, then fades them in together. Addons answer sources
+Clicking a Home, Search or festival card grows its artwork to the window over the mounted grid
+(`zoom.rs`) and mounts the page when it lands, on the same frame as the page's own backdrop. Back returns
+to the grid at once and shrinks the page's banner onto the card at rest; a window resized in
+between has no card to land on, so it just returns. The zoom is one reversible tween: Back
+during the climb turns it around without the page ever mounting, Back during the descent is
+swallowed, and a click on the descending artwork sends it back up. The card landed on keeps
+its caption hidden for a second (`Quiet` in `AppState`), then fades it in.
+The film page opens on the card's still, or its color while the still loads, and holds
+there until details, logo, foreign title and the first playable source are in, then fades
+them in together. The scrims belong to the still, so a bare color has none. Addons answer sources
 independently and later ones join after. With none playable it waits for them all, so
 past `REVEAL_LIMIT` the page shows without them. Resting on a Home or Search card warms that film (`prefetch.rs`):
 details land in the store and artwork on disk, so the page opens from cache and

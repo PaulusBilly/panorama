@@ -235,12 +235,7 @@ impl Render for Film {
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         }
-        // The card's preview artwork differs from the details', so wait for the details.
-        let (artwork, poster, source) = if self.loading && self.revealed.is_none() {
-            (None, false, None)
-        } else {
-            self.artwork(view, window, cx)
-        };
+        let (artwork, poster, source) = self.artwork(view, window, cx);
         let blurred = source
             .as_ref()
             .filter(|_| view.active)
@@ -250,9 +245,7 @@ impl Render for Film {
             let logo_pending = logo.is_some_and(|url| {
                 matches!(self.image(&url, FILM_LOGO, view, window, cx), (None, false))
             });
-            let art_pending = source.is_some() && artwork.is_none();
-            let waiting =
-                art_pending || logo_pending || self.sources_loading || self.original_pending;
+            let waiting = logo_pending || self.sources_loading || self.original_pending;
             if view.active && !self.loading && (!waiting || self.launched.elapsed() >= REVEAL_LIMIT)
             {
                 self.revealed = Some(Instant::now());
@@ -272,9 +265,13 @@ impl Render for Film {
             .min_h(px(view.height))
             .text_color(theme.ink);
         let blur = blur_progress(-f32::from(self.scroll.offset().y), view.height);
-        // The page scrolls over this. The card's color holds until the still fades in; past the
-        // threshold the blurred copy takes over under an even wash. The bottom scrim stays.
+        // The page scrolls over this. The card's still shows at once, its color first if it has
+        // to load. The scrims belong to the still, so the bare color has none. Past the threshold
+        // the blurred copy takes over under an even wash. The bottom scrim stays.
         let bounds = (view.width, view.height);
+        let scrims = artwork
+            .as_ref()
+            .map_or(0.0, |art| film_card::fade_in(art, view.reduced));
         let backdrop = div()
             .absolute()
             .inset_0()
@@ -283,12 +280,12 @@ impl Render for Film {
             .when_some(self.tint, |backdrop, tint| {
                 backdrop.child(div().absolute().inset_0().bg(tint))
             })
-            .when_some(artwork.filter(|_| reveal > 0.0), |backdrop, art| {
+            .when_some(artwork, |backdrop, art| {
                 backdrop.child(
                     div()
                         .absolute()
                         .inset_0()
-                        .opacity(reveal * film_card::fade_in(&art, view.reduced))
+                        .opacity(film_card::fade_in(&art, view.reduced))
                         .bg(theme.artwork_empty)
                         .child(hero::cover(art.image, bounds, poster, 1.0)),
                 )
@@ -296,13 +293,19 @@ impl Render for Film {
             .when_some(blurred.filter(|_| blur > 0.0), |backdrop, art| {
                 backdrop.child(hero::cover(art.image, bounds, poster, 1.0).opacity(blur))
             })
-            .child(div().absolute().inset_0().opacity(1.0 - blur).child(scrim(
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .opacity(scrims * (1.0 - blur))
+                    .child(scrim(theme, Edge::Top, relative(0.3), 0.6)),
+            )
+            .child(div().absolute().inset_0().opacity(scrims).child(scrim(
                 theme,
-                Edge::Top,
-                relative(0.3),
-                0.6,
+                Edge::Bottom,
+                relative(0.45),
+                1.0,
             )))
-            .child(scrim(theme, Edge::Bottom, relative(0.45), 1.0))
             .child(
                 div()
                     .absolute()

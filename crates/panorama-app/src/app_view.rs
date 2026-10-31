@@ -38,7 +38,9 @@ impl Render for AppShell {
                 .as_ref()
                 .is_some_and(|player| player.capture_ready);
         let capture_waiting = self.screenshot.is_some() && !self.capture_scheduled;
-        if moving || capture_waiting {
+        let settling = self.zoom.is_some()
+            || (self.state.read(cx).quiet.as_ref()).is_some_and(crate::zoom::Quiet::active);
+        if moving || capture_waiting || settling {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
             window.request_animation_frame();
         }
@@ -150,7 +152,9 @@ impl Render for AppShell {
                         cx.stop_propagation();
                     }
                 }
-                shell.keyboard_navigation = true;
+                if navigation::moves_focus(&event.keystroke) {
+                    shell.keyboard_navigation = true;
+                }
                 cx.notify();
             }))
             .on_key_down(cx.listener(Self::key_down))
@@ -180,6 +184,11 @@ impl Render for AppShell {
             .children(sidebar)
             .when(self.menu.open, |shell| shell.child(self.menu.catcher(cx)))
             .children(menu)
+            .children(
+                self.zoom
+                    .as_ref()
+                    .map(|zoom| zoom.render(window.viewport_size(), self.theme, cx)),
+            )
             // Drawn last on both platforms, taking no layout space.
             .when(!window.is_fullscreen(), |shell| {
                 shell.child(

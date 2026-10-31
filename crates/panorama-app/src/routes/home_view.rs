@@ -16,10 +16,13 @@ impl Home {
     ) -> gpui::Stateful<Div> {
         let signed_in = self.signed_in(cx);
         let cards = self.state.read(cx).continue_watching.read(cx).cards();
+        let quiet = self.state.read(cx).quiet.clone();
+        self.grid.quiet = quiet.clone();
+        self.row.quiet = quiet;
         let films = self.grid.films.clone();
         let lineup = lineup(signed_in, &cards, &films);
         self.row.sync(lineup.row.len(), cx);
-        let row_height = (!lineup.row.is_empty()).then(ContinueRow::height);
+        let row_height = (!lineup.row.is_empty()).then(|| ContinueRow::height(view));
         self.fold = hero::fold(view, row_height);
         let fold = self.fold;
         let hero_height = hero::height(view);

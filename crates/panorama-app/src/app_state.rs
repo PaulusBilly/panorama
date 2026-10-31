@@ -66,6 +66,8 @@ pub struct AppState {
     pub continue_watching: gpui::Entity<crate::continue_watching::ContinueWatching>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
+    /// The card a film page just shrank onto.
+    pub quiet: Option<crate::zoom::Quiet>,
     /// Source lookups by film, reused between the hover prefetch and the film page.
     pub source_lookups: crate::source_lookup::SourceLookups,
     /// The film whose lookup feeds `streams`; a prefetch must not overwrite an open Player's.
@@ -110,6 +112,7 @@ impl AppState {
             images,
             continue_watching,
             film_preview: None,
+            quiet: None,
             source_lookups: Default::default(),
             streams_for: None,
             prefetch: Default::default(),

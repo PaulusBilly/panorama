@@ -4,26 +4,33 @@ use crate::{
     film_card::{caption, fade_in},
     film_grid::{GridHost, NextCard, PreviousCard, artwork},
     hero,
-    home_layout::ViewSettings,
+    home_layout::{GAP, Grid, ViewSettings},
     image_cache::ImageCache,
     routes::home::Home,
     services::Services,
     theme::{SIDEBAR_WIDTH, caps, focus_ring, typography::SECTION},
+    zoom::CardArt,
 };
 use gpui::{
     App, Context, Div, Entity, FocusHandle, Window, div, linear_color_stop, linear_gradient,
     prelude::*, px, relative,
 };
-use std::sync::Arc;
+use std::{cell::Cell, rc::Rc, sync::Arc};
 
-/// 16:9, fixed so nothing jumps when details arrive.
-pub const CARD: (f32, f32) = (360.0, 202.5);
-const GAP: f32 = 12.0;
 const HEADING_GAP: f32 = 14.0;
 /// Room around the cards inside the scroll area, which clips, for the outer focus ring.
 const RING: f32 = 4.0;
+
+/// The main grid's tile, so both sit on the same columns.
+pub fn card_size(view: ViewSettings) -> (f32, f32) {
+    let grid = Grid::fit(view.column().width);
+    (grid.width, grid.height())
+}
+
 /// Distance from one card's left edge to the next.
-const PITCH: f32 = CARD.0 + GAP;
+fn pitch(view: ViewSettings) -> f32 {
+    card_size(view).0 + GAP
+}
 
 /// The Continue row, a [`Carousel`] that runs the full window width, so cards scrolled past
 /// stay visible in the gutter and fade toward the sidebar.
@@ -31,6 +38,8 @@ const PITCH: f32 = CARD.0 + GAP;
 pub struct ContinueRow {
     pub rail: Carousel,
     pub cards: Vec<FocusHandle>,
+    /// The card a film page just landed on, set by Home each frame.
+    pub quiet: Option<crate::zoom::Quiet>,
 }
 
 impl ContinueRow {
@@ -40,8 +49,8 @@ impl ContinueRow {
     }
 
     /// Glide so card `index` sits on the column's left edge, or as near as the row allows.
-    pub fn show(&mut self, index: usize) {
-        self.rail.show(index, PITCH);
+    pub fn show(&mut self, index: usize, view: ViewSettings) {
+        self.rail.show(index, pitch(view));
     }
 
     /// Frames are needed while the row waits to settle or glides.
@@ -53,8 +62,8 @@ impl ContinueRow {
         self.cards.resize_with(len, || cx.focus_handle());
     }
 
-    pub fn height() -> f32 {
-        SECTION.size * SECTION.line_height + HEADING_GAP + CARD.1
+    pub fn height(view: ViewSettings) -> f32 {
+        SECTION.size * SECTION.line_height + HEADING_GAP + card_size(view).1
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -68,7 +77,9 @@ impl ContinueRow {
         window: &Window,
         cx: &mut Context<Home>,
     ) -> Div {
-        self.rail.settle(PITCH, view.reduced);
+        let size = card_size(view);
+        let pitch = pitch(view);
+        self.rail.settle(pitch, view.reduced);
         let theme = view.theme;
         let col = view.column();
         let position = self.rail.position();
@@ -87,11 +98,11 @@ impl ContinueRow {
                 home.row.wheel();
                 cx.notify();
             }))
-            .child(div().flex_shrink_0().w(px(col.left - GAP)).h(px(CARD.1)));
+            .child(div().flex_shrink_0().w(px(col.left - GAP)).h(px(size.1)));
         for (index, (card, focus)) in cards.iter().zip(&self.cards).enumerate() {
             let (image, poster, _) =
-                artwork(images, services, &card.film, CARD, visible, window, cx);
-            let x = col.left + index as f32 * PITCH - position;
+                artwork(images, services, &card.film, size, visible, window, cx);
+            let x = col.left + index as f32 * pitch - position;
             row = row.child(self.card(
                 card,
                 index,
@@ -108,7 +119,7 @@ impl ContinueRow {
             div()
                 .flex_shrink_0()
                 .w(px((view.width - col.left - col.width - GAP).max(0.0)))
-                .h(px(CARD.1)),
+                .h(px(size.1)),
         );
         div()
             .flex()
@@ -139,6 +150,11 @@ impl ContinueRow {
         let theme = view.theme;
         let film = card.film.clone();
         let col = view.column();
+        let size = card_size(view);
+        let on_screen = Rc::new(Cell::new(gpui::Bounds::default()));
+        let zoom = image
+            .as_ref()
+            .map(|(image, poster)| (image.image.clone(), *poster));
         let mut tile = div()
             .absolute()
             .inset_0()
@@ -146,43 +162,62 @@ impl ContinueRow {
             .bg(theme.artwork_empty);
         if let Some((image, poster)) = image {
             let fade = fade_in(&image, view.reduced);
-            tile = tile.child(hero::cover(image.image, CARD, poster, 1.0).opacity(fade));
+            tile = tile.child(hero::cover(image.image, size, poster, 1.0).opacity(fade));
         }
         let percent = (card.progress * 100.0).round() as u32;
-        let button =
-            focus_ring(
-                div()
-                    .id(("continue-card", index))
-                    .key_context("PanoramaCard")
-                    .on_action(cx.listener(move |home, _: &NextCard, window, cx| {
-                        home.step_row(index, true, window, cx)
-                    }))
-                    .on_action(cx.listener(move |home, _: &PreviousCard, window, cx| {
-                        home.step_row(index, false, window, cx)
-                    }))
-                    .absolute()
-                    .inset_0()
-                    .cursor_pointer()
-                    .role(gpui::Role::Button)
-                    .aria_label(format!(
-                        "Open details for {}, {percent}% watched",
-                        film.name
-                    ))
-                    .on_click(cx.listener(move |home, _, window, cx| {
-                        home.open_film(film.clone(), window, cx)
-                    })),
-                focus,
-                theme,
-                view.active,
-                view.keyboard,
-                0.0,
-                window,
-            )
-            .absolute()
-            .inset_0();
+        let button = focus_ring(
+            div()
+                .id(("continue-card", index))
+                .key_context("PanoramaCard")
+                .on_action(cx.listener(move |home, _: &NextCard, window, cx| {
+                    home.step_row(index, true, window, cx)
+                }))
+                .on_action(cx.listener(move |home, _: &PreviousCard, window, cx| {
+                    home.step_row(index, false, window, cx)
+                }))
+                .absolute()
+                .inset_0()
+                .cursor_pointer()
+                .role(gpui::Role::Button)
+                .aria_label(format!(
+                    "Open details for {}, {percent}% watched",
+                    film.name
+                ))
+                .on_click({
+                    let on_screen = on_screen.clone();
+                    cx.listener(move |home, _, window, cx| match zoom.clone() {
+                        Some((image, poster)) => {
+                            let card = CardArt {
+                                film: film.clone(),
+                                image,
+                                poster,
+                                bounds: on_screen.get(),
+                                rest: on_screen.get(),
+                                lift: 0.0,
+                                note: None,
+                            };
+                            home.zoom_film(film.clone(), card, window, cx)
+                        }
+                        None => home.open_film(film.clone(), window, cx),
+                    })
+                }),
+            focus,
+            theme,
+            view.active,
+            view.keyboard,
+            0.0,
+            window,
+        )
+        .absolute()
+        .inset_0();
         // The grid tile's scrim and caption, with progress as a hairline along the bottom edge.
         let fade = theme.scrim.opacity(0.58);
         let tile = tile
+            .child(
+                gpui::canvas(move |bounds, _, _| on_screen.set(bounds), |_, _, _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
             .child(
                 div()
                     .absolute()
@@ -196,7 +231,12 @@ impl ContinueRow {
                         linear_color_stop(fade, 1.0),
                     )),
             )
-            .child(caption(&card.film, None, theme))
+            .child(
+                caption(&card.film, None, theme).opacity(crate::zoom::caption_opacity(
+                    self.quiet.as_ref(),
+                    &card.film.id,
+                )),
+            )
             .child(
                 div()
                     .absolute()
@@ -239,8 +279,8 @@ impl ContinueRow {
         div()
             .relative()
             .flex_shrink_0()
-            .w(px(CARD.0))
-            .h(px(CARD.1))
+            .w(px(size.0))
+            .h(px(size.1))
             .child(tile)
             .child(button)
     }

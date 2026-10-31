@@ -64,7 +64,7 @@ pub struct Film {
     watchlist: FocusHandle,
     retry_details: FocusHandle,
     launched: Instant,
-    /// When everything was in, or the wait ran out; the page holds on its color until then.
+    /// When everything was in, or the wait ran out; the page holds on its banner until then.
     revealed: Option<Instant>,
     /// The foreign title lookup is still out.
     original_pending: bool,

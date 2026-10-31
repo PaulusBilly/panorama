@@ -17,6 +17,7 @@ use crate::{
         scrim::{Edge, scrim},
         typography::TITLE,
     },
+    zoom::CardArt,
 };
 use futures::StreamExt;
 use gpui::{
@@ -36,10 +37,17 @@ const GRID_GAP: f32 = 56.0;
 /// One year tab: 8 above, a 13px label line, 6 below and the 2px underline.
 const YEAR_ROW: f32 = 34.0;
 
+/// What to do with a lookup's answer, once a card waiting on it was clicked.
+struct Then {
+    play: bool,
+    card: Option<CardArt>,
+    window: gpui::AnyWindowHandle,
+}
+
 struct Lookup {
     index: usize,
     /// Open (`false`) or play (`true`) once found; `None` for a lookup started on hover.
-    then: Option<(bool, gpui::AnyWindowHandle)>,
+    then: Option<Then>,
     _task: Task<()>,
 }
 
@@ -255,9 +263,16 @@ impl Festival {
 
     /// Open or play the card's film once the addons have it; Search when none does. A click
     /// while its lookup runs only updates what happens when it lands.
-    fn resolve(&mut self, index: usize, play: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn resolve(
+        &mut self,
+        index: usize,
+        play: bool,
+        card: Option<CardArt>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(found) = self.found.get(&index).cloned() {
-            self.finish(index, Some(found), play, window, cx);
+            self.finish(index, Some(found), play, card, window, cx);
             return;
         }
         if !self
@@ -268,7 +283,11 @@ impl Festival {
             self.look_up(index, cx);
         }
         if let Some(lookup) = &mut self.lookup {
-            lookup.then = Some((play, window.window_handle()));
+            lookup.then = Some(Then {
+                play,
+                card,
+                window: window.window_handle(),
+            });
         }
         cx.notify();
     }
@@ -301,10 +320,10 @@ impl Festival {
                 let lookup = festival.lookup.take_if(|lookup| lookup.index == index)?;
                 lookup.then
             });
-            if let Ok(Some((play, handle))) = then {
-                let _ = cx.update_window(handle, |_, window, cx| {
+            if let Ok(Some(then)) = then {
+                let _ = cx.update_window(then.window, |_, window, cx| {
                     let _ = entity.update(cx, |festival, cx| {
-                        festival.finish(index, found, play, window, cx)
+                        festival.finish(index, found, then.play, then.card, window, cx)
                     });
                 });
             }
@@ -332,6 +351,7 @@ impl Festival {
         index: usize,
         found: Option<FilmDetails>,
         play: bool,
+        card: Option<CardArt>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -347,7 +367,15 @@ impl Festival {
             Some(details) if play => {
                 super::home::play_film(&self.state, &self.shell, details, None, window, cx)
             }
-            Some(details) => super::home::open_film(&self.state, &self.shell, details, window, cx),
+            Some(mut details) => match card {
+                Some(card) => {
+                    // The zoom lands on the page's backdrop, so the page keeps the card's still.
+                    details.background = card.film.background.clone();
+                    details.poster = card.film.poster.clone();
+                    super::home::zoom_film(&self.state, &self.shell, details, card, window, cx)
+                }
+                None => super::home::open_film(&self.state, &self.shell, details, window, cx),
+            },
             None => {
                 let Some(query) = self.films.get(index).map(|film| film.title.clone()) else {
                     return;
@@ -535,12 +563,23 @@ impl GridHost for Festival {
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(index) = card_index(&film) {
-            self.resolve(index, false, window, cx);
+            self.resolve(index, false, None, window, cx);
+        }
+    }
+    fn zoom_film(
+        &mut self,
+        film: FilmDetails,
+        card: CardArt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = card_index(&film) {
+            self.resolve(index, false, Some(card), window, cx);
         }
     }
     fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(index) = card_index(&film) {
-            self.resolve(index, true, window, cx);
+            self.resolve(index, true, None, window, cx);
         }
     }
 }
@@ -754,6 +793,7 @@ impl Render for Festival {
             let top = -f32::from(self.scroll.offset().y);
             let offset = Self::grid_top(view) - top;
             let images = self.images.clone();
+            self.grid.quiet = self.state.read(cx).quiet.clone();
             section = section.child(self.grid.render_rows(
                 offset,
                 self.loading && self.films.is_empty(),
