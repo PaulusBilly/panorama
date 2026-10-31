@@ -59,7 +59,7 @@ fn cancelled_write_cannot_restore_cache_after_sign_out(metadata: bool) {
         };
         let stream = if metadata {
             client
-                .details(&addons, "custom:1", None)
+                .details(&addons, Kind::Movie, "custom:1", None)
                 .map(|_| ())
                 .boxed()
         } else {
@@ -109,7 +109,7 @@ async fn sign_out_discards_inflight_cache_writes_and_allows_new_requests() {
         fake.set("installed.test", resource, id, reply.delayed(1));
         let stream = if metadata {
             client
-                .details(&addons, "custom:1", None)
+                .details(&addons, Kind::Movie, "custom:1", None)
                 .map(|_| ())
                 .boxed()
         } else {
@@ -123,7 +123,7 @@ async fn sign_out_discards_inflight_cache_writes_and_allows_new_requests() {
         assert!(client.store.get(&key).unwrap().is_none());
         if metadata {
             client
-                .details(&addons, "custom:1", None)
+                .details(&addons, Kind::Movie, "custom:1", None)
                 .collect::<Vec<_>>()
                 .await;
         } else {
@@ -217,7 +217,7 @@ async fn details_cache_read_failure_still_fetches_addons_and_cinemeta() {
             Reply::json(json!({"meta":movie("tt1", "Fresh")})),
         );
         let events = client
-            .details(&addons, "tt1", None)
+            .details(&addons, Kind::Movie, "tt1", None)
             .collect::<Vec<_>>()
             .await;
         assert!(

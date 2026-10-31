@@ -166,7 +166,7 @@ fn stale_preferences_fall_back_after_external_collection_change() {
 }
 
 #[test]
-fn preference_selection_rejects_missing_catalogs_and_non_movie_meta() {
+fn preference_selection_rejects_missing_catalogs_and_unsupported_meta() {
     let api = MockApi::start();
     let mut fixture = TestEnv::memory(Some(api.base.clone()));
     let (server, url) = server(&mut fixture);
@@ -177,7 +177,7 @@ fn preference_selection_rejects_missing_catalogs_and_non_movie_meta() {
             .await
             .unwrap();
         let mut value = body("stream-only");
-        value["resources"] = serde_json::json!(["stream", {"name":"meta", "types":["series"]}]);
+        value["resources"] = serde_json::json!(["stream", {"name":"meta", "types":["tv"]}]);
         *server.body.lock().unwrap() = serde_json::to_vec(&value).unwrap();
         let preview = session.preview(url).await.unwrap();
         session.install(preview.token).await.unwrap();

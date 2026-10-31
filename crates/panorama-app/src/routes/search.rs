@@ -170,6 +170,7 @@ impl Search {
                                 .into_iter()
                                 .filter(|film| !film.name.trim().is_empty())
                                 .collect::<Vec<_>>();
+                            films.retain(|film| film.kind == panorama_core::addons::Kind::Movie); // series: removed in the show page stage
                             panorama_core::addons::only_released(&mut films);
                             search.grid.set_films(films.into(), cx);
                         }

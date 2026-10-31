@@ -2,7 +2,7 @@ use crate::services::Services;
 use futures::StreamExt;
 use gpui::{Context, Task};
 use panorama_core::{
-    addons::{FilmDetails, ResourceEvent},
+    addons::{FilmDetails, Kind, ResourceEvent},
     stremio::{ContinueItem, FilmMeta, ResumePoint},
 };
 use std::{
@@ -161,6 +161,7 @@ fn build_cards(
 fn stub(meta: &FilmMeta) -> FilmDetails {
     FilmDetails {
         id: meta.id.clone(),
+        kind: Kind::Movie,
         name: meta.name.clone(),
         release_info: None,
         released: None,
@@ -177,6 +178,7 @@ fn stub(meta: &FilmMeta) -> FilmDetails {
         logo: None,
         imdb_rating: None,
         links: vec![],
+        episodes: vec![],
     }
 }
 

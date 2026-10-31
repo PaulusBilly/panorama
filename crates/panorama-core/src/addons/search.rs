@@ -4,7 +4,7 @@ use futures::{FutureExt, SinkExt, StreamExt, stream};
 use stremio_core::types::addon::{ExtraValue, ResourcePath};
 
 use super::{
-    AddonClient, FailureKind, FilmDetails, ResourceEvent, SearchStream, delivery, sanitize,
+    AddonClient, FailureKind, FilmDetails, Kind, ResourceEvent, SearchStream, delivery, sanitize,
 };
 use crate::{store::Key, stremio::Descriptor};
 
@@ -62,8 +62,8 @@ impl AddonClient {
         })
     }
 
-    /// Searches up to four eligible movie catalogs concurrently, merging in account
-    /// order. Enriches thin cards among the first 20 results, four at a time.
+    /// Searches up to four eligible movie catalogs and four of other kinds concurrently,
+    /// merging in account order. Enriches thin cards among the first 20 results, four at a time.
     /// Queries are trimmed and capped at 100 characters; empty queries do no I/O.
     pub fn search(&self, addons: &[Descriptor], query: &str) -> SearchStream {
         let client = self.for_request();
@@ -142,11 +142,11 @@ impl AddonClient {
                     .take(20)
                     .enumerate()
                     .filter(|(_, film)| thin(film))
-                    .map(|(index, film)| (index, film.id.clone()))
+                    .map(|(index, film)| (index, film.kind, film.id.clone()))
                     .collect::<Vec<_>>();
-                let fill = thin.into_iter().map(|(index, id)| {
+                let fill = thin.into_iter().map(|(index, kind, id)| {
                     client
-                        .details(&addons, &id, None)
+                        .details(&addons, kind, &id, None)
                         .map(move |event| (index, event))
                 });
                 let mut fill = stream::iter(fill).flatten_unordered(4);
@@ -226,35 +226,46 @@ fn fill_gaps(film: &mut FilmDetails, details: FilmDetails) {
     }
 }
 
-/// Up to four search-capable movie catalogs in account order; Cinemeta when nothing is installed.
+/// Up to four search-capable movie catalogs, and four of other kinds, in account order.
+/// Other kinds have their own budget so they never crowd movies out. Cinemeta's movie and
+/// series top catalogs when nothing is installed.
 fn search_plan(
     client: &AddonClient,
     addons: &[Descriptor],
     extra: &[ExtraValue],
 ) -> Vec<(super::Installation, ResourcePath)> {
     let mut plan = Vec::new();
-    'addons: for addon in client.installations(addons) {
+    let (mut movies, mut others) = (0, 0);
+    for addon in client.installations(addons) {
         for catalog in addon.descriptor.manifest.catalogs.iter().take(100) {
-            if catalog.r#type == "movie"
-                && Key::catalog(addon.key.as_str(), &catalog.id).is_ok()
+            let Some(kind) = Kind::parse(&catalog.r#type) else {
+                continue;
+            };
+            let used = if kind == Kind::Movie {
+                &mut movies
+            } else {
+                &mut others
+            };
+            if *used < 4
+                && Key::typed_catalog(addon.key.as_str(), &catalog.r#type, &catalog.id).is_ok()
                 && catalog.extra.iter().any(|prop| prop.name == "search")
                 && catalog.is_extra_supported(extra)
             {
+                *used += 1;
                 plan.push((
                     addon.clone(),
-                    ResourcePath::with_extra("catalog", "movie", &catalog.id, extra),
+                    ResourcePath::with_extra("catalog", kind.stremio(), &catalog.id, extra),
                 ));
-                if plan.len() == 4 {
-                    break 'addons;
-                }
             }
         }
     }
     if addons.is_empty() {
-        plan.push((
-            client.cinemeta(),
-            ResourcePath::with_extra("catalog", "movie", "top", extra),
-        ));
+        for kind in [Kind::Movie, Kind::Series] {
+            plan.push((
+                client.cinemeta(),
+                ResourcePath::with_extra("catalog", kind.stremio(), "top", extra),
+            ));
+        }
     }
     plan
 }
@@ -266,6 +277,8 @@ mod enrichment {
     fn film(name: &str) -> FilmDetails {
         FilmDetails {
             id: "tt1".into(),
+            kind: Kind::Movie,
+            episodes: vec![],
             name: name.into(),
             release_info: None,
             released: None,
