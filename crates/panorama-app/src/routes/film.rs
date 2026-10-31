@@ -7,8 +7,8 @@ use crate::{
     services::Job,
 };
 use gpui::{Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window};
-use panorama_core::addons::{FilmDetails, StreamGroup};
-use std::{sync::Arc, time::Instant};
+use panorama_core::addons::{Episode, FilmDetails, Kind, StreamGroup};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 
 #[path = "film_actions.rs"]
 mod actions;
@@ -16,6 +16,8 @@ mod actions;
 mod credits;
 #[path = "film_data.rs"]
 mod data;
+#[path = "film_episodes.rs"]
+mod episodes;
 #[path = "film_images.rs"]
 mod images;
 #[path = "film_view.rs"]
@@ -55,6 +57,20 @@ pub struct Film {
     award_more: Vec<FocusHandle>,
     /// Tiles opened past their first lines, by index.
     awards_expanded: std::collections::HashSet<usize>,
+    /// The title's own type, carried by every addon request for it.
+    kind: Kind,
+    /// What Play plays: the film, or an episode once a show's are known.
+    target: Option<String>,
+    /// A show's episodes in watch order. `metadata` keeps none, since it is cloned to render.
+    episodes: Arc<Vec<Episode>>,
+    tabs: Vec<episodes::Tab>,
+    /// The tab picked by hand; until then the strip follows `target`.
+    tab: Option<usize>,
+    tab_focus: Vec<FocusHandle>,
+    episode_focus: Vec<FocusHandle>,
+    episode_rail: crate::carousel::Carousel,
+    watched: HashSet<String>,
+    watched_task: Option<Task<()>>,
     /// The Cast & Crew carousel.
     people_rail: crate::carousel::Carousel,
     account: Account,
@@ -91,6 +107,7 @@ impl Film {
     /// Start details and sources together, with the clicked card as a placeholder.
     pub fn new(
         id: String,
+        kind: Kind,
         entry: u64,
         shell: WeakEntity<AppShell>,
         state: Entity<AppState>,
@@ -144,7 +161,18 @@ impl Film {
             .map(|shell| cx.observe(&shell, |_, _, cx| cx.notify()))
             .unwrap_or_else(|| cx.on_release(|_, _| {}));
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
+        let target = (kind == Kind::Movie).then(|| id.clone());
         let mut film = Self {
+            kind,
+            target,
+            episodes: Arc::default(),
+            tabs: vec![],
+            tab: None,
+            tab_focus: vec![],
+            episode_focus: vec![],
+            episode_rail: Default::default(),
+            watched: HashSet::new(),
+            watched_task: None,
             shell,
             state,
             args,

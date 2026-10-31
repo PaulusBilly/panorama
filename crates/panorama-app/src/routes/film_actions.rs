@@ -25,16 +25,18 @@ impl Film {
             None
         };
         let subtitles = self.subtitles.clone().unwrap_or_default();
-        if let (Some(source), Some(film)) = (self.selected, self.metadata.clone()) {
+        if let (Some(source), Some(mut film), Some(video_id)) =
+            (self.selected, self.metadata.clone(), self.target.clone())
+        {
             let id = self.id.clone();
+            film.episodes = (*self.episodes).clone();
             let selection = crate::playback::selection::PlaybackSelection {
-                video_id: id.clone(),
+                video_id,
                 film,
                 groups: self.groups.clone(),
                 source,
                 start: self
-                    .resume
-                    .as_ref()
+                    .resume_here()
                     .map_or(crate::playback::selection::StartMode::Restart, |point| {
                         crate::playback::selection::StartMode::Resume(point.offset_secs)
                     }),
@@ -50,33 +52,49 @@ impl Film {
                 .update(cx, |shell, cx| shell.navigate(route, window, cx));
         }
     }
+    /// The resume point, when it belongs to what Play plays.
+    fn resume_here(&self) -> Option<&panorama_core::stremio::ResumePoint> {
+        self.resume
+            .as_ref()
+            .filter(|point| point.video_id.is_none() || point.video_id == self.target)
+    }
     pub(super) fn actions(&mut self, view: ViewSettings, cx: &mut Context<Self>) -> Div {
         let primary = Primary::at(
             matches!(self.account, Account::SignedIn(_)),
             self.sources_loading,
             self.selected.is_some(),
         );
+        let episode = self.target_episode().map(super::episodes::code);
         let remaining = (primary == Primary::Play)
-            .then_some(self.resume.clone())
+            .then(|| self.resume_here().cloned())
             .flatten()
             .and_then(|point| {
                 crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
             });
         let label = match (&remaining, primary) {
-            (Some(time), _) => format!("Continue, {time} left"),
+            (Some(time), _) => match &episode {
+                Some(code) => format!("Continue {code}, {time} left"),
+                None => format!("Continue, {time} left"),
+            },
             (None, Primary::Unavailable) if self.sources_error => {
                 "Sources could not be loaded. Retry sources".to_owned()
             }
             (None, Primary::Unavailable) => {
                 "No playable source from your addons. Retry sources".to_owned()
             }
+            (None, Primary::Play) if episode.is_some() => {
+                format!("Play {}", episode.as_deref().unwrap_or_default())
+            }
             (None, primary) => primary.label().to_owned(),
         };
         // Resuming, the pill reads play, how far in, then the time left, as the Home hero does.
         // With nothing to play the pill turns grey and retries, so no extra status row is needed.
-        let text = remaining
-            .clone()
-            .unwrap_or_else(|| primary.label().to_owned());
+        let text = match (&remaining, &episode, primary) {
+            (Some(time), Some(code), _) => format!("{code} · {time}"),
+            (Some(time), None, _) => time.clone(),
+            (None, Some(code), Primary::Play) => format!("Play {code}"),
+            _ => primary.label().to_owned(),
+        };
         let mut button = if primary == Primary::Unavailable {
             Button::glass("film-primary", text).leading(Icon::Retry)
         } else {
@@ -93,7 +111,7 @@ impl Film {
             button = button.leading(Icon::Play);
         }
         if remaining.is_some()
-            && let Some(point) = &self.resume
+            && let Some(point) = self.resume_here()
         {
             button = button.progress((point.offset_secs / point.duration_secs) as f32);
         }

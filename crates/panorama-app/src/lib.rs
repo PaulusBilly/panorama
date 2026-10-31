@@ -32,6 +32,7 @@ pub mod routes;
 pub mod services;
 pub mod sidebar;
 pub mod source_lookup;
+pub mod tab_strip;
 pub mod theme;
 pub mod tint;
 pub mod titlebar;

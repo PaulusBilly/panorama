@@ -13,7 +13,7 @@ use crate::{
     image_cache::ImageCache,
     router::Route,
     theme::{
-        Typography, caps, focus_ring,
+        Typography, caps,
         scrim::{Edge, scrim},
         typography::TITLE,
     },
@@ -34,8 +34,6 @@ use std::{collections::HashMap, sync::Arc};
 /// The festival's white logo is drawn inside this box, as large as MUBI's.
 const LOGO: (f32, f32) = (360.0, 140.0);
 const GRID_GAP: f32 = 56.0;
-/// One year tab: 8 above, a 13px label line, 6 below and the 2px underline.
-const YEAR_ROW: f32 = 34.0;
 
 /// What to do with a lookup's answer, once a card waiting on it was clicked.
 struct Then {
@@ -438,8 +436,7 @@ async fn first_match(
 ) -> Option<FilmDetails> {
     while let Some(event) = receiver.next().await {
         match event {
-            ResourceEvent::CacheHit(mut results) | ResourceEvent::Fresh(mut results) => {
-                results.retain(|result| result.kind == Kind::Movie); // series: removed in the show page stage
+            ResourceEvent::CacheHit(results) | ResourceEvent::Fresh(results) => {
                 if let Some(found) = same_film(film, results) {
                     return Some(found);
                 }
@@ -654,40 +651,16 @@ impl Render for Festival {
             .map(|event| event.years.clone())
             .unwrap_or_default();
         let tabs = years.iter().enumerate().map(|(index, &year)| {
-            let selected = self.year == Some(year);
-            let handle = self
-                .years
-                .get(index)
-                .cloned()
-                .unwrap_or_else(|| self.retry.clone());
-            focus_ring(
-                div()
-                    .id(("festival-year", index))
-                    .role(gpui::Role::Tab)
-                    .aria_label(format!("{year}"))
-                    .cursor_pointer()
-                    .flex_none()
-                    .px(px(10.0))
-                    .pt(px(8.0))
-                    .pb(px(6.0))
-                    .border_b_2()
-                    .border_color(if selected {
-                        theme.ink
-                    } else {
-                        gpui::transparent_black().into()
-                    })
-                    .label()
-                    .text_color(if selected { theme.ink } else { theme.ink_muted })
-                    .hover(|style| style.text_color(theme.ink))
-                    .child(year.to_string())
-                    .on_click(cx.listener(move |festival, _, _, cx| festival.pick_year(year, cx))),
-                &handle,
-                theme,
-                view.active,
-                view.keyboard,
-                0.0,
+            let handle = self.years.get(index).unwrap_or(&self.retry);
+            crate::tab_strip::tab(
+                ("festival-year", index),
+                &year.to_string(),
+                self.year == Some(year),
+                handle,
+                view,
                 window,
             )
+            .on_click(cx.listener(move |festival, _, _, cx| festival.pick_year(year, cx)))
         });
         let masthead = div()
             .absolute()
@@ -721,20 +694,12 @@ impl Render for Festival {
                 )
             })
             .when(!years.is_empty(), |column| {
-                column.child(
-                    div()
-                        .id("festival-years")
-                        .role(gpui::Role::TabList)
-                        .aria_label("Editions")
-                        .mt(px(20.0))
-                        .ml(px(-10.0))
-                        .max_w(px(col.width + 10.0))
-                        // A scroll container takes no height from its row; this is one tab.
-                        .h(px(YEAR_ROW))
-                        .overflow_x_scroll()
-                        .flex()
-                        .children(tabs),
-                )
+                column.child(div().mt(px(20.0)).child(crate::tab_strip::strip(
+                    "festival-years",
+                    "Editions",
+                    col.width,
+                    tabs,
+                )))
             });
         hero = hero.child(masthead).child(
             div()

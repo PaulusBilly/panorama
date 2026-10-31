@@ -183,6 +183,9 @@ pub fn caption(film: &FilmDetails, note: Option<&str>, theme: Theme) -> Div {
                     .child(film.director.join(", ").to_uppercase()),
             )
         })
+        .when(film.kind != panorama_core::addons::Kind::Movie, |row| {
+            row.child(div().flex_shrink_0().child("SERIES"))
+        })
         .when_some(film.origin_country.clone(), |row, country| {
             row.child(
                 div()
