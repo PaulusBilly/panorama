@@ -1,6 +1,6 @@
 //! Play straight from Home: the player opens at once, and its loader covers the source and
 //! subtitle lookups the film page used to run before handing over.
-use super::selection::{PlaybackSelection, StartMode, SubtitleLookup, first_source};
+use super::selection::{PlaybackSelection, StartMode, SubtitleLookup, binge_source, first_source};
 use crate::{
     app_state::AppState,
     services::{Job, Services},
@@ -56,6 +56,7 @@ impl AppState {
         film: FilmDetails,
         video_id: String,
         resume: Option<ResumePoint>,
+        binge_group: Option<String>,
         cx: &mut Context<Self>,
     ) {
         let Some(services) = self.services.clone() else {
@@ -107,7 +108,9 @@ impl AppState {
                     };
                     let picked = state.update(cx, |state, cx| {
                         state.streams = Some((id.clone(), Arc::new(groups.clone())));
-                        if let Some(source) = first_source(&groups)
+                        let keeping = binge_group.as_deref();
+                        let matching = keeping.and_then(|group| binge_source(&groups, group));
+                        if let Some(source) = matching.or_else(|| first_source(&groups))
                             && let Some(film) = film.take()
                         {
                             state.playback = Some(PlaybackSelection {

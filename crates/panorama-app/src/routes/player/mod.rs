@@ -23,6 +23,7 @@ mod stepper_view;
 pub(crate) mod subtitles;
 mod subtitles_view;
 mod time;
+mod up_next;
 mod view;
 mod widgets;
 
@@ -74,6 +75,11 @@ pub struct Player {
     id: String,
     model: PlaybackModel,
     mounted: bool,
+    /// The next episode, if this is an episode with one after it.
+    next: Option<panorama_core::addons::Episode>,
+    /// The line under the title naming the episode playing.
+    episode_line: Option<String>,
+    up_next: up_next::UpNext,
     surface_shown: bool,
     awake: crate::awake::Awake,
     focus: Focuses,
@@ -190,6 +196,9 @@ impl Player {
             id,
             model,
             mounted: false,
+            next: None,
+            episode_line: None,
+            up_next: Default::default(),
             surface_shown: false,
             awake: Default::default(),
             focus: Focuses::new(cx),
@@ -361,8 +370,9 @@ impl Player {
             self.send(Command::Retry, cx);
             return;
         };
-        self.state
-            .update(cx, |state, cx| state.launch(film, video_id, resume, cx));
+        self.state.update(cx, |state, cx| {
+            state.launch(film, video_id, resume, None, cx)
+        });
         self.mounted = false;
         self.model.apply(HostEvent::Resolving);
         cx.notify();
@@ -390,6 +400,15 @@ impl Player {
         };
         self.mounted = true;
         self.model.title.clone_from(&selection.film.name);
+        let episodes = &selection.film.episodes;
+        let playing = episodes.iter().find(|ep| ep.id == selection.video_id);
+        self.episode_line = playing.map(up_next::episode_line);
+        self.next = panorama_core::addons::next_after(
+            episodes,
+            &selection.video_id,
+            &panorama_core::addons::today(),
+        )
+        .cloned();
         // Files already found go through the same queue as late ones, after Start.
         let early = std::mem::take(&mut selection.subtitles);
         self.load_prefs(cx);

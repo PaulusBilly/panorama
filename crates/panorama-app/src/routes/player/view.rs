@@ -30,6 +30,7 @@ impl Render for Player {
         self.reduced = reduced;
         self.ui_settled = self.debug_ui_settled(Instant::now());
         self.mount(window, cx);
+        self.advance_up_next(window, cx);
         self.sync_surface(window, cx);
         self.apply_debug_ui(window, cx);
         self.measures.pill.set(None);
@@ -144,6 +145,7 @@ impl Render for Player {
                 let root = root
                     .when_some(cue, |root, cue| root.child(cue))
                     .child(self.overlays(theme, reduced, keyboard, window, cx))
+                    .children(self.up_next_card(theme, cx))
                     .when_some(self.pause_flash(theme, reduced, now), |root, flash| {
                         root.child(flash)
                     })
