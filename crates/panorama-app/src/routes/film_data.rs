@@ -21,6 +21,7 @@ impl Film {
             let (job, receiver) = services.details(self.kind, id.clone());
             (Some(job), receiver)
         };
+        let kind = self.kind;
         self.details_task = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
             while let Some(event) = receiver.next().await {
@@ -29,7 +30,7 @@ impl Film {
                     let lookup = services
                         .runtime
                         .clone()
-                        .spawn(async move { services.metadata_base(&id).await });
+                        .spawn(async move { services.metadata_base(kind, &id).await });
                     lookup.await.ok().flatten()
                 };
                 if entity

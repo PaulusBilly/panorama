@@ -23,14 +23,26 @@ async fn unknown_film_shows_details_with_no_sources_state() {
         .await;
     assert!(matches!(&events[0], ResourceEvent::Fresh(film) if film.name == "Unknown film"));
     assert_eq!(
-        client.metadata_base(&addons, "opaque:123").await,
+        client
+            .metadata_base(&addons, Kind::Movie, "opaque:123")
+            .await,
         Some(addons[0].as_core().transport_url.clone())
     );
-    assert!(client.metadata_base(&[], "opaque:123").await.is_none());
-    assert!(client.metadata_base(&addons, "bad/id").await.is_none());
     assert!(
         client
-            .metadata_base(&addons, "opaque:missing")
+            .metadata_base(&[], Kind::Movie, "opaque:123")
+            .await
+            .is_none()
+    );
+    assert!(
+        client
+            .metadata_base(&addons, Kind::Movie, "bad/id")
+            .await
+            .is_none()
+    );
+    assert!(
+        client
+            .metadata_base(&addons, Kind::Movie, "opaque:missing")
             .await
             .is_none()
     );
@@ -94,7 +106,7 @@ async fn details_chain_prefers_meta_addon_then_matching_addons_then_cinemeta() {
     );
     assert_eq!(
         client
-            .metadata_base(&addons, "tt1")
+            .metadata_base(&addons, Kind::Movie, "tt1")
             .await
             .map(|url| url.host_str().map(str::to_owned)),
         Some(Some("v3-cinemeta.strem.io".into()))

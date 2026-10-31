@@ -416,10 +416,10 @@ impl Services {
     }
 
     /// The addon transport that supplied a film's cached metadata, for the playback target.
-    pub async fn metadata_base(&self, id: &str) -> Option<url::Url> {
+    pub async fn metadata_base(&self, kind: Kind, id: &str) -> Option<url::Url> {
         let (client, session) = (self.addons.as_ref()?, self.session.as_ref()?);
         let addons = session.lock().await.installed_addons();
-        client.metadata_base(&addons, id).await
+        client.metadata_base(&addons, kind, id).await
     }
 
     /// Whether a film is saved and where to resume it, now and after every library change.

@@ -453,3 +453,15 @@ fn an_open_ended_series_year_counts_as_released_once_it_has_started() {
         .collect::<Vec<_>>();
     assert_eq!(kept, ["2026–", "2015–2019"]);
 }
+
+#[test]
+fn a_film_and_a_show_with_one_id_cache_apart() {
+    assert_eq!(
+        Key::typed_meta("movie", "tmdb:1").unwrap(),
+        Key::meta("tmdb:1").unwrap()
+    );
+    assert_ne!(
+        Key::typed_meta("series", "tmdb:1").unwrap(),
+        Key::meta("tmdb:1").unwrap()
+    );
+}

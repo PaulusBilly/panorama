@@ -70,7 +70,7 @@ impl AppState {
         // Which metadata addon the progress belongs to; ready long before the streams.
         let meta_base = Job(services.runtime.clone().spawn({
             let (services, id) = (services.clone(), id.clone());
-            async move { services.metadata_base(&id).await }
+            async move { services.metadata_base(kind, &id).await }
         }));
         let (sender, mut receiver) = mpsc::unbounded();
         let job = Job(services.runtime.clone().spawn({
@@ -102,15 +102,20 @@ impl AppState {
                 let mut meta_base = meta_base;
                 let meta_base = (&mut meta_base.0).await.ok().flatten();
                 let mut film = Some(film);
+                let mut latest = vec![];
                 while let Some(event) = receiver.next().await {
                     let StreamsEvent::Groups(groups) = event else {
                         continue;
                     };
                     let picked = state.update(cx, |state, cx| {
                         state.streams = Some((id.clone(), Arc::new(groups.clone())));
-                        let keeping = binge_group.as_deref();
-                        let matching = keeping.and_then(|group| binge_source(&groups, group));
-                        if let Some(source) = matching.or_else(|| first_source(&groups))
+                        // Holding out for the release in progress; the rest wait for the end.
+                        let source = match binge_group.as_deref() {
+                            Some(group) => binge_source(&groups, group),
+                            None => first_source(&groups),
+                        };
+                        latest = groups.clone();
+                        if let Some(source) = source
                             && let Some(film) = film.take()
                         {
                             state.playback = Some(PlaybackSelection {
@@ -131,6 +136,22 @@ impl AppState {
                     }
                 }
                 let _ = state.update(cx, |state, cx| {
+                    if let Some(source) = first_source(&latest)
+                        && let Some(film) = film.take()
+                    {
+                        state.playback = Some(PlaybackSelection {
+                            film,
+                            video_id,
+                            groups: latest,
+                            source,
+                            start,
+                            meta_base,
+                            subtitles: vec![],
+                            late_subtitles: Some(subtitles),
+                        });
+                        cx.notify();
+                        return;
+                    }
                     if film.is_some()
                         && let Some(launch) = state.launch.as_mut().filter(|l| l.id == id)
                     {

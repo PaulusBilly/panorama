@@ -88,6 +88,9 @@ impl Player {
             .and_then(|source| source.stream.behavior_hints.binge_group.clone());
         self.unmount(cx);
         self.up_next = UpNext::Hidden;
+        self.late_subtitles = None;
+        self.subtitle_queue.clear();
+        self.subtitle_wait = None;
         self.state.update(cx, |state, cx| {
             state.launch(selection.film, next.id, None, group, cx)
         });

@@ -74,7 +74,11 @@ pub(super) fn target<'a>(
         .iter()
         .rfind(|ep| ep.season != 0 && watched.contains(&ep.id))
         .and_then(|last| next_after(episodes, &last.id, today))
-        .or(episodes.first())
+        .or_else(|| episodes.iter().find(|ep| !unaired(ep, today)))
+}
+
+fn unaired(episode: &Episode, today: &str) -> bool {
+    episode.released.as_deref().is_some_and(|date| date > today)
 }
 
 /// The name an episode goes by on buttons.
@@ -289,7 +293,7 @@ impl Film {
     ) -> Div {
         let theme = view.theme;
         let height = (width * TILE_RATIO).round();
-        let unaired = episode.released.as_deref().is_some_and(|date| date > today);
+        let unaired = unaired(episode, today);
         let backdrop = self.metadata.as_ref().and_then(|m| m.background.as_ref());
         let image = episode
             .thumbnail
@@ -484,5 +488,8 @@ mod tests {
         let all = HashSet::from(["s2e1".to_owned()]);
         assert_eq!(id(target(&episodes, None, &all, at)), Some("s1e1".into()));
         assert_eq!(id(target(&[], None, &none, at)), None);
+        let mut coming = ep(1, 1);
+        coming.released = Some("2099-01-01".into());
+        assert_eq!(id(target(&[coming], None, &none, at)), None);
     }
 }

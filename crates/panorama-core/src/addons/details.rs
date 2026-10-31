@@ -18,12 +18,17 @@ struct CachedMeta {
 impl AddonClient {
     /// The transport URL of the addon that supplied the cached metadata, for the core's
     /// playback target. It can carry addon credentials, so it must never be logged.
-    pub async fn metadata_base(&self, addons: &[Descriptor], film_id: &str) -> Option<url::Url> {
+    pub async fn metadata_base(
+        &self,
+        addons: &[Descriptor],
+        kind: Kind,
+        film_id: &str,
+    ) -> Option<url::Url> {
         if !sanitize::valid_id(film_id) {
             return None;
         }
         let cached = self
-            .read::<CachedMeta>(Key::meta(film_id).ok()?)
+            .read::<CachedMeta>(Key::typed_meta(kind.stremio(), film_id).ok()?)
             .await
             .ok()??;
         let cinemeta = self.cinemeta();
@@ -54,7 +59,7 @@ impl AddonClient {
                         .await;
                     return;
                 }
-                let Ok(key) = Key::meta(&id) else {
+                let Ok(key) = Key::typed_meta(kind.stremio(), &id) else {
                     let _ = sender
                         .send(ResourceEvent::Failed(FailureKind::InvalidInput))
                         .await;
