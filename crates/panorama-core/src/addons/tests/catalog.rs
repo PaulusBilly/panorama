@@ -110,7 +110,7 @@ async fn removed_remembered_catalog_falls_back_to_first() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn catalogs_keep_account_order_and_exclude_required_extras_and_other_types() {
+async fn catalogs_keep_account_order_and_exclude_required_extras_and_unknown_types() {
     let fake = Fake::default();
     let client = client(&fake).await;
     let first = addon(
@@ -119,7 +119,8 @@ async fn catalogs_keep_account_order_and_exclude_required_extras_and_other_types
         json!([
             {"id":"one","type":"movie","name":"One"},
             {"id":"required","type":"movie","extra":[{"name":"genre","isRequired":true}]},
-            {"id":"series","type":"series"}, {"id":"two","type":"movie"}
+            {"id":"series","type":"series"}, {"id":"live","type":"tv"},
+            {"id":"two","type":"movie"}
         ]),
         json!([]),
         Value::Null,
@@ -130,7 +131,7 @@ async fn catalogs_keep_account_order_and_exclude_required_extras_and_other_types
             .iter()
             .map(|catalog| catalog.catalog_id.as_str())
             .collect::<Vec<_>>(),
-        ["one", "two", "top"]
+        ["one", "series", "two", "top"]
     );
     assert_eq!(client.catalogs(&[])[0].catalog_id, "top");
 }
@@ -182,8 +183,8 @@ async fn screen_calls_run_without_tokio_context_on_the_callers_thread() {
         assert_eq!(client.catalogs(&addons).len(), 1);
         (
             client.catalog(&addons, None),
-            client.details(&addons, "custom:1", None),
-            client.streams(&addons, "custom:1"),
+            client.details(&addons, Kind::Movie, "custom:1", None),
+            client.streams(&addons, Kind::Movie, "custom:1"),
             client.search(&addons, ""),
         )
     })

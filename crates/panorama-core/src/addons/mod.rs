@@ -194,7 +194,7 @@ impl AddonClient {
                 logo: None,
                 background: None,
                 contact_email: None,
-                types: vec!["movie".into()],
+                types: vec!["movie".into(), "series".into()],
                 resources: vec!["meta".into()],
                 id_prefixes: Some(vec!["tt".into()]),
                 catalogs: vec![],

@@ -65,9 +65,11 @@ impl ProgressSink for CoreProgress {
                         PlaybackTarget {
                             film: FilmMeta {
                                 id: selection.film.id.clone(),
+                                kind: selection.film.kind,
                                 name: selection.film.name.clone(),
                                 poster: selection.film.poster.clone(),
                             },
+                            video_id: selection.video_id.clone(),
                             stream: source.stream.clone(),
                             meta_base,
                             stream_base: descriptor.as_core().transport_url.clone(),
@@ -102,6 +104,7 @@ impl ProgressSink for CoreProgress {
         let film = &selection.film;
         presence.update(DiscordPlayback {
             film_id: film.id.clone(),
+            kind: film.kind,
             title: film.name.clone(),
             year: film.release_info.clone(),
             director_tmdb_id: None,

@@ -27,11 +27,11 @@ const MARK_HEIGHT: f32 = 36.0;
 const MARK: (f32, f32) = (44.0, 32.0);
 
 /// How many `min`-wide items fit across `width`, at least two and at most `max`.
-fn columns(width: f32, min: f32, gap: f32, max: usize) -> usize {
+pub(super) fn columns(width: f32, min: f32, gap: f32, max: usize) -> usize {
     (((width + gap) / (min + gap)).floor() as usize).clamp(2, max)
 }
 
-fn span(width: f32, count: usize, gap: f32) -> f32 {
+pub(super) fn span(width: f32, count: usize, gap: f32) -> f32 {
     (width - gap * (count - 1) as f32) / count as f32
 }
 
@@ -136,7 +136,7 @@ const RING: f32 = 4.0;
 
 /// A [`Carousel`] row across the full window: the first item sits on the column, items scrolled
 /// past stay visible in the gutter, and the last stops where the column does.
-fn rail(
+pub(super) fn rail(
     id: &'static str,
     items: Vec<gpui::AnyElement>,
     gap: f32,
@@ -170,7 +170,7 @@ fn rail(
     div().child(row)
 }
 
-fn heading(title: &str, theme: Theme) -> Div {
+pub(super) fn heading(title: &str, theme: Theme) -> Div {
     div()
         .flex()
         .items_center()
@@ -208,7 +208,8 @@ impl Film {
             .as_ref()
             .map(|meta| meta.people.clone())
             .unwrap_or_default();
-        if people.is_empty() && self.awards.is_empty() {
+        let episodes = self.episodes_section(view, window, cx);
+        if people.is_empty() && self.awards.is_empty() && episodes.is_none() {
             return None;
         }
         let col = view.column();
@@ -220,6 +221,7 @@ impl Film {
             .flex_col()
             .gap(px(ROW_GAP));
         let mut sources = vec![];
+        sections = sections.children(episodes);
         if !people.is_empty() {
             sections = sections.child(self.people_section(&people, col.width, view, window, cx));
             sources.push("Cast and crew from TMDB");
@@ -231,6 +233,9 @@ impl Film {
             } else {
                 "Awards from Wikidata"
             });
+        }
+        if sources.is_empty() {
+            return Some(sections);
         }
         Some(sections.child(sources_line(&sources, view.theme).ml(px(col.left))))
     }

@@ -9,6 +9,7 @@ use super::{
     mock::{EMAIL, MockApi, PASSWORD},
     tls::TlsMock,
 };
+use crate::addons::{Episode, Kind};
 use crate::stremio::{
     CoreErrorKind, CoreSession, FilmMeta, PlaybackSample, PlaybackTarget, ResumePoint,
 };
@@ -18,6 +19,7 @@ const FILM: &str = "tt0816692";
 fn film() -> FilmMeta {
     FilmMeta {
         id: FILM.into(),
+        kind: Kind::Movie,
         name: "Interstellar".into(),
         poster: None,
     }
@@ -34,6 +36,7 @@ fn sample(time_secs: f64, paused: bool) -> PlaybackSample {
 fn target(meta_base: &str) -> PlaybackTarget {
     PlaybackTarget {
         film: film(),
+        video_id: FILM.into(),
         stream: serde_json::from_value::<Stream>(
             json!({"url": "https://video.example.test/a.mp4"}),
         )
@@ -226,7 +229,8 @@ fn stop_flushes_and_pushes_the_library_item_so_resume_applies_only_when_meaningf
             session.resume(FILM),
             Some(ResumePoint {
                 offset_secs: 1800.0,
-                duration_secs: 7200.0
+                duration_secs: 7200.0,
+                video_id: Some(FILM.into()),
             })
         );
         // Less than 30 s in, or less than 60 s left, is not worth resuming.
@@ -302,5 +306,124 @@ fn library_item_is_created_from_the_films_meta_when_needed() {
         assert_eq!(session.resume(FILM).map(|r| r.offset_secs), Some(900.0));
         assert!(!session.in_library(FILM));
         assert!(server.requests.lock().unwrap()[0].starts_with("GET /meta/movie/tt0816692.json "));
+    });
+}
+
+const SHOW: &str = "tt0386676";
+
+fn show() -> FilmMeta {
+    FilmMeta {
+        id: SHOW.into(),
+        kind: Kind::Series,
+        name: "The Office".into(),
+        poster: None,
+    }
+}
+
+fn episode(id: &str, number: u32) -> Episode {
+    Episode {
+        id: id.into(),
+        season: 1,
+        number,
+        numbered: true,
+        title: id.into(),
+        overview: None,
+        thumbnail: None,
+        released: None,
+    }
+}
+
+#[test]
+fn episode_progress_is_stored_under_the_show_with_the_episode_id() {
+    let api = MockApi::start();
+    let fixture = TestEnv::memory(Some(api.base.clone()));
+    fixture.runtime.block_on(async {
+        let session = signed_in(&api).await;
+        session.set_in_library(&show(), true).unwrap();
+        until(|| session.in_library(SHOW) && put_calls(&api) >= 1).await;
+        let puts = put_calls(&api);
+        session
+            .begin_playback(
+                PlaybackTarget {
+                    film: show(),
+                    video_id: "tt0386676:1:2".into(),
+                    ..target(OFFLINE_META)
+                },
+                0.0,
+            )
+            .unwrap();
+        session.report_progress(SHOW, sample(1.0, false));
+        session.report_progress(SHOW, sample(1200.0, false));
+        session.stop_playback(SHOW);
+        pushed(&api, puts).await;
+        until(|| session.resume(SHOW).is_some()).await;
+        assert_eq!(
+            session.resume(SHOW),
+            Some(ResumePoint {
+                offset_secs: 1200.0,
+                duration_secs: 7200.0,
+                video_id: Some("tt0386676:1:2".into()),
+            })
+        );
+        let item = &session.continue_watching()[0];
+        assert_eq!(item.film.kind, Kind::Series);
+        assert_eq!(item.resume.video_id.as_deref(), Some("tt0386676:1:2"));
+        let model = session.running().unwrap().runtime.model().unwrap();
+        assert_eq!(model.ctx.inner.library.items[SHOW].r#type, "series");
+    });
+}
+
+#[test]
+fn watched_episodes_reads_what_the_core_marked_after_a_full_watch() {
+    let api = MockApi::start();
+    let mut fixture = TestEnv::memory(Some(api.base.clone()));
+    let server = fixture.runtime.block_on(TlsMock::start());
+    fixture.trust_tls(&[&server]);
+    let videos = json!([
+        {"id": "tt0386676:1:1", "title": "One", "season": 1, "episode": 1, "released": "2005-03-24T00:00:00.000Z"},
+        {"id": "tt0386676:1:2", "title": "Two", "season": 1, "episode": 2, "released": "2005-03-29T00:00:00.000Z"},
+        {"id": "tt0386676:1:3", "title": "Three", "season": 1, "episode": 3, "released": "2005-04-05T00:00:00.000Z"},
+    ]);
+    *server.body.lock().unwrap() = serde_json::to_vec(&json!({"meta": {
+        "id": SHOW, "type": "series", "name": "The Office", "videos": videos
+    }}))
+    .unwrap();
+    let episodes = [
+        episode("tt0386676:1:3", 3),
+        episode("tt0386676:1:1", 1),
+        episode("tt0386676:1:2", 2),
+    ];
+    fixture.runtime.block_on(async {
+        let session = signed_in(&api).await;
+        assert!(session.watched_episodes(SHOW, &episodes).is_empty());
+        let meta: Url = server.base.join("manifest.json").unwrap();
+        session
+            .begin_playback(
+                PlaybackTarget {
+                    film: show(),
+                    video_id: "tt0386676:1:2".into(),
+                    ..target(meta.as_str())
+                },
+                0.0,
+            )
+            .unwrap();
+        until(|| {
+            let model = session.running().unwrap().runtime.model().unwrap();
+            model.player.library_item.is_some()
+        })
+        .await;
+        for second in [1.0, 100.0, 4000.0, 7100.0] {
+            session.report_progress(SHOW, sample(second, false));
+        }
+        let puts = put_calls(&api);
+        session.finish(SHOW);
+        session.stop_playback(SHOW);
+        pushed(&api, puts).await;
+        until(|| !session.watched_episodes(SHOW, &episodes).is_empty()).await;
+        assert_eq!(
+            session.watched_episodes(SHOW, &episodes),
+            ["tt0386676:1:2".to_string()].into()
+        );
+        assert!(server.requests.lock().unwrap()[0].starts_with("GET /meta/series/tt0386676.json "));
     });
 }

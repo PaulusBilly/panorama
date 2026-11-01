@@ -1,5 +1,5 @@
 use super::model::*;
-use panorama_core::addons::{AddonKey, CatalogRef, manage::InstallError};
+use panorama_core::addons::{AddonKey, CatalogRef, Kind, manage::InstallError};
 use std::time::{Duration, Instant};
 
 fn key(name: &str) -> AddonKey {
@@ -138,6 +138,7 @@ fn catalog_groups_follow_account_order() {
         addon: addon.clone(),
         catalog_id: id.into(),
         name: id.into(),
+        kind: Kind::Movie,
     };
     let catalogs = [
         catalog(&addons[1].0, "b"),

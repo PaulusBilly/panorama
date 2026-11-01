@@ -18,9 +18,10 @@ impl Film {
             let (_held, receiver) = mpsc::unbounded();
             (None, receiver)
         } else {
-            let (job, receiver) = services.details(id.clone());
+            let (job, receiver) = services.details(self.kind, id.clone());
             (Some(job), receiver)
         };
+        let kind = self.kind;
         self.details_task = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
             while let Some(event) = receiver.next().await {
@@ -29,7 +30,7 @@ impl Film {
                     let lookup = services
                         .runtime
                         .clone()
-                        .spawn(async move { services.metadata_base(&id).await });
+                        .spawn(async move { services.metadata_base(kind, &id).await });
                     lookup.await.ok().flatten()
                 };
                 if entity
@@ -41,6 +42,7 @@ impl Film {
                                 let mut meta = trusted(film.card.as_ref(), meta);
                                 meta.original_name =
                                     meta.original_name.or_else(|| film.original_title.clone());
+                                film.set_episodes(std::mem::take(&mut meta.episodes));
                                 film.metadata = Some(meta);
                                 film.details_error = false;
                             }
@@ -54,6 +56,7 @@ impl Film {
                             film.load_credits(cx);
                             film.load_original_title(cx);
                         }
+                        film.load_watched(cx);
                         cx.notify();
                     })
                     .is_err()
@@ -68,6 +71,9 @@ impl Film {
     /// out. Waits for the details, whose title, year and director find the film on MUBI; the
     /// answer is kept in the store so a film costs MUBI two requests a month at most.
     pub(super) fn load_credits(&mut self, cx: &mut Context<Self>) {
+        if self.kind != Kind::Movie {
+            return;
+        }
         let Some(services) = self.state.read(cx).services.clone() else {
             return;
         };
@@ -151,7 +157,10 @@ impl Film {
         let Some(services) = self.state.read(cx).services.clone() else {
             return;
         };
-        self.look_up_subtitles(&services, cx);
+        let Some(id) = self.target.clone() else {
+            return;
+        };
+        self.look_up_subtitles(&services, id.clone(), cx);
         let fixture = crate::source_lookup::FixtureSources {
             hold: self.args.fixtures && self.args.film_loading,
             none: self.args.no_sources,
@@ -161,16 +170,17 @@ impl Film {
         self.sources_error = false;
         self.groups.clear();
         self.selected = None;
-        let id = self.id.clone();
+        let kind = self.kind;
         self.state.update(cx, |state, cx| {
-            state.open_sources(&id, again, fixture, cx);
+            state.open_sources(kind, &id, again, fixture, cx);
             cx.notify();
         });
         cx.notify();
     }
     /// Take what the shared lookup has so far. One playable source is enough to show the page.
     pub(super) fn sync_sources(&mut self, state: &crate::app_state::AppState) {
-        let Some(lookup) = state.source_lookups.get(&self.id) else {
+        let Some(lookup) = (self.target.as_ref()).and_then(|id| state.source_lookups.get(id))
+        else {
             return;
         };
         let seen = self
@@ -195,13 +205,15 @@ impl Film {
     fn look_up_subtitles(
         &mut self,
         services: &Arc<crate::services::Services>,
+        id: String,
         cx: &mut Context<Self>,
     ) {
         self.subtitles = None;
         let shared = crate::playback::launch::subtitle_lookup(
             services,
             self.installed.clone(),
-            self.id.clone(),
+            self.kind,
+            id,
         );
         self.subtitle_lookup = Some(shared.clone());
         self.subtitles_task = Some(cx.spawn(async move |entity, cx| {
@@ -227,6 +239,7 @@ impl Film {
                 self.resume = Some(panorama_core::stremio::ResumePoint {
                     offset_secs: 1200.0,
                     duration_secs: 6100.0,
+                    video_id: crate::fixtures::resume_episode(&self.id),
                 });
             }
             return;
@@ -239,6 +252,7 @@ impl Film {
                     .update(cx, |film, cx| {
                         film.resume = resume;
                         film.set_saved(saved);
+                        film.load_watched(cx);
                         cx.notify();
                     })
                     .is_err()
@@ -275,6 +289,7 @@ impl Film {
             let result = if let Some(session) = &services.session {
                 let film = FilmMeta {
                     id: meta.id.clone(),
+                    kind: meta.kind,
                     name: meta.name.clone(),
                     poster: meta.poster.clone(),
                 };
@@ -313,7 +328,10 @@ fn trusted(card: Option<&FilmDetails>, details: FilmDetails) -> FilmDetails {
         film.director.is_empty() && film.release_info.as_deref().is_none_or(str::is_empty)
     };
     match card {
-        Some(card) if blank(&details) && !blank(card) => card.clone(),
+        Some(card) if blank(&details) && !blank(card) => FilmDetails {
+            episodes: details.episodes,
+            ..card.clone()
+        },
         _ => details,
     }
 }

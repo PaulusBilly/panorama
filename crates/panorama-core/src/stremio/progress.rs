@@ -6,7 +6,7 @@
 //! a no-op while signed out: nothing is recorded locally or remotely, and
 //! `resume` reports nothing. All calls only dispatch core actions; none block.
 
-use std::sync::MutexGuard;
+use std::{collections::HashSet, sync::MutexGuard};
 
 use serde_json::json;
 use stremio_core::{
@@ -16,11 +16,13 @@ use stremio_core::{
         addon::{ResourcePath, ResourceRequest},
         library::LibraryItemState,
         resource::{MetaItemPreview, Stream},
+        watched_bitfield::WatchedBitField,
     },
 };
 use url::Url;
 
 use super::{CoreError, CoreErrorKind, CoreSession, model::CoreModelField, session::Running};
+use crate::addons::{Episode, Kind};
 
 /// Playback time between pushes to the core (`PROGRESS_SYNC_INTERVAL_SECONDS`).
 const SYNC_INTERVAL_SECS: f64 = 10.0;
@@ -31,12 +33,14 @@ const RESUME_MIN_REMAINING_SECS: f64 = 60.0;
 const DEVICE: &str = "Panorama";
 
 /// Where a film can be resumed from; only produced when it is worth resuming.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ResumePoint {
     /// Saved position in seconds.
     pub offset_secs: f64,
     /// Saved duration in seconds.
     pub duration_secs: f64,
+    /// The video last played: an episode's `Video.id`, or the film's own id for a movie.
+    pub video_id: Option<String>,
 }
 
 /// One position report from the video player.
@@ -55,6 +59,8 @@ pub struct PlaybackSample {
 pub struct FilmMeta {
     /// Opaque film ID, as used by the addons.
     pub id: String,
+    /// The type the library item is stored under.
+    pub kind: Kind,
     /// Display name.
     pub name: String,
     /// Poster image, if known.
@@ -64,7 +70,7 @@ pub struct FilmMeta {
 impl FilmMeta {
     fn preview(&self) -> Result<MetaItemPreview, CoreError> {
         serde_json::from_value(json!({
-            "id": self.id, "type": "movie", "name": self.name, "poster": self.poster,
+            "id": self.id, "type": self.kind.stremio(), "name": self.name, "poster": self.poster,
         }))
         .map_err(|_| CoreErrorKind::Other.into())
     }
@@ -75,6 +81,8 @@ impl FilmMeta {
 pub struct PlaybackTarget {
     /// The film being played.
     pub film: FilmMeta,
+    /// What the stream request plays: the episode's `Video.id`, or the film id for a movie.
+    pub video_id: String,
     /// The chosen stream, as supplied by the addons module.
     pub stream: Stream,
     /// Addon that supplies the film's metadata; the core loads it to create the library item.
@@ -99,10 +107,38 @@ pub(super) fn resume_point(state: &LibraryItemState) -> Option<ResumePoint> {
     );
     (offset_secs >= RESUME_MIN_OFFSET_SECS
         && duration_secs - offset_secs >= RESUME_MIN_REMAINING_SECS)
-        .then_some(ResumePoint {
+        .then(|| ResumePoint {
             offset_secs,
             duration_secs,
+            video_id: state.video_id.clone(),
         })
+}
+
+/// The ids in `episodes` marked watched. The core's bitfield is laid out over the
+/// videos sorted by season, episode, then release date, so sort the same way.
+fn watched_ids(state: &LibraryItemState, episodes: &[Episode]) -> HashSet<String> {
+    let Some(watched) = &state.watched else {
+        return HashSet::new();
+    };
+    let mut ordered: Vec<_> = episodes.iter().collect();
+    // The core's order: this must line up with the bits it wrote.
+    ordered.sort_by_key(|episode| {
+        (
+            episode.numbered,
+            episode.season,
+            episode.number,
+            &episode.released,
+        )
+    });
+    let ids: Vec<String> = ordered.iter().map(|episode| episode.id.clone()).collect();
+    let Ok(field) = WatchedBitField::construct_with_videos(watched.clone(), ids) else {
+        return HashSet::new();
+    };
+    ordered
+        .into_iter()
+        .filter(|episode| field.get_video(&episode.id))
+        .map(|episode| episode.id.clone())
+        .collect()
 }
 
 fn millis(secs: f64) -> u64 {
@@ -163,6 +199,23 @@ impl CoreSession {
         resume_point(&model.ctx.inner.library.items.get(film_id)?.state)
     }
 
+    /// The episode ids of the title already watched; empty while signed out or for a
+    /// title the account has no progress on.
+    pub fn watched_episodes(&self, film_id: &str, episodes: &[Episode]) -> HashSet<String> {
+        let Some(running) = self.running().filter(|_| self.is_signed_in()) else {
+            return HashSet::new();
+        };
+        let model = running.runtime.model().unwrap_or_else(|p| p.into_inner());
+        model
+            .ctx
+            .inner
+            .library
+            .items
+            .get(film_id)
+            .map(|item| watched_ids(&item.state, episodes))
+            .unwrap_or_default()
+    }
+
     /// Whether the film is saved to the watchlist (neither removed nor temporary).
     /// `false` while signed out.
     pub fn in_library(&self, film_id: &str) -> bool {
@@ -199,16 +252,17 @@ impl CoreSession {
     pub fn begin_playback(&self, target: PlaybackTarget, start_secs: f64) -> Result<(), CoreError> {
         let running = self.signed_in_running()?;
         let id = &target.film.id;
-        let request = |base: &Url, resource| {
+        let kind = target.film.kind.stremio();
+        let request = |base: &Url, resource, id: &str| {
             ResourceRequest::new(
                 base.clone(),
-                ResourcePath::without_extra(resource, "movie", id),
+                ResourcePath::without_extra(resource, kind, id),
             )
         };
         let selected = Selected {
             stream: target.stream.clone(),
-            stream_request: Some(request(&target.stream_base, "stream")),
-            meta_request: Some(request(&target.meta_base, "meta")),
+            stream_request: Some(request(&target.stream_base, "stream", &target.video_id)),
+            meta_request: Some(request(&target.meta_base, "meta", id)),
             subtitles_path: None,
         };
         let mut tracker = running.tracker();
@@ -310,5 +364,43 @@ impl CoreSession {
         }
         *tracker = Tracker::default();
         running.dispatch_to(Some(CoreModelField::Player), Action::Unload);
+    }
+}
+
+#[cfg(test)]
+mod watched_tests {
+    use super::*;
+
+    fn video(id: &str, number: u32, numbered: bool) -> Episode {
+        Episode {
+            id: id.into(),
+            season: 1,
+            number,
+            numbered,
+            title: id.into(),
+            overview: None,
+            thumbnail: None,
+            released: None,
+        }
+    }
+
+    #[test]
+    fn an_unnumbered_video_keeps_its_place_in_the_core_bitfield() {
+        let core_order = ["bonus", "e1", "e2"].map(String::from).to_vec();
+        let field = WatchedBitField::construct_from_array(vec![true, false, true], core_order);
+        let state = LibraryItemState {
+            watched: Some(field.into()),
+            ..Default::default()
+        };
+        let episodes = [
+            video("e1", 1, true),
+            video("e2", 2, true),
+            video("bonus", 3, false),
+        ];
+        let watched = watched_ids(&state, &episodes);
+        assert_eq!(
+            watched,
+            HashSet::from(["bonus".to_owned(), "e2".to_owned()])
+        );
     }
 }

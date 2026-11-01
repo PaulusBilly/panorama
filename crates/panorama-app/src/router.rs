@@ -1,5 +1,6 @@
 //! Pure navigation history and debug route syntax.
 use crate::button::Icon;
+use panorama_core::addons::Kind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Destination {
@@ -52,6 +53,8 @@ pub enum Route {
     Film {
         /// Opaque film identifier.
         id: String,
+        /// The title's own type, which every addon request for it carries.
+        kind: Kind,
     },
     /// A festival or award's films by year, from MUBI.
     Festival {
@@ -81,7 +84,18 @@ impl Route {
             ("search", query) => Ok(Self::Search {
                 query: query.unwrap_or_default().into(),
             }),
-            ("film", Some(id)) if !id.is_empty() => Ok(Self::Film { id: id.into() }),
+            ("film", Some(id)) if !id.is_empty() => Ok(Self::Film {
+                id: id.into(),
+                kind: Kind::Movie,
+            }),
+            ("series", Some(id)) if !id.is_empty() => Ok(Self::Film {
+                id: id.into(),
+                kind: Kind::Series,
+            }),
+            ("anime", Some(id)) if !id.is_empty() => Ok(Self::Film {
+                id: id.into(),
+                kind: Kind::Anime,
+            }),
             ("player", Some(id)) if !id.is_empty() => Ok(Self::Player { id: id.into() }),
             ("festival", Some(event)) => {
                 let (slug, year) = match event.split_once(':') {
@@ -233,18 +247,30 @@ mod tests {
         assert!(history.back());
         assert!(history.can_forward());
         assert!(history.forward());
-        assert!(history.replace(Route::Film { id: "a:b".into() }));
+        assert!(history.replace(Route::Film {
+            id: "a:b".into(),
+            kind: Kind::Movie
+        }));
         assert!(!history.contains(id));
         assert!(!history.replace(history.current().clone()));
         assert!(history.back());
         assert_eq!(history.current(), &Route::Home);
         assert!(history.forward());
-        assert_eq!(history.current(), &Route::Film { id: "a:b".into() });
+        assert_eq!(
+            history.current(),
+            &Route::Film {
+                id: "a:b".into(),
+                kind: Kind::Movie
+            }
+        );
     }
 
     #[test]
     fn leaving_the_player_never_stacks_two_film_pages() {
-        let film = Route::Film { id: "a:b".into() };
+        let film = Route::Film {
+            id: "a:b".into(),
+            kind: Kind::Movie,
+        };
         let player = Route::Player { id: "a:b".into() };
         // Played from the film page: closing returns to that same entry, one back from Home.
         let mut history = History::new(Route::Home);
@@ -282,14 +308,23 @@ mod tests {
     fn drops_oldest_at_cap() {
         let mut history = History::new(Route::Home);
         for i in 0..150 {
-            history.push(Route::Film { id: i.to_string() });
+            history.push(Route::Film {
+                id: i.to_string(),
+                kind: Kind::Movie,
+            });
         }
         assert_eq!(history.entries.len(), 100);
         for _ in 0..99 {
             assert!(history.back());
         }
         assert!(!history.back());
-        assert_eq!(history.current(), &Route::Film { id: "50".into() });
+        assert_eq!(
+            history.current(),
+            &Route::Film {
+                id: "50".into(),
+                kind: Kind::Movie
+            }
+        );
     }
 
     #[test]
@@ -304,7 +339,10 @@ mod tests {
                 query: String::new()
             }
         );
-        let film = Route::Film { id: "a:b".into() };
+        let film = Route::Film {
+            id: "a:b".into(),
+            kind: Kind::Movie,
+        };
         assert_eq!(film.destination(), None);
         assert!(!film.has_sidebar());
         let player = Route::Player { id: "a:b".into() };
@@ -321,11 +359,20 @@ mod tests {
         assert!(!history.go(Destination::Home));
         assert!(history.go(Destination::Addons));
         assert_eq!(history.entries.len(), 3);
-        history.push(Route::Film { id: "a:b".into() });
+        history.push(Route::Film {
+            id: "a:b".into(),
+            kind: Kind::Movie,
+        });
         assert!(history.go(Destination::Home));
         assert_eq!(history.entries.len(), 5);
         assert!(history.back());
-        assert_eq!(history.current(), &Route::Film { id: "a:b".into() });
+        assert_eq!(
+            history.current(),
+            &Route::Film {
+                id: "a:b".into(),
+                kind: Kind::Movie
+            }
+        );
     }
 
     #[test]
@@ -354,7 +401,10 @@ mod tests {
         }
         assert_eq!(
             Route::parse("film:a:b"),
-            Ok(Route::Film { id: "a:b".into() })
+            Ok(Route::Film {
+                id: "a:b".into(),
+                kind: Kind::Movie
+            })
         );
         assert_eq!(
             Route::parse("festival:cannes"),

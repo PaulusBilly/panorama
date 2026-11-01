@@ -32,11 +32,13 @@ pub mod routes;
 pub mod services;
 pub mod sidebar;
 pub mod source_lookup;
+pub mod tab_strip;
 pub mod theme;
 pub mod tint;
 pub mod titlebar;
 pub mod transition;
 #[allow(unsafe_code)]
 pub mod window_controls;
+pub mod zoom;
 
 pub mod startup_error;

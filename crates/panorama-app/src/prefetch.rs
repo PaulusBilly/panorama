@@ -2,7 +2,7 @@
 use crate::app_state::AppState;
 use futures::StreamExt;
 use gpui::{App, Entity, Task};
-use panorama_core::addons::ResourceEvent;
+use panorama_core::addons::{Kind, ResourceEvent};
 use std::{collections::HashSet, time::Duration};
 
 /// Long enough that sweeping across a row asks the addons for nothing.
@@ -31,13 +31,16 @@ impl Prefetch {
 
 /// Details and the foreign title land in the store and artwork on disk, where the film page
 /// finds them. A longer pause also starts the source lookup, which the page then joins.
-pub fn hovered(state: &Entity<AppState>, id: &str, cx: &mut App) {
+pub fn hovered(state: &Entity<AppState>, kind: Kind, id: &str, cx: &mut App) {
     state.update(cx, |state, cx| {
         let film = id.to_owned();
-        state.prefetch.pause = Some(cx.spawn(async move |state, cx| {
-            cx.background_executor().timer(SOURCE_INTENT).await;
-            let _ = state.update(cx, |state, cx| state.prefetch_sources(&film, cx));
-        }));
+        // A show's sources belong to an episode, which only its page settles.
+        if kind == Kind::Movie {
+            state.prefetch.pause = Some(cx.spawn(async move |state, cx| {
+                cx.background_executor().timer(SOURCE_INTENT).await;
+                let _ = state.update(cx, |state, cx| state.prefetch_sources(&film, cx));
+            }));
+        }
         if !state.prefetch.wants(id) {
             return;
         }
@@ -47,7 +50,7 @@ pub fn hovered(state: &Entity<AppState>, id: &str, cx: &mut App) {
         let film = id.to_owned();
         let task = cx.spawn(async move |state, cx| {
             cx.background_executor().timer(INTENT).await;
-            let (_job, mut events) = services.details(film.clone());
+            let (_job, mut events) = services.details(kind, film.clone());
             let mut details = None;
             while let Some(event) = events.next().await {
                 if let ResourceEvent::CacheHit(meta) | ResourceEvent::Fresh(meta) = event {

@@ -17,8 +17,10 @@ mod cache;
 mod catalog;
 mod details;
 mod manifests;
+mod next_after;
 mod search;
 mod security;
+mod series;
 
 #[derive(Clone)]
 struct Reply {

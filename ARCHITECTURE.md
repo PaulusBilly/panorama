@@ -158,6 +158,8 @@ not been run on macOS.
 
 Search is its own route: `routes/search` owns its query field and shares `film_grid` with Home. The sidebar's Search item, `/` and Ctrl+K all go through `AppShell::go`. `routes/film{,_data,_actions,_view,_images}` start details and sources together; the first ready URL/info-hash stream is the Play target and is handed to Player through `AppState::playback`. Home's hero play button opens Film with an `AppState::play_intent`, so playback always goes through Film's sign-in gate and source selection. `film_display` owns the primary-button table, quality badges and rating rule; `a11y` owns polite status nodes. Capture flags include `--signed-out`, `--no-sources`, `--film-loading` and `--film-resume`; routes `search:<q>`, `film:<id>`. `CoreSession::set_watchlisted`/`is_watchlisted` toggle the account library. The original (native) film title is not shown because addon metadata sanitising does not carry it.
 
+Series and anime share all of this. `FilmDetails.kind` is the item's own type and `CatalogRef.kind` the catalog's, and they can differ: Kitsu lists `anime` catalogs of `series` items. `Route::Film` carries the kind so every addon request does. Episode ids are the addon's `Video.id`, never composed. A show's page settles on one episode (`routes/film_episodes.rs`), the one in progress or the one after the last watched, and looks up that episode's sources. `Route::Player` keeps the title id and `PlaybackSelection.video_id` names the episode, so progress lands on the show with the episode in `video_id`. stremio-core writes the watched bitfield during playback; `watched_episodes` reads it in the core's own order. `routes/player/up_next.rs` offers the next episode in the last 30 seconds and counts down after the end.
+
 The component theme is synchronized through `Theme::change` then `Theme::update`
 so its solid colors, renderable tokens and Base projection agree. Mapped tokens:
 background/foreground/border, accent/foreground, muted/foreground,
@@ -221,8 +223,16 @@ logging or file work on the UI thread, as established by Phase 0 Gate 2.
 `CachedImage` keeps its result. `ImageCache::tint` reads it by URL, so the film page
 opens on its card's color while the backdrop loads. Tints live and die with the LRU.
 
-The film page holds on the card's color until details, still, logo, foreign title and
-the first playable source are in, then fades them in together. Addons answer sources
+Clicking a Home, Search or festival card grows its artwork to the window over the mounted grid
+(`zoom.rs`) and mounts the page when it lands, on the same frame as the page's own backdrop. Back returns
+to the grid at once and shrinks the page's banner onto the card at rest; a window resized in
+between has no card to land on, so it just returns. The zoom is one reversible tween: Back
+during the climb turns it around without the page ever mounting, Back during the descent is
+swallowed, and a click on the descending artwork sends it back up. The card landed on keeps
+its caption hidden for a second (`Quiet` in `AppState`), then fades it in.
+The film page opens on the card's still, or its color while the still loads, and holds
+there until details, logo, foreign title and the first playable source are in, then fades
+them in together. The scrims belong to the still, so a bare color has none. Addons answer sources
 independently and later ones join after. With none playable it waits for them all, so
 past `REVEAL_LIMIT` the page shows without them. Resting on a Home or Search card warms that film (`prefetch.rs`):
 details land in the store and artwork on disk, so the page opens from cache and

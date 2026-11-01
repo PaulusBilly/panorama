@@ -6,7 +6,7 @@ use crate::{
 use futures::{StreamExt, channel::mpsc};
 use gpui::{AppContext, Context, Task};
 use panorama_core::{
-    addons::{CatalogRef, FailureKind, ResourceEvent},
+    addons::{CatalogRef, FailureKind, Kind, ResourceEvent},
     stremio::{CoreChange, CoreErrorKind, Descriptor},
 };
 use std::sync::{
@@ -66,6 +66,8 @@ pub struct AppState {
     pub continue_watching: gpui::Entity<crate::continue_watching::ContinueWatching>,
     /// Last selected card, shown while Film metadata arrives.
     pub film_preview: Option<panorama_core::addons::FilmDetails>,
+    /// The card a film page just shrank onto.
+    pub quiet: Option<crate::zoom::Quiet>,
     /// Source lookups by film, reused between the hover prefetch and the film page.
     pub source_lookups: crate::source_lookup::SourceLookups,
     /// The film whose lookup feeds `streams`; a prefetch must not overwrite an open Player's.
@@ -110,6 +112,7 @@ impl AppState {
             images,
             continue_watching,
             film_preview: None,
+            quiet: None,
             source_lookups: Default::default(),
             streams_for: None,
             prefetch: Default::default(),
@@ -289,7 +292,23 @@ impl AppState {
                         Some((key, display_text(&addon.summary().name, NAME_CAP)))
                     })
                     .collect();
-                catalog_groups(&names, &client.catalogs(&self.installed))
+                let catalogs = client.catalogs(&self.installed);
+                [
+                    (Kind::Movie, ""),
+                    (Kind::Series, "Shows · "),
+                    (Kind::Anime, "Anime · "),
+                ]
+                .into_iter()
+                .flat_map(|(kind, prefix)| {
+                    let (of_kind, _): (Vec<_>, Vec<_>) =
+                        catalogs.iter().cloned().partition(|c| c.kind == kind);
+                    let mut groups = catalog_groups(&names, &of_kind);
+                    for group in &mut groups {
+                        group.addon = format!("{prefix}{}", group.addon);
+                    }
+                    groups
+                })
+                .collect()
             }
             Some(None) => crate::addons_screen::fixture::groups(),
         };

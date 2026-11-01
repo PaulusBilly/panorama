@@ -235,6 +235,14 @@ impl ImageCache {
         let key = self.key(url, (0.0, 0.0), 1.0)?;
         self.lru.latest(|cached| cached.url == key.url)?.tint
     }
+    /// The sharp copy of `url` last on screen, at whatever size.
+    pub fn newest(&self, url: &str) -> Option<Arc<RenderImage>> {
+        let key = self.key(url, (0.0, 0.0), 1.0)?;
+        let found = self
+            .lru
+            .latest(|cached| cached.url == key.url && !cached.blurred)?;
+        Some(found.image.clone())
+    }
     /// Request only images used by this frame; conversion also stays off GPUI.
     pub fn request(
         &mut self,

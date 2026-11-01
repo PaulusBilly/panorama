@@ -1,6 +1,6 @@
 use futures::{StreamExt, channel::mpsc};
 use panorama_core::{
-    addons::{AddonClient, CatalogRef, CoreAddonTransport, FilmDetails, ResourceEvent},
+    addons::{AddonClient, CatalogRef, CoreAddonTransport, FilmDetails, Kind, ResourceEvent},
     images::{ImageLoader, ImageLoaderOptions, ImageRequest, ImageTarget, ImageUrl},
     store::{self, Store, StoreError},
     stremio::{
@@ -338,6 +338,7 @@ impl Services {
     /// `fixtures::details`.
     pub fn details(
         self: &Arc<Self>,
+        kind: Kind,
         id: String,
     ) -> (Job<()>, mpsc::UnboundedReceiver<ResourceEvent<FilmDetails>>) {
         let (sender, receiver) = mpsc::unbounded();
@@ -352,7 +353,7 @@ impl Services {
                 return;
             };
             let addons = session.lock().await.installed_addons();
-            let mut events = client.details(&addons, &id, None);
+            let mut events = client.details(&addons, kind, &id, None);
             while let Some(event) = events.next().await {
                 if sender.unbounded_send(event).is_err() {
                     break;
@@ -415,10 +416,10 @@ impl Services {
     }
 
     /// The addon transport that supplied a film's cached metadata, for the playback target.
-    pub async fn metadata_base(&self, id: &str) -> Option<url::Url> {
+    pub async fn metadata_base(&self, kind: Kind, id: &str) -> Option<url::Url> {
         let (client, session) = (self.addons.as_ref()?, self.session.as_ref()?);
         let addons = session.lock().await.installed_addons();
-        client.metadata_base(&addons, id).await
+        client.metadata_base(&addons, kind, id).await
     }
 
     /// Whether a film is saved and where to resume it, now and after every library change.

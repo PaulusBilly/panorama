@@ -17,7 +17,7 @@ impl<'a> Featured<'a> {
     }
     pub fn resume(&self) -> Option<panorama_core::stremio::ResumePoint> {
         match self {
-            Self::Resume(card) => Some(card.resume),
+            Self::Resume(card) => Some(card.resume.clone()),
             Self::Pick(_) => None,
         }
     }
@@ -67,6 +67,7 @@ mod tests {
             resume: ResumePoint {
                 offset_secs: 10.0,
                 duration_secs: 100.0,
+                video_id: None,
             },
             progress: 0.1,
         }
@@ -96,15 +97,7 @@ mod tests {
         let catalog = crate::fixtures::films();
         let cards = crate::fixtures::continue_items()
             .into_iter()
-            .map(|item| {
-                card(
-                    catalog
-                        .iter()
-                        .find(|f| f.id == item.film.id)
-                        .unwrap()
-                        .clone(),
-                )
-            })
+            .map(|item| card(crate::fixtures::details(&item.film.id).unwrap()))
             .collect::<Vec<_>>();
         let lineup = lineup(true, &cards, &catalog);
         let names = |cards: &[ContinueCard]| {
@@ -114,7 +107,10 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(lineup.hero.unwrap().film().name, "Perfect Days");
-        assert_eq!(names(lineup.row), ["Past Lives", "Aftersun"]);
+        assert_eq!(
+            names(lineup.row),
+            ["Past Lives", "Aftersun", "The Long Coast"]
+        );
     }
 
     #[test]

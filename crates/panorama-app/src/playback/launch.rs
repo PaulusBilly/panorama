@@ -1,6 +1,6 @@
 //! Play straight from Home: the player opens at once, and its loader covers the source and
 //! subtitle lookups the film page used to run before handing over.
-use super::selection::{PlaybackSelection, StartMode, SubtitleLookup, first_source};
+use super::selection::{PlaybackSelection, StartMode, SubtitleLookup, binge_source, first_source};
 use crate::{
     app_state::AppState,
     services::{Job, Services},
@@ -8,7 +8,7 @@ use crate::{
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use gpui::{Context, Task};
 use panorama_core::{
-    addons::{FilmDetails, StreamsEvent},
+    addons::{FilmDetails, Kind, StreamsEvent},
     stremio::{Descriptor, ResumePoint},
 };
 use std::sync::Arc;
@@ -17,6 +17,8 @@ use std::sync::Arc;
 pub struct Launch {
     /// The film's id, matching the player route.
     pub id: String,
+    /// What is playing: the film's id, or an episode's.
+    pub video_id: String,
     /// The film and resume point, for the player while it waits and to look again.
     pub film: FilmDetails,
     pub resume: Option<ResumePoint>,
@@ -30,12 +32,13 @@ pub struct Launch {
 pub fn subtitle_lookup(
     services: &Arc<Services>,
     addons: Vec<Descriptor>,
+    kind: Kind,
     id: String,
 ) -> SubtitleLookup {
     let lookup = services.clone();
     let mut job = Job(services.runtime.clone().spawn(async move {
         match &lookup.addons {
-            Some(client) => client.subtitles(&addons, &id).await,
+            Some(client) => client.subtitles(&addons, kind, &id).await,
             None => vec![],
         }
     }));
@@ -51,28 +54,31 @@ impl AppState {
     pub fn launch(
         &mut self,
         film: FilmDetails,
+        video_id: String,
         resume: Option<ResumePoint>,
+        binge_group: Option<String>,
         cx: &mut Context<Self>,
     ) {
         let Some(services) = self.services.clone() else {
             return;
         };
         let id = film.id.clone();
+        let kind = film.kind;
         let kept = film.clone();
         let addons = self.installed.clone();
-        let subtitles = subtitle_lookup(&services, addons.clone(), id.clone());
+        let subtitles = subtitle_lookup(&services, addons.clone(), film.kind, video_id.clone());
         // Which metadata addon the progress belongs to; ready long before the streams.
         let meta_base = Job(services.runtime.clone().spawn({
             let (services, id) = (services.clone(), id.clone());
-            async move { services.metadata_base(&id).await }
+            async move { services.metadata_base(kind, &id).await }
         }));
         let (sender, mut receiver) = mpsc::unbounded();
         let job = Job(services.runtime.clone().spawn({
-            let id = id.clone();
+            let video_id = video_id.clone();
             async move {
                 match &services.addons {
                     Some(client) => {
-                        let mut events = client.streams(&addons, &id);
+                        let mut events = client.streams(&addons, kind, &video_id);
                         while let Some(event) = events.next().await {
                             if sender.unbounded_send(event).is_err() {
                                 break;
@@ -85,27 +91,36 @@ impl AppState {
                 }
             }
         }));
-        let start = resume.map_or(StartMode::Restart, |point| {
+        let start = resume.as_ref().map_or(StartMode::Restart, |point| {
             StartMode::Resume(point.offset_secs)
         });
         let task = cx.spawn({
             let id = id.clone();
+            let video_id = video_id.clone();
             async move |state, cx| {
                 let _job = job;
                 let mut meta_base = meta_base;
                 let meta_base = (&mut meta_base.0).await.ok().flatten();
                 let mut film = Some(film);
+                let mut latest = vec![];
                 while let Some(event) = receiver.next().await {
                     let StreamsEvent::Groups(groups) = event else {
                         continue;
                     };
                     let picked = state.update(cx, |state, cx| {
                         state.streams = Some((id.clone(), Arc::new(groups.clone())));
-                        if let Some(source) = first_source(&groups)
+                        // Holding out for the release in progress; the rest wait for the end.
+                        let source = match binge_group.as_deref() {
+                            Some(group) => binge_source(&groups, group),
+                            None => first_source(&groups),
+                        };
+                        latest = groups.clone();
+                        if let Some(source) = source
                             && let Some(film) = film.take()
                         {
                             state.playback = Some(PlaybackSelection {
                                 film,
+                                video_id: video_id.clone(),
                                 groups,
                                 source,
                                 start,
@@ -121,6 +136,22 @@ impl AppState {
                     }
                 }
                 let _ = state.update(cx, |state, cx| {
+                    if let Some(source) = first_source(&latest)
+                        && let Some(film) = film.take()
+                    {
+                        state.playback = Some(PlaybackSelection {
+                            film,
+                            video_id,
+                            groups: latest,
+                            source,
+                            start,
+                            meta_base,
+                            subtitles: vec![],
+                            late_subtitles: Some(subtitles),
+                        });
+                        cx.notify();
+                        return;
+                    }
                     if film.is_some()
                         && let Some(launch) = state.launch.as_mut().filter(|l| l.id == id)
                     {
@@ -133,6 +164,7 @@ impl AppState {
         self.playback = None;
         self.launch = Some(Launch {
             id,
+            video_id,
             film: kept,
             resume,
             failed: false,

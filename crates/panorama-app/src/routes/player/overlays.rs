@@ -190,6 +190,8 @@ impl Player {
                     .child(div().heading().child(error.message()))
                     .child(self.buttons(false, theme, keyboard, window, cx)),
             ),
+            // The Up Next card speaks for the end while it counts down.
+            Status::Ended if self.counting_down() => div(),
             Status::Ended => center.bg(theme.player_canvas.opacity(0.7)).child(
                 div()
                     .text_center()
@@ -302,7 +304,16 @@ impl Player {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
-        let first = if ended {
+        let first = if ended && self.next.is_some() {
+            self.text_button(
+                ("Next episode", true, &self.focus.retry),
+                theme,
+                keyboard,
+                window,
+                |player, _, cx| player.play_next(cx),
+                cx,
+            )
+        } else if ended {
             self.text_button(
                 ("Replay", true, &self.focus.retry),
                 theme,

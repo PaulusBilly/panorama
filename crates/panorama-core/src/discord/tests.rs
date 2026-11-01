@@ -20,6 +20,7 @@ use super::*;
 fn playback() -> DiscordPlayback {
     DiscordPlayback {
         film_id: "tmdb:157336".into(),
+        kind: crate::addons::Kind::Movie,
         title: "Interstellar".into(),
         year: None,
         director_tmdb_id: None,
@@ -449,4 +450,21 @@ async fn untrusted_updates_are_validated_and_null_clears_the_activity() {
     settle().await;
     assert!(fake.messages(socket).last().unwrap()["args"]["activity"].is_null());
     assert!(fake.closed_by_client(socket));
+}
+
+#[test]
+fn a_show_links_to_its_tmdb_tv_page() {
+    let film = discord_activity(&playback(), 1_000_000.0);
+    let show = discord_activity(
+        &DiscordPlayback {
+            kind: crate::addons::Kind::Series,
+            ..playback()
+        },
+        1_000_000.0,
+    );
+    assert_eq!(
+        film["details_url"],
+        "https://www.themoviedb.org/movie/157336"
+    );
+    assert_eq!(show["details_url"], "https://www.themoviedb.org/tv/157336");
 }

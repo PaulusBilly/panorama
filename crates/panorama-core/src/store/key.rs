@@ -38,6 +38,16 @@ impl Key {
         Ok(Self(format!("catalog:{addon_id}|{catalog_id}")))
     }
 
+    /// Like [`Key::catalog`] for a catalog of the given addon type. Movie catalogs keep the
+    /// untyped form so existing caches stay valid; other types get a segment of their own.
+    pub fn typed_catalog(addon_id: &str, kind: &str, catalog_id: &str) -> Result<Self, StoreError> {
+        let Self(key) = Self::catalog(addon_id, catalog_id)?;
+        if kind == "movie" {
+            return Ok(Self(key));
+        }
+        Ok(Self(format!("catalog:{addon_id}|{kind}|{catalog_id}")))
+    }
+
     /// Identifies cached film details; supports 200 Unicode characters (800 bytes).
     pub fn meta(film_id: &str) -> Result<Self, StoreError> {
         if film_id.chars().count() <= 200 {
@@ -46,6 +56,17 @@ impl Key {
             validate(film_id)?;
         }
         Ok(Self(format!("meta:{film_id}")))
+    }
+
+    /// Like [`Key::meta`] for a title of the given addon type: a film and a show can share an
+    /// id. Movies keep the untyped form so existing caches stay valid. The `/` cannot appear in
+    /// a film id, so no movie's key can land on a show's.
+    pub fn typed_meta(kind: &str, film_id: &str) -> Result<Self, StoreError> {
+        let Self(key) = Self::meta(film_id)?;
+        if kind == "movie" {
+            return Ok(Self(key));
+        }
+        Ok(Self(format!("meta:{kind}/{film_id}")))
     }
 
     /// Identifies a film's cached awards; validated like [`Key::meta`]. It lives under `meta:`

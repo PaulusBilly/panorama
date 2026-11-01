@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use stremio_core::types::addon::{ResourcePath, ResourceResponse};
 
 use super::{
-    AddonClient, AddonKey, DetailsStream, FailureKind, FilmDetails, ResourceEvent, StreamGroup,
-    StreamState, StreamsEvent, StreamsStream, SubtitleSource, delivery, sanitize, supports,
+    AddonClient, AddonKey, DetailsStream, FailureKind, FilmDetails, Kind, ResourceEvent,
+    StreamGroup, StreamState, StreamsEvent, StreamsStream, SubtitleSource, delivery, sanitize,
+    supports,
 };
 use crate::{store::Key, stremio::Descriptor};
 
@@ -17,14 +18,22 @@ struct CachedMeta {
 impl AddonClient {
     /// The transport URL of the addon that supplied the cached metadata, for the core's
     /// playback target. It can carry addon credentials, so it must never be logged.
-    pub async fn metadata_base(&self, addons: &[Descriptor], film_id: &str) -> Option<url::Url> {
+    pub async fn metadata_base(
+        &self,
+        addons: &[Descriptor],
+        kind: Kind,
+        film_id: &str,
+    ) -> Option<url::Url> {
         if !sanitize::valid_id(film_id) {
             return None;
         }
         let cached = self
-            .read::<CachedMeta>(Key::meta(film_id).ok()?)
+            .read::<CachedMeta>(Key::typed_meta(kind.stremio(), film_id).ok()?)
             .await
             .ok()??;
+        if cached.details.id != film_id {
+            return None;
+        }
         let cinemeta = self.cinemeta();
         self.installations(addons)
             .chain(film_id.starts_with("tt").then_some(cinemeta))
@@ -34,9 +43,11 @@ impl AddonClient {
 
     /// Delivers cached metadata then tries the explicit or persisted preferred addon,
     /// matching installed meta resources, and Cinemeta for IMDb IDs, with 8s deadlines.
+    /// `kind` is the title's own type; the returned details carry its episodes.
     pub fn details(
         &self,
         addons: &[Descriptor],
+        kind: Kind,
         film_id: &str,
         preferred: Option<AddonKey>,
     ) -> DetailsStream {
@@ -51,7 +62,7 @@ impl AddonClient {
                         .await;
                     return;
                 }
-                let Ok(key) = Key::meta(&id) else {
+                let Ok(key) = Key::typed_meta(kind.stremio(), &id) else {
                     let _ = sender
                         .send(ResourceEvent::Failed(FailureKind::InvalidInput))
                         .await;
@@ -82,7 +93,7 @@ impl AddonClient {
                         Err(_) => None,
                     },
                 };
-                let path = ResourcePath::without_extra("meta", "movie", &id);
+                let path = ResourcePath::without_extra("meta", kind.stremio(), &id);
                 let mut plan = installed
                     .iter()
                     .filter(|addon| supports(addon, &path, false))
@@ -110,6 +121,9 @@ impl AddonClient {
                                     sanitize::film(meta.preview, false)
                                         .filter(|details| details.id == id)
                                         .map(|mut details| {
+                                            if details.kind != Kind::Movie {
+                                                details.episodes = sanitize::episodes(&meta.videos);
+                                            }
                                             if !response.credits.director.is_empty() {
                                                 details.director = response.credits.director;
                                             }
@@ -164,13 +178,19 @@ impl AddonClient {
         })
     }
 
-    /// Subtitle files from every addon offering them for the film, queried concurrently with
+    /// Subtitle files from every addon offering them for the video, queried concurrently with
     /// 10s deadlines. An addon that fails adds nothing: subtitles never hold up playback.
-    pub async fn subtitles(&self, addons: &[Descriptor], film_id: &str) -> Vec<SubtitleSource> {
-        if !sanitize::valid_id(film_id) {
+    /// `video_id` is the film's ID, or an episode's `Video.id`, passed on untouched.
+    pub async fn subtitles(
+        &self,
+        addons: &[Descriptor],
+        kind: Kind,
+        video_id: &str,
+    ) -> Vec<SubtitleSource> {
+        if !sanitize::valid_id(video_id) {
             return vec![];
         }
-        let path = ResourcePath::without_extra("subtitles", "movie", film_id);
+        let path = ResourcePath::without_extra("subtitles", kind.stremio(), video_id);
         let plan = self
             .installations(addons)
             .filter(|addon| supports(addon, &path, false))
@@ -191,9 +211,10 @@ impl AddonClient {
 
     /// Queries matching stream resources concurrently, with isolated 15s deadlines.
     /// Links are never cached; an unrecognized film explicitly yields `NoSources`.
-    pub fn streams(&self, addons: &[Descriptor], film_id: &str) -> StreamsStream {
+    /// `video_id` is the film's ID, or an episode's `Video.id`, passed on untouched.
+    pub fn streams(&self, addons: &[Descriptor], kind: Kind, video_id: &str) -> StreamsStream {
         let client = self.clone();
-        let id = film_id.to_owned();
+        let id = video_id.to_owned();
         let installed = self.installations(addons).collect::<Vec<_>>();
         delivery(&self.runtime, move |mut sender| {
             async move {
@@ -203,7 +224,7 @@ impl AddonClient {
                         .await;
                     return;
                 }
-                let path = ResourcePath::without_extra("stream", "movie", &id);
+                let path = ResourcePath::without_extra("stream", kind.stremio(), &id);
                 let plan = installed
                     .into_iter()
                     .filter(|addon| supports(addon, &path, false))

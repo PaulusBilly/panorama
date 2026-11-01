@@ -2,7 +2,7 @@ use crate::services::Services;
 use futures::StreamExt;
 use gpui::{Context, Task};
 use panorama_core::{
-    addons::{FilmDetails, ResourceEvent},
+    addons::{FilmDetails, Kind, ResourceEvent},
     stremio::{ContinueItem, FilmMeta, ResumePoint},
 };
 use std::{
@@ -17,6 +17,14 @@ pub struct ContinueCard {
     pub film: FilmDetails,
     pub resume: ResumePoint,
     pub progress: f32,
+}
+
+impl ContinueCard {
+    /// The episode in progress, once the show's details have arrived.
+    pub fn episode(&self) -> Option<&panorama_core::addons::Episode> {
+        let id = self.resume.video_id.as_ref()?;
+        self.film.episodes.iter().find(|episode| episode.id == *id)
+    }
 }
 
 /// Owned by AppState and shared by every Home history entry. The single writer of continue state.
@@ -81,17 +89,22 @@ impl ContinueWatching {
         self.requested.retain(|id, _| keep.contains(id.as_str()));
         self.items = items.into();
         for id in wanted {
-            self.request(id, cx);
+            let kind = self
+                .items
+                .iter()
+                .find(|item| item.film.id == id)
+                .map_or(Kind::Movie, |item| item.film.kind);
+            self.request(kind, id, cx);
         }
         self.rebuild();
         cx.notify();
     }
 
-    fn request(&mut self, id: String, cx: &mut Context<Self>) {
+    fn request(&mut self, kind: Kind, id: String, cx: &mut Context<Self>) {
         let Some(services) = self.services.clone() else {
             return;
         };
-        let (job, mut receiver) = services.details(id.clone());
+        let (job, mut receiver) = services.details(kind, id.clone());
         let key = id.clone();
         let task = cx.spawn(async move |entity, cx| {
             let _job = job;
@@ -152,7 +165,7 @@ fn build_cards(
                 .get(&item.film.id)
                 .cloned()
                 .unwrap_or_else(|| stub(&item.film)),
-            resume: item.resume,
+            resume: item.resume.clone(),
             progress: item.progress(),
         })
         .collect()
@@ -161,6 +174,7 @@ fn build_cards(
 fn stub(meta: &FilmMeta) -> FilmDetails {
     FilmDetails {
         id: meta.id.clone(),
+        kind: meta.kind,
         name: meta.name.clone(),
         release_info: None,
         released: None,
@@ -177,6 +191,7 @@ fn stub(meta: &FilmMeta) -> FilmDetails {
         logo: None,
         imdb_rating: None,
         links: vec![],
+        episodes: vec![],
     }
 }
 
@@ -188,12 +203,14 @@ mod tests {
         ContinueItem {
             film: FilmMeta {
                 id: id.into(),
+                kind: Kind::Movie,
                 name: id.to_uppercase(),
                 poster: None,
             },
             resume: ResumePoint {
                 offset_secs,
                 duration_secs: 100.0,
+                video_id: None,
             },
         }
     }

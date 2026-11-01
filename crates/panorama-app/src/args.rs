@@ -348,7 +348,13 @@ mod tests {
             "--reduced-motion",
         ])
         .unwrap();
-        assert_eq!(args.route, Route::Film { id: "a:b".into() });
+        assert_eq!(
+            args.route,
+            Route::Film {
+                id: "a:b".into(),
+                kind: panorama_core::addons::Kind::Movie
+            }
+        );
         assert_eq!(args.size, (1280.0, 800.0));
         assert!(args.reduced_motion);
         assert!(parse(&["--reduced-motion"]).unwrap().reduced_motion);

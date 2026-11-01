@@ -13,10 +13,11 @@ use crate::{
     image_cache::ImageCache,
     router::Route,
     theme::{
-        Typography, caps, focus_ring,
+        Typography, caps,
         scrim::{Edge, scrim},
         typography::TITLE,
     },
+    zoom::CardArt,
 };
 use futures::StreamExt;
 use gpui::{
@@ -24,7 +25,7 @@ use gpui::{
     WeakEntity, Window, div, img, point, prelude::*, px, relative,
 };
 use panorama_core::{
-    addons::{FilmDetails, ResourceEvent},
+    addons::{FilmDetails, Kind, ResourceEvent},
     credits::AwardResult,
     mubi::{Festival as Event, FestivalFilm},
 };
@@ -33,13 +34,18 @@ use std::{collections::HashMap, sync::Arc};
 /// The festival's white logo is drawn inside this box, as large as MUBI's.
 const LOGO: (f32, f32) = (360.0, 140.0);
 const GRID_GAP: f32 = 56.0;
-/// One year tab: 8 above, a 13px label line, 6 below and the 2px underline.
-const YEAR_ROW: f32 = 34.0;
+
+/// What to do with a lookup's answer, once a card waiting on it was clicked.
+struct Then {
+    play: bool,
+    card: Option<CardArt>,
+    window: gpui::AnyWindowHandle,
+}
 
 struct Lookup {
     index: usize,
     /// Open (`false`) or play (`true`) once found; `None` for a lookup started on hover.
-    then: Option<(bool, gpui::AnyWindowHandle)>,
+    then: Option<Then>,
     _task: Task<()>,
 }
 
@@ -255,9 +261,16 @@ impl Festival {
 
     /// Open or play the card's film once the addons have it; Search when none does. A click
     /// while its lookup runs only updates what happens when it lands.
-    fn resolve(&mut self, index: usize, play: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn resolve(
+        &mut self,
+        index: usize,
+        play: bool,
+        card: Option<CardArt>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(found) = self.found.get(&index).cloned() {
-            self.finish(index, Some(found), play, window, cx);
+            self.finish(index, Some(found), play, card, window, cx);
             return;
         }
         if !self
@@ -268,7 +281,11 @@ impl Festival {
             self.look_up(index, cx);
         }
         if let Some(lookup) = &mut self.lookup {
-            lookup.then = Some((play, window.window_handle()));
+            lookup.then = Some(Then {
+                play,
+                card,
+                window: window.window_handle(),
+            });
         }
         cx.notify();
     }
@@ -301,10 +318,10 @@ impl Festival {
                 let lookup = festival.lookup.take_if(|lookup| lookup.index == index)?;
                 lookup.then
             });
-            if let Ok(Some((play, handle))) = then {
-                let _ = cx.update_window(handle, |_, window, cx| {
+            if let Ok(Some(then)) = then {
+                let _ = cx.update_window(then.window, |_, window, cx| {
                     let _ = entity.update(cx, |festival, cx| {
-                        festival.finish(index, found, play, window, cx)
+                        festival.finish(index, found, then.play, then.card, window, cx)
                     });
                 });
             }
@@ -332,6 +349,7 @@ impl Festival {
         index: usize,
         found: Option<FilmDetails>,
         play: bool,
+        card: Option<CardArt>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -347,7 +365,15 @@ impl Festival {
             Some(details) if play => {
                 super::home::play_film(&self.state, &self.shell, details, None, window, cx)
             }
-            Some(details) => super::home::open_film(&self.state, &self.shell, details, window, cx),
+            Some(mut details) => match card {
+                Some(card) => {
+                    // The zoom lands on the page's backdrop, so the page keeps the card's still.
+                    details.background = card.film.background.clone();
+                    details.poster = card.film.poster.clone();
+                    super::home::zoom_film(&self.state, &self.shell, details, card, window, cx)
+                }
+                None => super::home::open_film(&self.state, &self.shell, details, window, cx),
+            },
             None => {
                 let Some(query) = self.films.get(index).map(|film| film.title.clone()) else {
                     return;
@@ -451,6 +477,7 @@ pub(crate) fn release_year(info: &str) -> Option<i32> {
 fn details(index: usize, film: &FestivalFilm) -> FilmDetails {
     FilmDetails {
         id: format!("mubi-festival:{index}"),
+        kind: Kind::Movie,
         name: film.title.clone(),
         original_name: None,
         release_info: film.year.map(|year| year.to_string()),
@@ -467,6 +494,7 @@ fn details(index: usize, film: &FestivalFilm) -> FilmDetails {
         logo: None,
         imdb_rating: None,
         links: vec![],
+        episodes: vec![],
     }
 }
 
@@ -535,12 +563,23 @@ impl GridHost for Festival {
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(index) = card_index(&film) {
-            self.resolve(index, false, window, cx);
+            self.resolve(index, false, None, window, cx);
+        }
+    }
+    fn zoom_film(
+        &mut self,
+        film: FilmDetails,
+        card: CardArt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = card_index(&film) {
+            self.resolve(index, false, Some(card), window, cx);
         }
     }
     fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(index) = card_index(&film) {
-            self.resolve(index, true, window, cx);
+            self.resolve(index, true, None, window, cx);
         }
     }
 }
@@ -612,40 +651,16 @@ impl Render for Festival {
             .map(|event| event.years.clone())
             .unwrap_or_default();
         let tabs = years.iter().enumerate().map(|(index, &year)| {
-            let selected = self.year == Some(year);
-            let handle = self
-                .years
-                .get(index)
-                .cloned()
-                .unwrap_or_else(|| self.retry.clone());
-            focus_ring(
-                div()
-                    .id(("festival-year", index))
-                    .role(gpui::Role::Tab)
-                    .aria_label(format!("{year}"))
-                    .cursor_pointer()
-                    .flex_none()
-                    .px(px(10.0))
-                    .pt(px(8.0))
-                    .pb(px(6.0))
-                    .border_b_2()
-                    .border_color(if selected {
-                        theme.ink
-                    } else {
-                        gpui::transparent_black().into()
-                    })
-                    .label()
-                    .text_color(if selected { theme.ink } else { theme.ink_muted })
-                    .hover(|style| style.text_color(theme.ink))
-                    .child(year.to_string())
-                    .on_click(cx.listener(move |festival, _, _, cx| festival.pick_year(year, cx))),
-                &handle,
-                theme,
-                view.active,
-                view.keyboard,
-                0.0,
+            let handle = self.years.get(index).unwrap_or(&self.retry);
+            crate::tab_strip::tab(
+                ("festival-year", index),
+                &year.to_string(),
+                self.year == Some(year),
+                handle,
+                view,
                 window,
             )
+            .on_click(cx.listener(move |festival, _, _, cx| festival.pick_year(year, cx)))
         });
         let masthead = div()
             .absolute()
@@ -679,20 +694,12 @@ impl Render for Festival {
                 )
             })
             .when(!years.is_empty(), |column| {
-                column.child(
-                    div()
-                        .id("festival-years")
-                        .role(gpui::Role::TabList)
-                        .aria_label("Editions")
-                        .mt(px(20.0))
-                        .ml(px(-10.0))
-                        .max_w(px(col.width + 10.0))
-                        // A scroll container takes no height from its row; this is one tab.
-                        .h(px(YEAR_ROW))
-                        .overflow_x_scroll()
-                        .flex()
-                        .children(tabs),
-                )
+                column.child(div().mt(px(20.0)).child(crate::tab_strip::strip(
+                    "festival-years",
+                    "Editions",
+                    col.width,
+                    tabs,
+                )))
             });
         hero = hero.child(masthead).child(
             div()
@@ -754,6 +761,7 @@ impl Render for Festival {
             let top = -f32::from(self.scroll.offset().y);
             let offset = Self::grid_top(view) - top;
             let images = self.images.clone();
+            self.grid.quiet = self.state.read(cx).quiet.clone();
             section = section.child(self.grid.render_rows(
                 offset,
                 self.loading && self.films.is_empty(),

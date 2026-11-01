@@ -26,9 +26,9 @@ impl Home {
             return;
         };
         card.focus(window, cx);
-        self.row.show(index);
         let view = self.settings(window, cx);
-        let height = crate::continue_row::CARD.1;
+        self.row.show(index, view);
+        let height = crate::continue_row::card_size(view).1;
         crate::film_grid::reveal(
             &self.scroll,
             self.fold - crate::hero::FOLD_PAD - height,

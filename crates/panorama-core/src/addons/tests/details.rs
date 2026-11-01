@@ -18,25 +18,37 @@ async fn unknown_film_shows_details_with_no_sources_state() {
     );
     let client = client(&fake).await;
     let events = client
-        .details(&addons, "opaque:123", None)
+        .details(&addons, Kind::Movie, "opaque:123", None)
         .collect::<Vec<_>>()
         .await;
     assert!(matches!(&events[0], ResourceEvent::Fresh(film) if film.name == "Unknown film"));
     assert_eq!(
-        client.metadata_base(&addons, "opaque:123").await,
+        client
+            .metadata_base(&addons, Kind::Movie, "opaque:123")
+            .await,
         Some(addons[0].as_core().transport_url.clone())
     );
-    assert!(client.metadata_base(&[], "opaque:123").await.is_none());
-    assert!(client.metadata_base(&addons, "bad/id").await.is_none());
     assert!(
         client
-            .metadata_base(&addons, "opaque:missing")
+            .metadata_base(&[], Kind::Movie, "opaque:123")
+            .await
+            .is_none()
+    );
+    assert!(
+        client
+            .metadata_base(&addons, Kind::Movie, "bad/id")
+            .await
+            .is_none()
+    );
+    assert!(
+        client
+            .metadata_base(&addons, Kind::Movie, "opaque:missing")
             .await
             .is_none()
     );
     assert_eq!(
         client
-            .streams(&addons, "opaque:123")
+            .streams(&addons, Kind::Movie, "opaque:123")
             .collect::<Vec<_>>()
             .await,
         [StreamsEvent::NoSources]
@@ -84,7 +96,7 @@ async fn details_chain_prefers_meta_addon_then_matching_addons_then_cinemeta() {
         Reply::json(json!({"meta":movie("tt1", "Final")})),
     );
     let events = client
-        .details(&addons, "tt1", None)
+        .details(&addons, Kind::Movie, "tt1", None)
         .collect::<Vec<_>>()
         .await;
     assert!(matches!(&events[0], ResourceEvent::Fresh(film) if film.name == "Final"));
@@ -94,7 +106,7 @@ async fn details_chain_prefers_meta_addon_then_matching_addons_then_cinemeta() {
     );
     assert_eq!(
         client
-            .metadata_base(&addons, "tt1")
+            .metadata_base(&addons, Kind::Movie, "tt1")
             .await
             .map(|url| url.host_str().map(str::to_owned)),
         Some(Some("v3-cinemeta.strem.io".into()))
@@ -107,7 +119,12 @@ async fn details_chain_prefers_meta_addon_then_matching_addons_then_cinemeta() {
         Reply::json(json!({"meta":movie("tt2","Explicit")})),
     );
     client
-        .details(&addons, "tt2", Some(client.addon_key(&addons[0]).unwrap()))
+        .details(
+            &addons,
+            Kind::Movie,
+            "tt2",
+            Some(client.addon_key(&addons[0]).unwrap()),
+        )
         .collect::<Vec<_>>()
         .await;
     assert_eq!(fake.hosts(), ["first.test"]);
@@ -142,7 +159,10 @@ async fn streams_grouped_by_addon_in_account_order_with_failures_isolated() {
         "tt1",
         Reply::error(FailureKind::Network).delayed(1),
     );
-    let events = client.streams(&addons, "tt1").collect::<Vec<_>>().await;
+    let events = client
+        .streams(&addons, Kind::Movie, "tt1")
+        .collect::<Vec<_>>()
+        .await;
     assert_eq!(events.len(), 2);
     let StreamsEvent::Groups(first) = &events[0] else {
         panic!("expected groups");
@@ -184,7 +204,7 @@ async fn details_offline_cache_and_removed_installation_and_non_imdb_fallback() 
         Reply::json(json!({"meta":movie("custom:1", "Cached")})),
     );
     client
-        .details(&addons, "custom:1", None)
+        .details(&addons, Kind::Movie, "custom:1", None)
         .collect::<Vec<_>>()
         .await;
     fake.set(
@@ -194,14 +214,14 @@ async fn details_offline_cache_and_removed_installation_and_non_imdb_fallback() 
         Reply::error(FailureKind::Offline),
     );
     let events = client
-        .details(&addons, "custom:1", None)
+        .details(&addons, Kind::Movie, "custom:1", None)
         .collect::<Vec<_>>()
         .await;
     assert!(matches!(&events[0], ResourceEvent::CacheHit(film) if film.name == "Cached"));
     assert_eq!(events[1], ResourceEvent::Failed(FailureKind::Offline));
     assert_eq!(
         client
-            .details(&[], "custom:1", None)
+            .details(&[], Kind::Movie, "custom:1", None)
             .collect::<Vec<_>>()
             .await,
         [ResourceEvent::Failed(FailureKind::InvalidResponse)]
@@ -213,7 +233,10 @@ async fn details_offline_cache_and_removed_installation_and_non_imdb_fallback() 
         Reply::error(FailureKind::Offline),
     );
     assert_eq!(
-        client.details(&[], "tt1", None).collect::<Vec<_>>().await,
+        client
+            .details(&[], Kind::Movie, "tt1", None)
+            .collect::<Vec<_>>()
+            .await,
         [ResourceEvent::Failed(FailureKind::Offline)]
     );
 }
@@ -245,7 +268,10 @@ async fn streams_offline_are_uncached_and_resource_types_and_prefixes_are_respec
         "tt1",
         Reply::error(FailureKind::Offline),
     );
-    let events = client.streams(&addons, "tt1").collect::<Vec<_>>().await;
+    let events = client
+        .streams(&addons, Kind::Movie, "tt1")
+        .collect::<Vec<_>>()
+        .await;
     assert_eq!(events, [StreamsEvent::Failed(FailureKind::Offline)]);
     assert_eq!(fake.hosts(), ["offline.test"]);
     assert!(
@@ -291,6 +317,7 @@ async fn full_resource_declarations_inherit_manifest_constraints_and_preferred_m
     let events = client
         .details(
             &addons,
+            Kind::Movie,
             "custom:1",
             Some(client.addon_key(&preferred).unwrap()),
         )
@@ -300,7 +327,7 @@ async fn full_resource_declarations_inherit_manifest_constraints_and_preferred_m
     assert_eq!(fake.hosts(), ["preferred.test", "inherited.test"]);
     assert_eq!(
         client
-            .streams(std::slice::from_ref(&inherited), "other:1")
+            .streams(std::slice::from_ref(&inherited), Kind::Movie, "other:1")
             .collect::<Vec<_>>()
             .await,
         [StreamsEvent::NoSources]
@@ -310,7 +337,7 @@ async fn full_resource_declarations_inherit_manifest_constraints_and_preferred_m
     inherited = Descriptor::from_core(core);
     assert_eq!(
         client
-            .streams(&[inherited], "custom:1")
+            .streams(&[inherited], Kind::Movie, "custom:1")
             .collect::<Vec<_>>()
             .await,
         [StreamsEvent::NoSources]
@@ -394,7 +421,7 @@ async fn subtitles_come_from_every_offering_addon_and_failures_add_nothing() {
         "tt1",
         Reply::error(FailureKind::Network),
     );
-    let found = client.subtitles(&addons, "tt1").await;
+    let found = client.subtitles(&addons, Kind::Movie, "tt1").await;
     assert_eq!(
         found
             .iter()
@@ -405,5 +432,10 @@ async fn subtitles_come_from_every_offering_addon_and_failures_add_nothing() {
             ("http://subs.test/3.srt", "ind", "open.test"),
         ]
     );
-    assert!(client.subtitles(&addons, "bad/id").await.is_empty());
+    assert!(
+        client
+            .subtitles(&addons, Kind::Movie, "bad/id")
+            .await
+            .is_empty()
+    );
 }

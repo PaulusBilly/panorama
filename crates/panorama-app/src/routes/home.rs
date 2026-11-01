@@ -16,7 +16,10 @@ use gpui::{
     Context, Entity, FocusHandle, ScrollHandle, Subscription, Task, WeakEntity, Window, point,
     prelude::*, px,
 };
-use panorama_core::{addons::FilmDetails, stremio::FilmMeta};
+use panorama_core::{
+    addons::{FilmDetails, Kind},
+    stremio::FilmMeta,
+};
 use std::{sync::Arc, time::Instant};
 
 #[path = "home_alert.rs"]
@@ -232,6 +235,7 @@ impl Home {
         let saved = !self.saved;
         let meta = FilmMeta {
             id: film.id.clone(),
+            kind: film.kind,
             name: film.name.clone(),
             poster: film.poster.clone(),
         };
@@ -331,11 +335,20 @@ impl GridHost for Home {
     }
     fn hover_card(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(film) = self.grid.films.get(index) {
-            crate::prefetch::hovered(&self.state, &film.id, cx);
+            crate::prefetch::hovered(&self.state, film.kind, &film.id, cx);
         }
     }
     fn open_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         open_film(&self.state, &self.shell, film, window, cx);
+    }
+    fn zoom_film(
+        &mut self,
+        film: FilmDetails,
+        card: crate::zoom::CardArt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        zoom_film(&self.state, &self.shell, film, card, window, cx);
     }
     fn play_film(&mut self, film: FilmDetails, window: &mut Window, cx: &mut Context<Self>) {
         self.play(film, None, window, cx);
@@ -352,12 +365,20 @@ pub(crate) fn play_film<V: 'static>(
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    if !matches!(state.read(cx).account, Account::SignedIn(_)) {
+    // A show's card does not know its episodes; only a resume point names one.
+    let unnamed = film.kind != Kind::Movie && resume.is_none();
+    if unnamed || !matches!(state.read(cx).account, Account::SignedIn(_)) {
         open_film(state, shell, film, window, cx);
         return;
     }
     let id = film.id.clone();
-    state.update(cx, |state, cx| state.launch(film, resume, cx));
+    let video_id = resume
+        .as_ref()
+        .and_then(|point| point.video_id.clone())
+        .unwrap_or_else(|| id.clone());
+    state.update(cx, |state, cx| {
+        state.launch(film, video_id, resume, None, cx)
+    });
     let _ = shell.update(cx, |shell, cx| {
         shell.navigate(Route::Player { id }, window, cx)
     });
@@ -370,11 +391,26 @@ pub(crate) fn open_film<V: 'static>(
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    let id = film.id.clone();
+    let (id, kind) = (film.id.clone(), film.kind);
     state.update(cx, |state, _| state.film_preview = Some(film));
     let _ = shell.update(cx, |shell, cx| {
-        shell.navigate(Route::Film { id }, window, cx)
+        shell.navigate(Route::Film { id, kind }, window, cx)
     });
+}
+
+/// The film page mounts when the artwork lands, so its sources start now.
+pub(crate) fn zoom_film<V: 'static>(
+    state: &Entity<AppState>,
+    shell: &WeakEntity<AppShell>,
+    film: FilmDetails,
+    card: crate::zoom::CardArt,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) {
+    if film.kind == Kind::Movie {
+        state.update(cx, |state, cx| state.prefetch_sources(&film.id, cx));
+    }
+    let _ = shell.update(cx, |shell, cx| shell.zoom_to_film(film, card, window, cx));
 }
 
 fn fixture_benchmark() -> Vec<FilmDetails> {

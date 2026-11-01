@@ -418,11 +418,26 @@ impl Player {
         div()
             .id("player-title")
             .min_w_0()
-            .title()
-            .weight(FontWeight::MEDIUM)
-            .text_color(theme.ink)
-            .truncate()
-            .child(self.model.title.clone())
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .title()
+                    .weight(FontWeight::MEDIUM)
+                    .text_color(theme.ink)
+                    .truncate()
+                    .child(self.model.title.clone()),
+            )
+            .when_some(self.episode_line.clone(), |title, line| {
+                title.child(
+                    div()
+                        .label()
+                        .mt(px(2.0))
+                        .text_color(theme.ink)
+                        .truncate()
+                        .child(line),
+                )
+            })
             .into_any_element()
     }
 }

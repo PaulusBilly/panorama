@@ -26,6 +26,8 @@ impl StartMode {
 #[derive(Clone)]
 pub struct PlaybackSelection {
     pub film: FilmDetails,
+    /// What is playing: the film's own id, or an episode's.
+    pub video_id: String,
     pub groups: Vec<StreamGroup>,
     pub source: SourceRef,
     pub start: StartMode,
@@ -62,6 +64,18 @@ impl std::fmt::Debug for PlaybackSelection {
 /// The stream to start with: the best of [`ranked`].
 pub fn first_source(groups: &[StreamGroup]) -> Option<SourceRef> {
     ranked(groups).first().copied()
+}
+
+/// The best stream in an addon's binge group, so an episode continues the last one's release.
+pub fn binge_source(groups: &[StreamGroup], group: &str) -> Option<SourceRef> {
+    ranked(groups).into_iter().find(|source| {
+        match groups.get(source.group).map(|item| &item.state) {
+            Some(StreamState::Ready(streams)) => streams.get(source.stream).is_some_and(|item| {
+                item.stream.behavior_hints.binge_group.as_deref() == Some(group)
+            }),
+            _ => false,
+        }
+    })
 }
 
 /// Every playable stream, most reliable first: direct links, then torrents by seeders, with

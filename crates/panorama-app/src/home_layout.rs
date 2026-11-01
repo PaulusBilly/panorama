@@ -1,5 +1,8 @@
 /// Hairline between tiles in a row.
-pub const GAP: f32 = 4.0;
+pub const GAP: f32 = 6.0;
+
+/// Height of a tile as a share of its width: 16:9.
+pub const TILE_RATIO: f32 = 9.0 / 16.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Grid {
@@ -25,9 +28,8 @@ impl Grid {
             width: ((column_width - gaps) / columns as f32).floor(),
         }
     }
-    /// 2:1, a ticket's proportions: short enough for five small bites per half side.
     pub fn height(self) -> f32 {
-        (self.width / 2.0).round()
+        (self.width * TILE_RATIO).round()
     }
     pub fn total_width(self) -> f32 {
         self.width * self.columns as f32 + GAP * self.columns.saturating_sub(1) as f32
@@ -73,18 +75,29 @@ mod tests {
     fn grid_fits_the_column() {
         for (column, columns, width) in [
             (280.0, 1, 280.0),
-            (563.0, 1, 563.0),
-            (564.0, 2, 280.0),
-            (847.0, 2, 421.0),
-            (848.0, 3, 280.0),
-            (920.0, 3, 304.0),
-            (1270.0, 3, 420.0),
-            (1451.0, 3, 481.0),
-            (1452.0, 4, 360.0),
-            (1500.0, 4, 372.0),
+            (565.0, 1, 565.0),
+            (566.0, 2, 280.0),
+            (851.0, 2, 422.0),
+            (852.0, 3, 280.0),
+            (920.0, 3, 302.0),
+            (1270.0, 3, 419.0),
+            (1457.0, 3, 481.0),
+            (1458.0, 4, 360.0),
+            (1500.0, 4, 370.0),
         ] {
             let grid = Grid::fit(column);
             assert_eq!((grid.columns, grid.width), (columns, width), "{column}");
         }
+    }
+    #[test]
+    fn tiles_are_sixteen_by_nine() {
+        assert_eq!(
+            Grid {
+                columns: 3,
+                width: 480.0
+            }
+            .height(),
+            270.0
+        );
     }
 }

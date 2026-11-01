@@ -35,6 +35,7 @@ pub fn selection(id: &str, args: &Args) -> Option<PlaybackSelection> {
         streams.first_mut()?.stream = serde_json::from_value(value).ok()?;
     }
     Some(PlaybackSelection {
+        video_id: crate::fixtures::resume_episode(id).unwrap_or_else(|| film.id.clone()),
         film,
         groups,
         source: SourceRef::default(),
