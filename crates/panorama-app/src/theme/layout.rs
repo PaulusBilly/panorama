@@ -1,11 +1,12 @@
 /// Width of the navigation sidebar every route except the player reserves.
 pub const SIDEBAR_WIDTH: f32 = 80.0;
 
-/// The content column every route aligns to. Left-aligned after the sidebar, not centred.
+/// The content column every route aligns to: the window after the sidebar, less an equal gutter
+/// on both sides, so wide screens get more columns instead of an empty right edge.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Column {
     pub left: f32,
-    /// Usable width, at most 1500.
+    /// Usable width.
     pub width: f32,
 }
 
@@ -22,7 +23,7 @@ impl Column {
         let left = SIDEBAR_WIDTH + gutter;
         Self {
             left,
-            width: (window_width - left - gutter).clamp(0.0, 1500.0),
+            width: (window_width - left - gutter).max(0.0),
         }
     }
 }
@@ -39,7 +40,8 @@ mod tests {
             (1100.0, 120.0, 940.0),
             (1101.0, 140.0, 901.0),
             (1280.0, 140.0, 1080.0),
-            (2400.0, 140.0, 1500.0),
+            (1920.0, 140.0, 1720.0),
+            (2400.0, 140.0, 2200.0),
             (100.0, 104.0, 0.0),
         ] {
             assert_eq!(
