@@ -132,7 +132,17 @@ impl ContinueRow {
                     .text_color(theme.ink)
                     .child(caps("Continue")),
             )
-            .child(row.mb(px(-RING)))
+            .child(
+                crate::carousel::controls(
+                    "continue-arrow",
+                    row,
+                    &self.rail,
+                    view,
+                    |home: &mut Home| &mut home.row.rail,
+                    cx,
+                )
+                .mb(px(-RING)),
+            )
     }
 
     #[allow(clippy::too_many_arguments)]

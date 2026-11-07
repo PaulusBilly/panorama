@@ -4,6 +4,9 @@ pub const GAP: f32 = 6.0;
 /// Height of a tile as a share of its width: 16:9.
 pub const TILE_RATIO: f32 = 9.0 / 16.0;
 
+/// Columns on the widest screens, so tiles never shrink to thumbnails.
+const MAX_COLUMNS: usize = 8;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Grid {
     /// Columns in each virtualized row.
@@ -12,16 +15,19 @@ pub struct Grid {
     pub width: f32,
 }
 impl Grid {
-    /// Three columns from a 1080-wide window up to wide desktops; four only once each tile can
-    /// stay at least 360 wide. Tiles stretch so the grid's right edge meets the column's.
+    /// The most columns whose tiles stay wide enough: 280 up to three, 360 for four, and 400
+    /// from five on, up to eight. Tiles stretch so the grid's right edge meets the column's.
     pub fn fit(column_width: f32) -> Self {
         let column_width = column_width.max(0.0);
-        let columns = match column_width {
-            w if w >= 4.0 * 360.0 + 3.0 * GAP => 4,
-            w if w >= 3.0 * 280.0 + 2.0 * GAP => 3,
-            w if w >= 2.0 * 280.0 + GAP => 2,
-            _ => 1,
+        let min_tile = |columns: usize| match columns {
+            0..=3 => 280.0,
+            4 => 360.0,
+            _ => 400.0,
         };
+        let columns = (2..=MAX_COLUMNS)
+            .take_while(|&n| column_width >= n as f32 * min_tile(n) + (n - 1) as f32 * GAP)
+            .last()
+            .unwrap_or(1);
         let gaps = GAP * (columns - 1) as f32;
         Self {
             columns,
@@ -84,6 +90,12 @@ mod tests {
             (1457.0, 3, 481.0),
             (1458.0, 4, 360.0),
             (1500.0, 4, 370.0),
+            (1720.0, 4, 425.0),
+            (2023.0, 4, 501.0),
+            (2024.0, 5, 400.0),
+            (2200.0, 5, 435.0),
+            (3640.0, 8, 449.0),
+            (6000.0, 8, 744.0),
         ] {
             let grid = Grid::fit(column);
             assert_eq!((grid.columns, grid.width), (columns, width), "{column}");

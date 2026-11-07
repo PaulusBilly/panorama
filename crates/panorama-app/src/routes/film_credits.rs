@@ -15,7 +15,11 @@ const SECTION_GAP: f32 = 72.0;
 const ROW_GAP: f32 = 48.0;
 const HEADING_GAP: f32 = 16.0;
 const CARD_GAP: f32 = 6.0;
-const CARD_MIN: f32 = 150.0;
+/// Narrowest portrait card. Wide screens add cards rather than growing them, so they stay near
+/// this size everywhere.
+const CARD_MIN: f32 = 190.0;
+/// Most portraits across, enough for a 4K window.
+const CARDS_MAX: usize = 12;
 /// Portrait height over width.
 const PHOTO_RATIO: f32 = 1.16;
 const TILE_GAP: f32 = 40.0;
@@ -136,6 +140,7 @@ const RING: f32 = 4.0;
 
 /// A [`Carousel`] row across the full window: the first item sits on the column, items scrolled
 /// past stay visible in the gutter, and the last stops where the column does.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn rail(
     id: &'static str,
     items: Vec<gpui::AnyElement>,
@@ -143,7 +148,8 @@ pub(super) fn rail(
     stretch: bool,
     carousel: &Carousel,
     view: ViewSettings,
-    on_wheel: impl Fn(&gpui::ScrollWheelEvent, &mut Window, &mut gpui::App) + 'static,
+    get: fn(&mut Film) -> &mut Carousel,
+    cx: &mut Context<Film>,
 ) -> Div {
     let col = view.column();
     let row = div()
@@ -159,7 +165,10 @@ pub(super) fn rail(
         // Only sideways gestures move the row, so scrolling down over it moves the page.
         .restrict_scroll_to_axis()
         .track_scroll(&carousel.scroll)
-        .on_scroll_wheel(on_wheel)
+        .on_scroll_wheel(cx.listener(move |film, _: &gpui::ScrollWheelEvent, _, cx| {
+            get(film).wheel();
+            cx.notify();
+        }))
         .child(div().flex_shrink_0().w(px(col.left - gap)))
         .children(items)
         .child(
@@ -167,7 +176,7 @@ pub(super) fn rail(
                 .flex_shrink_0()
                 .w(px((view.width - col.left - col.width - gap).max(0.0))),
         );
-    div().child(row)
+    crate::carousel::controls(id, row, carousel, view, get, cx)
 }
 
 pub(super) fn heading(title: &str, theme: Theme) -> Div {
@@ -249,7 +258,7 @@ impl Film {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = view.theme;
-        let count = columns(width, CARD_MIN, CARD_GAP, 6);
+        let count = columns(width, CARD_MIN, CARD_GAP, CARDS_MAX);
         let card = span(width, count, CARD_GAP);
         self.people_rail.settle(card + CARD_GAP, view.reduced);
         let cards: Vec<gpui::AnyElement> = all
@@ -276,10 +285,8 @@ impl Film {
                 true,
                 &self.people_rail,
                 view,
-                cx.listener(|film, _: &gpui::ScrollWheelEvent, _, cx| {
-                    film.people_rail.wheel();
-                    cx.notify();
-                }),
+                |film| &mut film.people_rail,
+                cx,
             ))
     }
 
@@ -603,10 +610,8 @@ impl Film {
                 false,
                 &self.awards_rail,
                 view,
-                cx.listener(|film, _: &gpui::ScrollWheelEvent, _, cx| {
-                    film.awards_rail.wheel();
-                    cx.notify();
-                }),
+                |film| &mut film.awards_rail,
+                cx,
             ))
     }
 }
@@ -617,8 +622,9 @@ mod tests {
 
     #[test]
     fn grids_and_groups() {
-        assert_eq!(columns(1240.0, CARD_MIN, CARD_GAP, 6), 6);
-        assert_eq!(columns(400.0, CARD_MIN, CARD_GAP, 6), 2);
+        assert_eq!(columns(1240.0, CARD_MIN, CARD_GAP, CARDS_MAX), 6);
+        assert_eq!(columns(1720.0, CARD_MIN, CARD_GAP, CARDS_MAX), 8);
+        assert_eq!(columns(400.0, CARD_MIN, CARD_GAP, CARDS_MAX), 2);
         assert_eq!(initials("Celia Rowlson-Hall"), "CR");
         assert_eq!(initials("Madonna"), "M");
         let award = |body: &str, year, result| Award {

@@ -156,6 +156,8 @@ pub struct ImageCache {
     pending: HashMap<Key, Task<()>>,
     visible: HashSet<Key>,
     failed: HashSet<Key>,
+    /// Loads a page about to open will ask for, kept alive until they finish.
+    prefetched: HashSet<Key>,
     fading: bool,
     /// Bundled `fixture://` stills resolve only in fixture runs, never from addon data.
     fixtures: bool,
@@ -169,6 +171,7 @@ impl Default for ImageCache {
             pending: HashMap::new(),
             visible: HashSet::new(),
             failed: HashSet::new(),
+            prefetched: HashSet::new(),
             fading: false,
             fixtures: false,
             _release: None,
@@ -190,9 +193,9 @@ impl ImageCache {
     pub fn moving(&self) -> bool {
         self.fading || !self.pending.is_empty()
     }
-    /// Cancel visible loads after leaving Home.
+    /// Cancel visible loads after leaving Home; prefetches for the next page keep going.
     pub fn cancel(&mut self) {
-        self.pending.clear();
+        self.pending.retain(|key, _| self.prefetched.contains(key));
     }
 
     /// Begin collecting this frame's image interests.
@@ -202,7 +205,8 @@ impl ImageCache {
     }
     /// Cancel loads for cards that have left the virtualized visible range.
     pub fn finish_frame(&mut self) {
-        self.pending.retain(|key, _| self.visible.contains(key));
+        self.pending
+            .retain(|key, _| self.visible.contains(key) || self.prefetched.contains(key));
         self.failed.retain(|key| self.visible.contains(key));
     }
     /// Whether this image failed and its next fallback should be selected.
@@ -255,6 +259,28 @@ impl ImageCache {
         let key = self.key(url, bounds, window.scale_factor())?;
         self.fetch(key, services, window, cx)
     }
+    /// Start loading an image the next page will ask for, such as the film page's backdrop while
+    /// its card zooms open. Frames that do not show it, and Home's cancel, leave it loading.
+    pub fn prefetch(
+        &mut self,
+        url: &str,
+        bounds: (f32, f32),
+        services: &Arc<Services>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.key(url, bounds, window.scale_factor()) else {
+            return;
+        };
+        if self.lru.get(&key).is_some() || self.pending.contains_key(&key) {
+            return;
+        }
+        self.prefetched.insert(key.clone());
+        self.fetch(key.clone(), services, window, cx);
+        if !self.pending.contains_key(&key) {
+            self.prefetched.remove(&key);
+        }
+    }
     /// The heavily blurred copy of an image, for crossfading over the sharp one.
     pub fn request_blurred(
         &mut self,
@@ -288,8 +314,8 @@ impl ImageCache {
             .lru
             .latest(|cached| cached.url == key.url && cached.blurred == key.blurred)
             .cloned();
-        if self.failed.contains(&key) || self.pending.contains_key(&key) || self.pending.len() >= 6
-        {
+        let busy = self.pending.len() >= 6 && !self.prefetched.contains(&key);
+        if self.failed.contains(&key) || self.pending.contains_key(&key) || busy {
             return stale;
         }
         let blurred = key.blurred;
@@ -345,6 +371,7 @@ impl ImageCache {
                 let _ = cx.update(|window, cx| {
                     entity.update(cx, |cache, cx| {
                         cache.pending.remove(&completed);
+                        cache.prefetched.remove(&completed);
                         match result {
                             Ok((image, tint)) => {
                                 let bytes = image.as_bytes(0).map_or(0, |b| b.len());
