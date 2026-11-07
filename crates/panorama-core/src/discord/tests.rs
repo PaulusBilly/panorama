@@ -171,61 +171,62 @@ fn maps_watching_artwork_and_seek_timing_without_advancing_paused_or_buffering_a
     let base = playback();
     let dated = parse(&with(input(), "year", json!("2014")));
     assert_eq!(
-        discord_activity(&dated, 1_000_000.0)["state_url"],
+        discord_activity(&dated, 1_000_000.0)["details_url"],
         "https://www.themoviedb.org/movie/157336"
     );
     for film_id in ["tt0816692", "tmdb:123/other", "tmdb:0"] {
         let activity = discord_activity(
             &DiscordPlayback {
                 film_id: film_id.into(),
-                ..dated.clone()
+                ..base.clone()
             },
             1_000_000.0,
         );
-        assert_eq!(activity["state"], "2014");
-        assert!(activity.get("state_url").is_none());
+        assert!(activity.get("details_url").is_none());
     }
-    // Discord shows "Watching Interstellar", then the director and the year beneath.
     let activity = discord_activity(&dated, 1_000_000.0);
-    assert_eq!(activity["name"], "Interstellar");
-    assert_eq!(activity["details"], "dir. Christopher Nolan");
-    assert_eq!(activity["state"], "2014");
-    assert_eq!(activity["status_display_type"], 0);
+    assert_eq!(activity["name"], "in Panorama");
+    assert_eq!(activity["state"], "dir. Christopher Nolan");
+    assert_eq!(activity["details"], "Watching Interstellar (2014)");
+    assert_eq!(activity["status_display_type"], 2);
     assert_eq!(activity["assets"]["large_text"], "Interstellar (2014)");
     let long = DiscordPlayback {
-        title: "A".repeat(140),
+        title: "A".repeat(128),
         ..dated.clone()
     };
     let activity = discord_activity(&long, 1_000_000.0);
-    assert_eq!(activity["name"], "A".repeat(128));
     assert_eq!(
-        activity["assets"]["large_text"],
-        format!("{} (2014)", "A".repeat(121))
+        activity["details"],
+        format!("Watching {} (2014)", "A".repeat(112))
+    );
+    assert_eq!(activity["details"].as_str().unwrap().chars().count(), 128);
+    let undated = DiscordPlayback { year: None, ..long };
+    assert_eq!(
+        discord_activity(&undated, 1_000_000.0)["details"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .count(),
+        128
     );
     assert!(parse_discord_playback(&with(input(), "year", json!(2014))).is_err());
     let linked = parse(&with(input(), "directorTmdbId", json!(525)));
     assert_eq!(
-        discord_activity(&linked, 1_000_000.0)["details_url"],
+        discord_activity(&linked, 1_000_000.0)["state_url"],
         "https://www.themoviedb.org/person/525"
     );
     let no_director = DiscordPlayback {
         director: None,
         ..linked.clone()
     };
-    let untitled = discord_activity(&no_director, 1_000_000.0);
-    assert!(untitled.get("details").is_none() && untitled.get("state").is_none());
-    let year_only = discord_activity(
-        &DiscordPlayback {
-            director: None,
-            ..dated.clone()
-        },
-        1_000_000.0,
+    assert!(
+        discord_activity(&no_director, 1_000_000.0)
+            .get("state_url")
+            .is_none()
     );
-    assert_eq!(year_only["details"], "2014");
-    assert!(year_only.get("state").is_none());
     assert!(
         discord_activity(&base, 1_000_000.0)
-            .get("details_url")
+            .get("state_url")
             .is_none()
     );
     for id in [json!(-1), json!(0), json!(1.5), json!("525")] {
@@ -243,14 +244,13 @@ fn maps_watching_artwork_and_seek_timing_without_advancing_paused_or_buffering_a
             },
             1_000_000.0,
         );
-        assert_eq!(activity["details"], "dir. Christopher Nolan");
+        assert_eq!(activity["state"], "dir. Christopher Nolan");
     }
     assert!(parse_discord_playback(&with(input(), "director", json!(42))).is_err());
     let activity = discord_activity(&base, 1_000_000.0);
     assert_eq!(activity["type"], 3);
-    assert_eq!(activity["name"], "Interstellar");
-    assert_eq!(activity["details"], "dir. Christopher Nolan");
-    assert!(activity.get("state").is_none());
+    assert_eq!(activity["details"], "Watching Interstellar");
+    assert_eq!(activity["status_display_type"], 2);
     assert_eq!(activity["timestamps"], json!({"start": 940, "end": 1540}));
     assert_eq!(
         activity["assets"]["large_image"],
@@ -334,7 +334,10 @@ async fn defaults_off_persists_opt_in_handles_split_frames_coalesces_updates_and
         messages[0],
         json!({"v": 1, "client_id": "1549772711264395274"})
     );
-    assert_eq!(messages[1]["args"]["activity"]["name"], "Interstellar");
+    assert_eq!(
+        messages[1]["args"]["activity"]["details"],
+        "Watching Interstellar"
+    );
     presence.update(DiscordPlayback {
         time: 200.0,
         ..playback()
@@ -349,7 +352,7 @@ async fn defaults_off_persists_opt_in_handles_split_frames_coalesces_updates_and
     advance(1).await;
     let messages = fake.messages(socket);
     assert_eq!(
-        messages[2]["args"]["activity"]["details"],
+        messages[2]["args"]["activity"]["state"],
         "dir. Christopher Nolan"
     );
     assert!(messages[2]["args"]["activity"].get("timestamps").is_none());
@@ -466,15 +469,17 @@ async fn untrusted_updates_are_validated_and_null_clears_the_activity() {
 
 #[test]
 fn a_show_links_to_its_tmdb_tv_page() {
-    let dated = parse(&with(input(), "year", json!("2014")));
-    let film = discord_activity(&dated, 1_000_000.0);
+    let film = discord_activity(&playback(), 1_000_000.0);
     let show = discord_activity(
         &DiscordPlayback {
             kind: crate::addons::Kind::Series,
-            ..dated
+            ..playback()
         },
         1_000_000.0,
     );
-    assert_eq!(film["state_url"], "https://www.themoviedb.org/movie/157336");
-    assert_eq!(show["state_url"], "https://www.themoviedb.org/tv/157336");
+    assert_eq!(
+        film["details_url"],
+        "https://www.themoviedb.org/movie/157336"
+    );
+    assert_eq!(show["details_url"], "https://www.themoviedb.org/tv/157336");
 }
