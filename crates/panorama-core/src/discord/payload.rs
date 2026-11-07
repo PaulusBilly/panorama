@@ -83,13 +83,10 @@ pub fn discord_artwork(urls: &[Option<&str>]) -> Option<String> {
 /// Text is cut to 128 Unicode scalar values (TS cuts UTF-16 units).
 pub fn discord_activity(playback: &DiscordPlayback, now_ms: f64) -> Value {
     let start = (now_ms / 1000.0 - playback.time).floor() as i64;
-    let label = match &playback.year {
-        Some(year) if !year.is_empty() => format!("{} ({year})", take(&playback.title, 112)),
-        _ => take(&playback.title, 119),
+    let details = match &playback.year {
+        Some(year) if !year.is_empty() => format!("{} ({year})", take(&playback.title, 121)),
+        _ => take(&playback.title, 128),
     };
-    // The card heads itself "Watching in Panorama", but the member list shows only this line,
-    // so it says what is being watched.
-    let details = format!("Watching {label}");
     let tmdb_id = playback.film_id.strip_prefix("tmdb:").filter(|id| {
         !id.starts_with('0') && !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())
     });
@@ -123,7 +120,7 @@ pub fn discord_activity(playback: &DiscordPlayback, now_ms: f64) -> Value {
     if let Some(artwork) = &playback.artwork {
         fields.insert(
             "assets".into(),
-            json!({"large_image": artwork, "large_text": label}),
+            json!({"large_image": artwork, "large_text": details}),
         );
     }
     if playback.state == PlaybackState::Playing {

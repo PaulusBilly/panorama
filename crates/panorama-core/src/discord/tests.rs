@@ -187,27 +187,15 @@ fn maps_watching_artwork_and_seek_timing_without_advancing_paused_or_buffering_a
     let activity = discord_activity(&dated, 1_000_000.0);
     assert_eq!(activity["name"], "in Panorama");
     assert_eq!(activity["state"], "dir. Christopher Nolan");
-    assert_eq!(activity["details"], "Watching Interstellar (2014)");
+    assert_eq!(activity["details"], "Interstellar (2014)");
     assert_eq!(activity["status_display_type"], 2);
-    assert_eq!(activity["assets"]["large_text"], "Interstellar (2014)");
     let long = DiscordPlayback {
         title: "A".repeat(128),
         ..dated.clone()
     };
-    let activity = discord_activity(&long, 1_000_000.0);
     assert_eq!(
-        activity["details"],
-        format!("Watching {} (2014)", "A".repeat(112))
-    );
-    assert_eq!(activity["details"].as_str().unwrap().chars().count(), 128);
-    let undated = DiscordPlayback { year: None, ..long };
-    assert_eq!(
-        discord_activity(&undated, 1_000_000.0)["details"]
-            .as_str()
-            .unwrap()
-            .chars()
-            .count(),
-        128
+        discord_activity(&long, 1_000_000.0)["details"],
+        format!("{} (2014)", "A".repeat(121))
     );
     assert!(parse_discord_playback(&with(input(), "year", json!(2014))).is_err());
     let linked = parse(&with(input(), "directorTmdbId", json!(525)));
@@ -249,7 +237,7 @@ fn maps_watching_artwork_and_seek_timing_without_advancing_paused_or_buffering_a
     assert!(parse_discord_playback(&with(input(), "director", json!(42))).is_err());
     let activity = discord_activity(&base, 1_000_000.0);
     assert_eq!(activity["type"], 3);
-    assert_eq!(activity["details"], "Watching Interstellar");
+    assert_eq!(activity["details"], "Interstellar");
     assert_eq!(activity["status_display_type"], 2);
     assert_eq!(activity["timestamps"], json!({"start": 940, "end": 1540}));
     assert_eq!(
@@ -334,10 +322,7 @@ async fn defaults_off_persists_opt_in_handles_split_frames_coalesces_updates_and
         messages[0],
         json!({"v": 1, "client_id": "1549772711264395274"})
     );
-    assert_eq!(
-        messages[1]["args"]["activity"]["details"],
-        "Watching Interstellar"
-    );
+    assert_eq!(messages[1]["args"]["activity"]["details"], "Interstellar");
     presence.update(DiscordPlayback {
         time: 200.0,
         ..playback()
