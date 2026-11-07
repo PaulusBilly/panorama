@@ -83,44 +83,55 @@ pub fn discord_artwork(urls: &[Option<&str>]) -> Option<String> {
 /// Text is cut to 128 Unicode scalar values (TS cuts UTF-16 units).
 pub fn discord_activity(playback: &DiscordPlayback, now_ms: f64) -> Value {
     let start = (now_ms / 1000.0 - playback.time).floor() as i64;
-    let details = match &playback.year {
-        Some(year) if !year.is_empty() => format!("{} ({year})", take(&playback.title, 121)),
-        _ => take(&playback.title, 128),
+    let year = playback.year.as_deref().filter(|year| !year.is_empty());
+    let label = match year {
+        Some(year) => format!("{} ({year})", take(&playback.title, 121)),
+        None => take(&playback.title, 128),
     };
-    let tmdb_id = playback.film_id.strip_prefix("tmdb:").filter(|id| {
-        !id.starts_with('0') && !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())
-    });
+    let film_url = playback
+        .film_id
+        .strip_prefix("tmdb:")
+        .filter(|id| {
+            !id.starts_with('0') && !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())
+        })
+        .map(|id| {
+            let section = match playback.kind {
+                crate::addons::Kind::Movie => "movie",
+                _ => "tv",
+            };
+            format!("https://www.themoviedb.org/{section}/{id}")
+        });
+    let director = playback
+        .director
+        .as_deref()
+        .filter(|d| !d.is_empty())
+        .map(|director| {
+            let url = playback
+                .director_tmdb_id
+                .map(|id| format!("https://www.themoviedb.org/person/{id}"));
+            (take(&format!("dir. {director}"), 128), url)
+        });
+    let lines = director
+        .into_iter()
+        .chain(year.map(|year| (year.to_owned(), film_url)));
     let mut fields = Map::new();
     fields.insert("type".into(), json!(3));
-    fields.insert("name".into(), json!("in Panorama"));
-    fields.insert("details".into(), json!(details));
-    if let Some(id) = tmdb_id {
-        let section = match playback.kind {
-            crate::addons::Kind::Movie => "movie",
-            _ => "tv",
-        };
-        fields.insert(
-            "details_url".into(),
-            json!(format!("https://www.themoviedb.org/{section}/{id}")),
-        );
-    }
-    fields.insert("status_display_type".into(), json!(2));
-    if let Some(director) = playback.director.as_deref().filter(|d| !d.is_empty()) {
-        fields.insert(
-            "state".into(),
-            json!(take(&format!("dir. {director}"), 128)),
-        );
-        if let Some(id) = playback.director_tmdb_id {
-            fields.insert(
-                "state_url".into(),
-                json!(format!("https://www.themoviedb.org/person/{id}")),
-            );
+    // Discord titles the activity "Watching <name>", in the member list and on the card.
+    fields.insert("name".into(), json!(take(&playback.title, 128)));
+    fields.insert("status_display_type".into(), json!(0));
+    for ((text_key, url_key), (text, url)) in [("details", "details_url"), ("state", "state_url")]
+        .into_iter()
+        .zip(lines)
+    {
+        fields.insert(text_key.into(), json!(text));
+        if let Some(url) = url {
+            fields.insert(url_key.into(), json!(url));
         }
     }
     if let Some(artwork) = &playback.artwork {
         fields.insert(
             "assets".into(),
-            json!({"large_image": artwork, "large_text": details}),
+            json!({"large_image": artwork, "large_text": label}),
         );
     }
     if playback.state == PlaybackState::Playing {
