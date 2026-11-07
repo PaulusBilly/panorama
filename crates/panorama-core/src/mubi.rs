@@ -54,6 +54,8 @@ pub struct FestivalFilm {
     /// MUBI's film id, which [`MubiClient::festival_results`] is keyed by.
     pub id: Option<u64>,
     pub title: String,
+    /// The title in its own language, when MUBI's differs, such as "Křik" for "The Cry".
+    pub original_title: Option<String>,
     pub year: Option<i32>,
     pub directors: Vec<String>,
     pub still: Option<Url>,
@@ -368,9 +370,11 @@ fn films_from_json(page: &Value) -> FestivalPage {
         .iter()
         .take(MAX_FILMS)
         .filter_map(|film| {
+            let title = text(&film["title"])?;
             Some(FestivalFilm {
                 id: film["id"].as_u64(),
-                title: text(&film["title"])?,
+                original_title: text(&film["original_title"]).filter(|original| *original != title),
+                title,
                 year: film["year"]
                     .as_i64()
                     .and_then(|year| i32::try_from(year).ok()),

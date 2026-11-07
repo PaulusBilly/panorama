@@ -301,12 +301,24 @@ impl Festival {
         };
         let installed = state.installed.clone();
         let task = cx.spawn(async move |entity, cx| {
-            // The first addon to have it wins; the rest are not waited for.
-            let (job, receiver) = services.search_each(installed.clone(), film.title.clone());
-            let mut found = first_match(&film, job, receiver).await;
-            if found.is_none() {
+            // An English title like "The Cry" is too common for an old film to make the first
+            // page of results, so the original title ("Křik") is asked too.
+            let queries = titles(&film);
+            let mut found = None;
+            for query in &queries {
+                // The first addon to have it wins; the rest are not waited for.
+                let (job, receiver) = services.search_each(installed.clone(), query.clone());
+                found = first_match(&film, job, receiver).await;
+                if found.is_some() {
+                    break;
+                }
+            }
+            for query in &queries {
+                if found.is_some() {
+                    break;
+                }
                 // Some catalogs leave out the year; the full search fills it in before matching.
-                let (job, receiver) = services.search(installed, film.title.clone());
+                let (job, receiver) = services.search(installed.clone(), query.clone());
                 found = first_match(&film, job, receiver).await;
             }
             let then = entity.update(cx, |festival, cx| {
@@ -447,25 +459,54 @@ async fn first_match(
     None
 }
 
+/// The titles to search for `film` by: MUBI's, then the original when it reads differently.
+fn titles(film: &FestivalFilm) -> Vec<String> {
+    let mut titles = vec![film.title.clone()];
+    titles.extend(
+        film.original_title
+            .clone()
+            .filter(|original| fold(original) != fold(&film.title)),
+    );
+    titles
+}
+
 fn same_film(film: &FestivalFilm, results: Vec<FilmDetails>) -> Option<FilmDetails> {
-    let title = fold(&film.title);
+    let wanted: Vec<String> = titles(film).iter().map(|title| fold(title)).collect();
     let want = film.year?;
     results.into_iter().find(|result| {
-        let named = fold(&result.name) == title
-            || result
-                .original_name
-                .as_deref()
-                .is_some_and(|name| fold(name) == title);
+        let named = [Some(result.name.as_str()), result.original_name.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|name| wanted.contains(&fold(name)));
         let year = result.release_info.as_deref().and_then(release_year);
         named && year.is_some_and(|have| (want - have).abs() <= 1)
     })
 }
 
+/// Letters, digits and nothing else, lowercased and without accents, so "Křik" is "Krik".
 fn fold(text: &str) -> String {
     text.chars()
+        .map(unaccent)
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+/// The bare letter under a Latin accented one, from U+00C0 to U+017F; others pass through.
+fn unaccent(c: char) -> char {
+    /// U+00C0 to U+00FF; a space stands for × and ÷, which fold then drops.
+    const LATIN_1: &str = "AAAAAAACEEEEIIIIDNOOOOO OUUUUYTsaaaaaaaceeeeiiiidnooooo ouuuuyty";
+    /// U+0100 to U+017F, Latin Extended-A.
+    const EXTENDED_A: &str = "AaAaAaCcCcCcCcDdDdEeEeEeEeEeGgGgGgGgHhHhIiIiIiIiIiJjJjKkkLlLlLlLlLlNnNnNnnNnOoOoOoOoRrRrRrSsSsSsSsTtTtTtUuUuUuUuUuUuWwYyYZzZzZzs";
+    let (table, start) = match c {
+        '\u{00C0}'..='\u{00FF}' => (LATIN_1, 0xC0),
+        '\u{0100}'..='\u{017F}' => (EXTENDED_A, 0x100),
+        _ => return c,
+    };
+    table
+        .as_bytes()
+        .get(c as usize - start)
+        .map_or(c, |&base| char::from(base))
 }
 
 /// The year a release line starts with: "2022", "2022-2023" or "2022-10-07".
@@ -826,6 +867,7 @@ mod tests {
         FestivalFilm {
             id: None,
             title: title.into(),
+            original_title: None,
             year,
             directors: vec![],
             still: None,
@@ -859,6 +901,32 @@ mod tests {
         // A same-year result under another title is not opened.
         let revisited = vec![result("tt2", "Aftersun: Revisited", "2022")];
         assert!(same_film(&film("Aftersun", Some(2022)), revisited).is_none());
+    }
+
+    #[test]
+    fn an_old_film_is_found_by_its_original_title() {
+        let mut cry = film("The Cry", Some(1963));
+        cry.original_title = Some("Křik".into());
+        assert_eq!(titles(&cry), ["The Cry", "Křik"]);
+        // Cinemeta names it "Krik", 1964, and its English namesakes are other films.
+        let results = vec![
+            result("tt2", "The Cry", "2007"),
+            result("tt0122574", "Krik", "1964"),
+        ];
+        let found = same_film(&cry, results);
+        assert_eq!(found.map(|film| film.id).as_deref(), Some("tt0122574"));
+        // An original that only differs in accents is not searched twice.
+        let mut accent = film("Amelie", Some(2001));
+        accent.original_title = Some("Amélie".into());
+        assert_eq!(titles(&accent), ["Amelie"]);
+    }
+
+    #[test]
+    fn folding_drops_accents_case_and_punctuation() {
+        assert_eq!(fold("Křik"), "krik");
+        assert_eq!(fold("Věra Chytilová"), "verachytilova");
+        assert_eq!(fold("Ø × Ÿ: Ł!"), "oyl");
+        assert_eq!(fold("東京物語"), "東京物語");
     }
 
     #[test]
