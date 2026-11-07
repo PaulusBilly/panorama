@@ -141,8 +141,20 @@ fn readiness_latches_across_retries_and_sources() {
     assert!(model.initial_preparing());
     model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(1.0))));
     assert_eq!(model.status, Status::Ready);
-    model.apply(HostEvent::Resolving);
+    assert!(
+        model.initial_preparing(),
+        "a position comes before the first frame"
+    );
+    assert!(!model.picture_on_screen());
+    model.apply(HostEvent::Mpv(PlayerEvent::PlaybackRestart));
     assert!(!model.initial_preparing());
+    assert!(model.picture_on_screen());
+    model.apply(HostEvent::Resolving);
+    assert!(
+        !model.initial_preparing(),
+        "a later source keeps the controls up"
+    );
+    assert!(!model.picture_on_screen(), "and paints over the old frame");
     model.apply(HostEvent::Closed);
     assert!(!model.has_reached_playable);
 }

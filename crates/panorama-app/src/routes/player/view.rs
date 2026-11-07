@@ -6,7 +6,7 @@ use crate::{
         motion::{DURATION_FAST, EASE_DEFAULT, EASE_EDITORIAL},
     },
 };
-use gpui::{Render, div, prelude::*};
+use gpui::{Render, div, prelude::*, px};
 
 impl Render for Player {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -87,16 +87,29 @@ impl Render for Player {
         let panel = self.panel_surface(theme, keyboard, window, cx);
         let popups = self.popups(theme, cx);
         let cue = self.cue_overlay();
+        let band = crate::playback::surface::top_inset(
+            f32::from(window.viewport_size().height),
+            self.model.fullscreen,
+        );
         div()
             .relative()
             .size_full()
             .text_color(theme.ink)
-            .when(
-                fixture_canvas
-                    || matches!(status, Status::Idle | Status::Error(_))
-                    || (status == Status::NoPeers && !self.model.has_reached_playable),
-                |root| root.bg(theme.player_canvas),
-            )
+            .when(fixture_canvas || !self.model.picture_on_screen(), |root| {
+                root.bg(theme.player_canvas)
+            })
+            // The video starts below the window controls; this keeps the strip above it solid.
+            .when(band > 0.0, |root| {
+                root.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .w_full()
+                        .h(px(band))
+                        .bg(theme.player_canvas),
+                )
+            })
             .child(self.input_layer(cx))
             .child(probe(&self.measures, |measures, bounds| {
                 measures.root.set(bounds)

@@ -132,6 +132,18 @@ pub struct PlaybackModel {
     moved: bool,
     /// Where the last seek landed, until playback moves on after it.
     seek_from: Option<f64>,
+    picture: Picture,
+}
+
+/// What the video surface shows. mpv reports a position before its first frame is up, and on
+/// Windows the window is see-through wherever the surface has nothing on it.
+#[derive(Clone, Copy, PartialEq)]
+enum Picture {
+    /// No frame yet since the player opened.
+    Never,
+    /// A new source is loading over an earlier one.
+    Replacing,
+    Shown,
 }
 
 #[derive(Clone, PartialEq)]
@@ -197,6 +209,7 @@ impl PlaybackModel {
             fullscreen: false,
             torrent: None,
             known_file: false,
+            picture: Picture::Never,
             eof_reached: false,
             moved: false,
             seek_from: None,
@@ -222,6 +235,9 @@ impl PlaybackModel {
                 self.cue = None;
                 self.hwdec = None;
                 self.torrent = None;
+                if self.picture == Picture::Shown {
+                    self.picture = Picture::Replacing;
+                }
             }
             HostEvent::Loading => {
                 self.known_file = true;
@@ -281,6 +297,7 @@ impl PlaybackModel {
                     self.status = Status::Ready;
                 }
             }
+            PlayerEvent::PlaybackRestart if live => self.picture = Picture::Shown,
             PlayerEvent::Duration(value) => {
                 self.duration = finite(value).filter(|value| *value > 0.0)
             }
@@ -364,8 +381,18 @@ impl PlaybackModel {
         }
     }
 
+    /// The loader owns the frame until the first picture of the session is on screen.
     pub fn initial_preparing(&self) -> bool {
-        !self.has_reached_playable && matches!(self.status, Status::Preparing(_))
+        self.picture == Picture::Never
+            && matches!(
+                self.status,
+                Status::Preparing(_) | Status::Ready | Status::Buffering
+            )
+    }
+
+    /// The surface shows a frame of this load; elsewhere the player paints its own canvas.
+    pub fn picture_on_screen(&self) -> bool {
+        self.picture == Picture::Shown && self.surface_visible()
     }
 
     pub fn surface_visible(&self) -> bool {

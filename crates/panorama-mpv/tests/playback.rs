@@ -109,15 +109,17 @@ fn generated_media_clock_pause_seek_tracks_eof_and_close() {
     player.load(video.to_str().unwrap()).unwrap();
     let mut saw_video = false;
     let mut saw_audio = false;
+    let mut shown = false;
     let mut first_time = None;
     let mut advanced = false;
     let mut last = 0.0;
     let deadline = Instant::now() + Duration::from_secs(15);
-    while !(saw_video && saw_audio && advanced) {
+    while !(saw_video && saw_audio && shown && advanced) {
         let event = events
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .unwrap();
         match event {
+            PlayerEvent::PlaybackRestart => shown = true,
             PlayerEvent::TrackList(tracks) => {
                 saw_video |= tracks.iter().any(|track| track.kind == TrackKind::Video);
                 saw_audio |= tracks.iter().any(|track| track.kind == TrackKind::Audio);

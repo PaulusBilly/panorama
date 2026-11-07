@@ -75,6 +75,9 @@ impl Client {
                     .events
                     .push(PlayerEvent::Error(MpvError::from_code(event.error)));
             }
+            if event.id == 21 {
+                result.events.push(PlayerEvent::PlaybackRestart);
+            }
             if event.id == 24 {
                 result.events.push(PlayerEvent::Error(MpvError::Runtime));
             }

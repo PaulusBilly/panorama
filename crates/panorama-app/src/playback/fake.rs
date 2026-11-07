@@ -84,6 +84,7 @@ impl Default for Script {
             events: vec![
                 PlayerEvent::Duration(Some(600.0)),
                 PlayerEvent::TimePos(Some(1.0)),
+                PlayerEvent::PlaybackRestart,
             ],
             torrent: None,
         }
@@ -155,6 +156,7 @@ impl Backend for FakeBackend {
                     _ => vec![
                         PlayerEvent::Duration(Some(6100.0)),
                         PlayerEvent::TimePos(Some(1200.0)),
+                        PlayerEvent::PlaybackRestart,
                         PlayerEvent::TrackList(fixture_tracks(match state {
                             FixtureState::Subtitled => Some(5),
                             FixtureState::Bitmap => Some(8),

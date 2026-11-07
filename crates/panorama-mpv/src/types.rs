@@ -196,6 +196,8 @@ pub enum EndReason {
 pub enum PlayerEvent {
     /// Initialization and property subscriptions succeeded.
     Ready,
+    /// The first frame after a load or seek is on screen.
+    PlaybackRestart,
     /// Current seconds, or unavailable after stop.
     TimePos(Option<f64>),
     /// Media duration, if known.

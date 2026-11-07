@@ -112,6 +112,7 @@ async fn error_then_retry_resumes_and_preserves_latch() {
         events: vec![
             PlayerEvent::Duration(Some(600.0)),
             PlayerEvent::TimePos(Some(42.0)),
+            PlayerEvent::PlaybackRestart,
             PlayerEvent::Error(panorama_mpv::MpvError::Loading),
             PlayerEvent::TimePos(None),
         ],
