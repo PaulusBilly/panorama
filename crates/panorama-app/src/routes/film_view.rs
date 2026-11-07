@@ -385,6 +385,7 @@ impl Render for Film {
             || view.active && self.images.read(cx).moving()
             || self.people_rail.moving(view.reduced)
             || self.awards_rail.moving(view.reduced)
+            || self.episode_rail.moving(view.reduced)
             || self.debug_step < self.args.scroll.len()
         {
             cx.on_next_frame(window, |film, window, cx| film.tick(window, cx));

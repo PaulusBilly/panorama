@@ -11,6 +11,8 @@ impl AssetSource for Assets {
             "icon.svg" => Some(include_bytes!("../assets/icon.svg")),
             "player-x.svg" => Some(br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>"#),
             "player-loader-2.svg" => Some(br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>"#),
+            "chevron-left.svg" => Some(br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7l7 7"/></svg>"#),
+            "chevron-right.svg" => Some(br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7l-7 7"/></svg>"#),
             "logo.svg" => Some(include_bytes!("../assets/logo.svg")),
             "search.svg" => Some(include_bytes!("../assets/icons/search.svg")),
             "menu-2.svg" => Some(include_bytes!("../assets/icons/menu-2.svg")),

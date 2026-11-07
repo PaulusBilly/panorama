@@ -265,10 +265,8 @@ impl Film {
                     false,
                     &self.episode_rail,
                     view,
-                    cx.listener(|film, _: &gpui::ScrollWheelEvent, _, cx| {
-                        film.episode_rail.wheel();
-                        cx.notify();
-                    }),
+                    |film| &mut film.episode_rail,
+                    cx,
                 )),
         )
     }
