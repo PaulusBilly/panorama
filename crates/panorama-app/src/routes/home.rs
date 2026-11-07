@@ -410,6 +410,22 @@ pub(crate) fn zoom_film<V: 'static>(
     if film.kind == Kind::Movie {
         state.update(cx, |state, cx| state.prefetch_sources(&film.id, cx));
     }
+    // The zoom shows the card's small copy; fetch the page's full-size banner (its backdrop,
+    // else its poster, as in `banners`) while it runs, so the page mounts on the sharp one.
+    let banner = film.background.as_ref().or(film.poster.as_ref());
+    let (images, services) = {
+        let state = state.read(cx);
+        (state.images.clone(), state.services.clone())
+    };
+    if let (Some(url), Some(services)) = (banner, services) {
+        let bounds = (
+            f32::from(window.viewport_size().width),
+            f32::from(window.viewport_size().height),
+        );
+        images.update(cx, |images, cx| {
+            images.prefetch(url.as_str(), bounds, &services, window, cx)
+        });
+    }
     let _ = shell.update(cx, |shell, cx| shell.zoom_to_film(film, card, window, cx));
 }
 
