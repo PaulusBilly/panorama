@@ -6,17 +6,21 @@ pub struct SurfaceRect {
     pub height: i32,
 }
 
+/// Logical height above the video, left to the window controls.
+pub fn top_inset(height: f32, fullscreen: bool) -> f32 {
+    // macOS draws the window's title bar transparently over the content.
+    if fullscreen || cfg!(target_os = "macos") {
+        0.0
+    } else {
+        32.0_f32.min(height.max(0.0))
+    }
+}
+
 pub fn physical_rect(width: f32, height: f32, scale: f32, fullscreen: bool) -> SurfaceRect {
     if !width.is_finite() || !height.is_finite() || !scale.is_finite() || scale <= 0.0 {
         return SurfaceRect::default();
     }
-    // macOS draws the window's title bar transparently over the content.
-    let top = if fullscreen || cfg!(target_os = "macos") {
-        0.0
-    } else {
-        32.0_f32.min(height.max(0.0))
-    };
-    let y = (top * scale).floor() as i32;
+    let y = (top_inset(height, fullscreen) * scale).floor() as i32;
     SurfaceRect {
         x: 0,
         y,
