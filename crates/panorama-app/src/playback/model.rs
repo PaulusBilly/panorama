@@ -392,7 +392,10 @@ impl PlaybackModel {
 
     /// The surface shows a frame of this load; elsewhere the player paints its own canvas.
     pub fn picture_on_screen(&self) -> bool {
-        self.picture == Picture::Shown && self.surface_visible()
+        // On Windows mpv's window can go empty while it waits for data, letting the desktop
+        // show through, so a stall is covered rather than left on its last frame.
+        let stalled = cfg!(windows) && self.status == Status::Buffering;
+        self.picture == Picture::Shown && self.surface_visible() && !stalled
     }
 
     pub fn surface_visible(&self) -> bool {

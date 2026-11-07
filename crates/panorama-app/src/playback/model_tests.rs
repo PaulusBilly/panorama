@@ -130,6 +130,24 @@ fn reducer_event_status_table() {
 }
 
 #[test]
+fn a_resumed_film_that_stalls_is_covered_on_windows() {
+    let mut model = PlaybackModel::new("Film".into(), SourceRef::default());
+    model.apply(HostEvent::Resolving);
+    model.apply(HostEvent::Loading);
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(4343.0))));
+    model.apply(HostEvent::Mpv(PlayerEvent::PlaybackRestart));
+    assert!(model.picture_on_screen());
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(true)));
+    assert_eq!(model.status, Status::Buffering);
+    assert!(!model.initial_preparing(), "the controls stay up");
+    assert_eq!(model.picture_on_screen(), !cfg!(windows));
+    model.apply(HostEvent::Mpv(PlayerEvent::PausedForCache(false)));
+    assert!(model.picture_on_screen());
+    model.apply(HostEvent::Mpv(PlayerEvent::Pause(true)));
+    assert!(model.picture_on_screen(), "a paused frame stays visible");
+}
+
+#[test]
 fn readiness_latches_across_retries_and_sources() {
     let mut model = PlaybackModel::new("Film".into(), SourceRef::default());
     model.apply(HostEvent::Resolving);
