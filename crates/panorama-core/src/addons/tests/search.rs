@@ -233,6 +233,39 @@ async fn search_offline_and_isolated_failure_and_enrichment_failure() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn search_results_survive_an_offline_catalog_or_enrichment() {
+    let fake = Fake::default();
+    let client = client(&fake).await;
+    let addons = [search_addon("up.test"), search_addon("down.test")];
+    fake.set(
+        "up.test",
+        "catalog",
+        "find",
+        Reply::json(json!({"metas":[{"id":"custom:thin","type":"movie","name":"Thin"}]})),
+    );
+    fake.set(
+        "up.test",
+        "meta",
+        "custom:thin",
+        Reply::error(FailureKind::Offline),
+    );
+    fake.set(
+        "down.test",
+        "catalog",
+        "find",
+        Reply::error(FailureKind::Offline),
+    );
+    let events = client.search(&addons, "film").collect::<Vec<_>>().await;
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event, ResourceEvent::Failed(_))),
+        "{events:?}"
+    );
+    assert!(matches!(events.last(), Some(ResourceEvent::Fresh(items)) if items[0].name == "Thin"));
+}
+
+#[tokio::test(start_paused = true)]
 async fn dropping_search_cancels_inflight_requests() {
     let fake = Fake::default();
     let client = client(&fake).await;
