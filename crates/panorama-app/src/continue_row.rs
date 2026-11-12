@@ -137,6 +137,7 @@ impl ContinueRow {
                     "continue-arrow",
                     row,
                     &self.rail,
+                    view.column(),
                     view,
                     |home: &mut Home| &mut home.row.rail,
                     cx,

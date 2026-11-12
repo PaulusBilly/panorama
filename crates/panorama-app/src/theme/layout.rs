@@ -26,11 +26,28 @@ impl Column {
             width: (window_width - left - gutter).max(0.0),
         }
     }
+
+    /// The same column with a right margin as wide as the left, for a page that hides the
+    /// sidebar but keeps its left edge, so a row scrolled to its end sits evenly framed.
+    pub fn mirrored(self) -> Self {
+        Self {
+            width: (self.width - SIDEBAR_WIDTH).max(0.0),
+            ..self
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_mirrored_column_has_equal_margins() {
+        for window in [800.0, 1280.0, 1920.0] {
+            let col = Column::at(window).mirrored();
+            assert_eq!(window - col.left - col.width, col.left, "{window}");
+        }
+    }
+
     #[test]
     fn column_breakpoints() {
         for (width, left, column) in [

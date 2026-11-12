@@ -190,7 +190,7 @@ impl Film {
             return None;
         }
         let theme = view.theme;
-        let col = view.column();
+        let col = view.column().mirrored();
         let episodes = self.episodes.clone();
         let target_index = self
             .target

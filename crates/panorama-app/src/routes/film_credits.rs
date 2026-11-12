@@ -151,7 +151,7 @@ pub(super) fn rail(
     get: fn(&mut Film) -> &mut Carousel,
     cx: &mut Context<Film>,
 ) -> Div {
-    let col = view.column();
+    let col = view.column().mirrored();
     let row = div()
         .id(id)
         .flex()
@@ -176,7 +176,7 @@ pub(super) fn rail(
                 .flex_shrink_0()
                 .w(px((view.width - col.left - col.width - gap).max(0.0))),
         );
-    crate::carousel::controls(id, row, carousel, view, get, cx)
+    crate::carousel::controls(id, row, carousel, col, view, get, cx)
 }
 
 pub(super) fn heading(title: &str, theme: Theme) -> Div {
@@ -221,7 +221,7 @@ impl Film {
         if people.is_empty() && self.awards.is_empty() && episodes.is_none() {
             return None;
         }
-        let col = view.column();
+        let col = view.column().mirrored();
         let mut sections = div()
             .w(px(view.width))
             .pt(px(SECTION_GAP))
@@ -269,7 +269,7 @@ impl Film {
                     .into_any_element()
             })
             .collect();
-        let col = view.column();
+        let col = view.column().mirrored();
         div()
             .flex()
             .flex_col()
@@ -594,7 +594,7 @@ impl Film {
         {
             self.awards_rail.follow(index, pitch);
         }
-        let col = view.column();
+        let col = view.column().mirrored();
         div()
             .flex()
             .flex_col()

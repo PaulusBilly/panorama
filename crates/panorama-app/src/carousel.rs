@@ -216,16 +216,17 @@ impl Carousel {
 const ARROW: (f32, f32) = (36.0, 64.0);
 
 /// Make a carousel `row` draggable and overlay edge arrows, each shown only while the row can
-/// move that way. `rail` finds this row's carousel on the view.
+/// move that way. `col` is the column the row rests on; `rail` finds this row's carousel on the
+/// view.
 pub fn controls<V: 'static>(
     id: &'static str,
     row: Stateful<Div>,
     carousel: &Carousel,
+    col: crate::theme::Column,
     view: ViewSettings,
     rail: fn(&mut V) -> &mut Carousel,
     cx: &mut Context<V>,
 ) -> Div {
-    let col = view.column();
     let entity = cx.entity().downgrade();
     let dragging = carousel.dragging();
     let arrows = [false, true].map(|forward| carousel.arrow(forward, view.reduced));
