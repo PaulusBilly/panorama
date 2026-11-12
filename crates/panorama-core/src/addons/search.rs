@@ -149,15 +149,13 @@ impl AddonClient {
                         .details(&addons, kind, &id, None)
                         .map(move |event| (index, event))
                 });
+                // Results are already out: a card that can't be filled keeps what it had, and
+                // no late failure replaces the results.
                 let mut fill = stream::iter(fill).flatten_unordered(4);
                 while let Some((index, event)) = fill.next().await {
-                    let details = match event {
-                        ResourceEvent::Fresh(details) | ResourceEvent::CacheHit(details) => details,
-                        ResourceEvent::Failed(FailureKind::Offline) => {
-                            failure = Some(FailureKind::Offline);
-                            continue;
-                        }
-                        _ => continue,
+                    let (ResourceEvent::Fresh(details) | ResourceEvent::CacheHit(details)) = event
+                    else {
+                        continue;
                     };
                     // Fill from the card as searched, so fresh details replace cached ones.
                     let mut film = searched[index].clone();
@@ -176,11 +174,6 @@ impl AddonClient {
                     {
                         return;
                     }
-                }
-                if let Some(FailureKind::Offline) = failure {
-                    let _ = sender
-                        .send(ResourceEvent::Failed(FailureKind::Offline))
-                        .await;
                 }
             }
             .boxed()
