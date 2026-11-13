@@ -447,19 +447,23 @@ impl Services {
             };
             if let (Some(tmdb), Some(api_key)) = (&services.tmdb, services.tmdb_key()) {
                 let key = panorama_core::store::Key::tmdb_titles(&id).ok();
-                if let Some(titles) = cached(key.as_ref())
+                let titles = match cached(key.as_ref())
                     .and_then(|bytes| serde_json::from_slice::<Option<_>>(&bytes).ok())
                 {
+                    Some(titles) => titles,
+                    None => {
+                        let titles = tmdb.titles(&api_key, kind, &id).await;
+                        if let Ok(titles) = &titles
+                            && let Ok(bytes) = serde_json::to_vec(titles)
+                        {
+                            keep(key.as_ref(), bytes);
+                        }
+                        titles.ok().flatten()
+                    }
+                };
+                // A film TMDB does not know, cached or fresh, falls through to Wikidata.
+                if titles.is_some() {
                     return titles;
-                }
-                let titles = tmdb.titles(&api_key, kind, &id).await;
-                if let Ok(titles) = &titles
-                    && let Ok(bytes) = serde_json::to_vec(titles)
-                {
-                    keep(key.as_ref(), bytes);
-                }
-                if let Ok(Some(titles)) = titles {
-                    return Some(titles);
                 }
             }
             let wikidata = services.credits.clone().filter(|_| !knows)?;
