@@ -29,6 +29,12 @@ pub struct CoreProgress(pub Arc<Services>);
 impl ProgressSink for CoreProgress {
     fn send(&self, event: Progress) -> BoxFuture<'_, ()> {
         Box::pin(async move {
+            // Kept locally whether or not anyone is signed in: the next resume opens it again.
+            if let Progress::Begin(selection, _) = &event
+                && let Some(source) = super::selection::LastSource::of(selection)
+            {
+                self.0.remember_source(&selection.video_id, &source);
+            }
             let Some(session) = &self.0.session else {
                 return;
             };

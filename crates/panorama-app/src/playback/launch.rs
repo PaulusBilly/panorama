@@ -66,6 +66,8 @@ impl AppState {
         let kind = film.kind;
         let kept = film.clone();
         let addons = self.installed.clone();
+        // The source this video last played from, tried before the ranking's pick.
+        let last = services.last_source(&video_id);
         let subtitles = subtitle_lookup(&services, addons.clone(), film.kind, video_id.clone());
         // Which metadata addon the progress belongs to; ready long before the streams.
         let meta_base = Job(services.runtime.clone().spawn({
@@ -109,10 +111,12 @@ impl AppState {
                     };
                     let picked = state.update(cx, |state, cx| {
                         state.streams = Some((id.clone(), Arc::new(groups.clone())));
-                        // Holding out for the release in progress; the rest wait for the end.
-                        let source = match binge_group.as_deref() {
-                            Some(group) => binge_source(&groups, group),
-                            None => first_source(&groups),
+                        // Holding out for the release in progress, or for the source this video
+                        // last played from; without either, the best so far starts at once.
+                        let source = match (binge_group.as_deref(), &last) {
+                            (Some(group), _) => binge_source(&groups, group),
+                            (None, Some(last)) => last.find(&groups),
+                            (None, None) => first_source(&groups),
                         };
                         latest = groups.clone();
                         if let Some(source) = source
@@ -136,7 +140,11 @@ impl AppState {
                     }
                 }
                 let _ = state.update(cx, |state, cx| {
-                    if let Some(source) = first_source(&latest)
+                    let fallback = last
+                        .as_ref()
+                        .and_then(|last| last.release(&latest))
+                        .or_else(|| first_source(&latest));
+                    if let Some(source) = fallback
                         && let Some(film) = film.take()
                     {
                         state.playback = Some(PlaybackSelection {

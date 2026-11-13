@@ -394,6 +394,24 @@ impl Services {
         }))
     }
 
+    /// The source `video_id` last played from, kept in the local store.
+    pub fn last_source(&self, video_id: &str) -> Option<crate::playback::selection::LastSource> {
+        let key = panorama_core::store::Key::last_source(video_id).ok()?;
+        let bytes = self.store.as_ref()?.get(&key).ok()??;
+        serde_json::from_slice(&bytes).ok()
+    }
+
+    /// Keep the source `video_id` is playing from, for the next resume.
+    pub fn remember_source(&self, video_id: &str, source: &crate::playback::selection::LastSource) {
+        if let (Some(store), Ok(key), Ok(bytes)) = (
+            &self.store,
+            panorama_core::store::Key::last_source(video_id),
+            serde_json::to_vec(source),
+        ) {
+            let _ = store.set(&key, &bytes);
+        }
+    }
+
     /// The user's TMDB key, stored locally under `pref:tmdbKey` and never logged.
     pub fn tmdb_key(&self) -> Option<String> {
         let key = panorama_core::store::Key::pref("tmdbKey").ok()?;

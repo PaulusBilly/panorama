@@ -89,6 +89,13 @@ impl Key {
         Ok(Self(format!("meta:tmdb|{}", &meta["meta:".len()..])))
     }
 
+    /// Identifies the source a film or episode last played from, under `meta:` so it ages out
+    /// with the cache and goes on sign-out.
+    pub fn last_source(video_id: &str) -> Result<Self, StoreError> {
+        let Self(meta) = Self::meta(video_id)?;
+        Ok(Self(format!("meta:source|{}", &meta["meta:".len()..])))
+    }
+
     /// Identifies a preference by name.
     pub fn pref(name: &str) -> Result<Self, StoreError> {
         Self::single("pref", name)

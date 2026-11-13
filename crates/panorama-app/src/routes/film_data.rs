@@ -210,7 +210,12 @@ impl Film {
         if !seen {
             self.sources_seen = Some(lookup.groups.clone());
             self.groups = (*lookup.groups).clone();
-            self.selected = crate::playback::selection::first_source(&self.groups);
+            // The source this video last played from, while its addon still offers it.
+            let last = self.target.as_ref().and_then(|id| {
+                let services = state.services.as_ref()?;
+                services.last_source(id)?.find(&self.groups)
+            });
+            self.selected = last.or_else(|| crate::playback::selection::first_source(&self.groups));
         }
         self.sources_error = lookup.failed
             || self

@@ -61,6 +61,87 @@ impl std::fmt::Debug for PlaybackSelection {
     }
 }
 
+/// The source a film or episode last played from, so a resume opens the same release. Holds
+/// no stream URL, which may carry an account token: a torrent by its hash and file, anything
+/// else by the labels the addon printed for it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LastSource {
+    addon: String,
+    /// `infoHash:fileIdx` for a torrent.
+    torrent: Option<String>,
+    label: String,
+    binge_group: Option<String>,
+}
+
+impl LastSource {
+    /// What is playing in `selection`, if anything is.
+    pub fn of(selection: &PlaybackSelection) -> Option<Self> {
+        let group = selection.groups.get(selection.source.group)?;
+        Some(Self::from_stream(
+            group.addon.as_str(),
+            selection.selected()?,
+        ))
+    }
+
+    fn from_stream(addon: &str, source: &StreamSource) -> Self {
+        let value = serde_json::to_value(&source.stream).unwrap_or_default();
+        let torrent = value["infoHash"].as_str().map(|hash| {
+            format!(
+                "{}:{}",
+                hash.to_lowercase(),
+                value["fileIdx"].as_u64().unwrap_or(0)
+            )
+        });
+        Self {
+            addon: addon.to_owned(),
+            torrent,
+            label: label(source),
+            binge_group: source.stream.behavior_hints.binge_group.clone(),
+        }
+    }
+
+    /// The same stream among `groups`, if its addon still offers it: by torrent, then by label,
+    /// as debrid links change on every lookup while their labels hold.
+    pub fn find(&self, groups: &[StreamGroup]) -> Option<SourceRef> {
+        let ranked = ranked(groups);
+        let candidates = || {
+            ranked.iter().filter_map(|&at| {
+                let group = groups.get(at.group)?;
+                let StreamState::Ready(streams) = &group.state else {
+                    return None;
+                };
+                (group.addon.as_str() == self.addon).then(|| (at, streams.get(at.stream)))
+            })
+        };
+        let same = |at: SourceRef, source: Option<&StreamSource>| {
+            source.map(|source| (at, Self::from_stream(&self.addon, source)))
+        };
+        candidates()
+            .filter_map(|(at, source)| same(at, source))
+            .find(|(_, other)| self.torrent.is_some() && other.torrent == self.torrent)
+            .or_else(|| {
+                candidates()
+                    .filter_map(|(at, source)| same(at, source))
+                    .find(|(_, other)| other.label == self.label)
+            })
+            .map(|(at, _)| at)
+    }
+
+    /// The best stream from the same release, when the stream itself is gone.
+    pub fn release(&self, groups: &[StreamGroup]) -> Option<SourceRef> {
+        binge_source(groups, self.binge_group.as_deref()?)
+    }
+}
+
+fn label(source: &StreamSource) -> String {
+    [&source.name, &source.title, &source.description]
+        .into_iter()
+        .flatten()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The stream to start with: the best of [`ranked`].
 pub fn first_source(groups: &[StreamGroup]) -> Option<SourceRef> {
     ranked(groups).first().copied()
@@ -239,5 +320,83 @@ mod ranking {
             torrent('c', "Film"),
         ]]);
         assert_eq!(ranked(&groups), [at(0, 1), at(0, 2), at(0, 0)]);
+    }
+
+    fn binged(stream: serde_json::Value, label: &str, group: &str) -> StreamSource {
+        let mut stream = stream;
+        stream["behaviorHints"] = serde_json::json!({ "bingeGroup": group });
+        source(stream, label)
+    }
+
+    fn playing(groups: Vec<StreamGroup>, at: SourceRef) -> LastSource {
+        LastSource::from_stream(
+            groups[at.group].addon.as_str(),
+            match &groups[at.group].state {
+                StreamState::Ready(streams) => &streams[at.stream],
+                _ => unreachable!(),
+            },
+        )
+    }
+
+    #[test]
+    fn the_last_torrent_is_found_again_over_a_better_ranked_one() {
+        let before = groups(vec![vec![
+            torrent('a', "Film 1080p\n👤 900 💾 3 GB"),
+            torrent('b', "Film 720p\n👤 5 💾 1 GB"),
+        ]]);
+        let last = playing(before, at(0, 1));
+        // A later lookup lists it elsewhere, under a refreshed label.
+        let after = groups(vec![vec![
+            torrent('c', "Film 2160p\n👤 800 💾 9 GB"),
+            torrent('a', "Film 1080p\n👤 950 💾 3 GB"),
+            torrent('b', "Film 720p\n👤 6 💾 1 GB"),
+        ]]);
+        assert_eq!(first_source(&after), Some(at(0, 0)));
+        assert_eq!(last.find(&after), Some(at(0, 2)));
+    }
+
+    #[test]
+    fn a_debrid_link_is_found_by_its_label_when_its_url_changes() {
+        let link_at = |url: &str, label: &str| source(serde_json::json!({ "url": url }), label);
+        let last = playing(
+            groups(vec![vec![link_at(
+                "https://rd.test/token-1/a.mkv",
+                "[RD+] Film 1080p",
+            )]]),
+            at(0, 0),
+        );
+        let after = groups(vec![vec![
+            link_at("https://rd.test/token-2/b.mkv", "[RD+] Film 2160p"),
+            link_at("https://rd.test/token-2/a.mkv", "[RD+] Film 1080p"),
+        ]]);
+        assert_eq!(last.find(&after), Some(at(0, 1)));
+        let stored = serde_json::to_string(&last).unwrap();
+        assert!(!stored.contains("token"), "{stored}");
+    }
+
+    #[test]
+    fn a_gone_stream_falls_back_to_its_release_and_never_to_another_addon() {
+        let last = playing(
+            groups(vec![vec![binged(
+                serde_json::json!({ "infoHash": "a".repeat(40) }),
+                "Film 1080p WEB",
+                "addon|1080p|WEB",
+            )]]),
+            at(0, 0),
+        );
+        let after = groups(vec![
+            vec![
+                torrent('d', "Film 2160p\n👤 900"),
+                binged(
+                    serde_json::json!({ "infoHash": "e".repeat(40) }),
+                    "Film 1080p WEB v2",
+                    "addon|1080p|WEB",
+                ),
+            ],
+            vec![torrent('a', "Film 1080p WEB")],
+        ]);
+        // The same torrent from a different addon is not the same source.
+        assert_eq!(last.find(&after), None);
+        assert_eq!(last.release(&after), Some(at(0, 1)));
     }
 }
