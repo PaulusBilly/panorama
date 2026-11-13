@@ -29,10 +29,29 @@ const COLUMN_GAP: f32 = 40.0;
 /// The narrowest the date column gets: both quality badges and the space between them.
 const QUALITY_WIDTH: f32 = 96.0;
 
-/// Height of the fields block, from the artwork's bottom edge to the perforation. Fixed, as
-/// every value holds to one line, so the perforation can be drawn before text is laid out.
-pub const FIELDS_HEIGHT: f32 =
-    TOP + 2.0 * (LABEL_SIZE * LABEL_LINE + LABEL_GAP + VALUE_SIZE * VALUE_LINE) + ROW_GAP + BOTTOM;
+/// One value line.
+const VALUE_HEIGHT: f32 = VALUE_SIZE * VALUE_LINE;
+
+/// The directors, one to a line: two at most, the second counting any more as `+N`.
+fn directors(film: &FilmDetails) -> Vec<String> {
+    match film.director.as_slice() {
+        [first, second, rest @ ..] if !rest.is_empty() => {
+            vec![first.clone(), format!("{second} +{}", rest.len())]
+        }
+        names => names.to_vec(),
+    }
+}
+
+/// Height of the first row: a label over as many lines as there are directors.
+fn first_row(film: &FilmDetails) -> f32 {
+    LABEL_SIZE * LABEL_LINE + LABEL_GAP + directors(film).len().max(1) as f32 * VALUE_HEIGHT
+}
+
+/// Height of the fields block, from the artwork's bottom edge to the perforation. Known before
+/// text is laid out, as every value holds to its lines, so the perforation can be drawn with it.
+pub fn fields_height(film: &FilmDetails) -> f32 {
+    TOP + first_row(film) + ROW_GAP + LABEL_SIZE * LABEL_LINE + LABEL_GAP + VALUE_HEIGHT + BOTTOM
+}
 
 /// What the source lookup has said about a film's best quality.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,7 +174,6 @@ fn field(label: &str, value: Div, theme: Theme) -> Div {
 
 /// The fields, in three columns of two rows.
 pub fn fields(film: &FilmDetails, quality: SourceQuality, instant: bool, theme: Theme) -> Div {
-    let director = (!film.director.is_empty()).then(|| film.director.join(", "));
     let genre = (!film.genres.is_empty()).then(|| {
         film.genres
             .iter()
@@ -173,7 +191,7 @@ pub fn fields(film: &FilmDetails, quality: SourceQuality, instant: bool, theme: 
                 "Quality",
                 // The badges sit in the value's line box, so the row height never changes.
                 div()
-                    .h(px(VALUE_SIZE * VALUE_LINE))
+                    .h(px(VALUE_HEIGHT))
                     .flex()
                     .items_center()
                     .gap(px(6.0))
@@ -198,15 +216,27 @@ pub fn fields(film: &FilmDetails, quality: SourceQuality, instant: bool, theme: 
     // Columns run top to bottom, each as wide as its widest value, so the two rows align and the
     // gaps between columns stay even. Only the director's column gives way to a long name.
     let column = || div().flex().flex_col().gap(px(ROW_GAP));
+    // Every first-row field takes the directors' height, so the second row stays level.
+    let first = first_row(film);
+    let names = directors(film);
+    let director = if names.is_empty() {
+        text(None, theme)
+    } else {
+        div().flex().flex_col().children(
+            names
+                .into_iter()
+                .map(|name| text(Some(name), theme).truncate()),
+        )
+    };
     div()
-        .h(px(FIELDS_HEIGHT))
+        .h(px(fields_height(film)))
         .pt(px(TOP))
         .flex()
         .gap(px(COLUMN_GAP))
         .child(
             column()
                 .min_w_0()
-                .child(field("Director", text(director, theme).truncate(), theme))
+                .child(field("Director", director, theme).h(px(first)))
                 .child(field("Genre", text(genre, theme).truncate(), theme)),
         )
         .child(
@@ -214,13 +244,13 @@ pub fn fields(film: &FilmDetails, quality: SourceQuality, instant: bool, theme: 
                 .flex_none()
                 // Room for both badges, so late quality never pushes Runtime aside.
                 .min_w(px(QUALITY_WIDTH))
-                .child(field("Date", text(released(film), theme), theme))
+                .child(field("Date", text(released(film), theme), theme).h(px(first)))
                 .child(third),
         )
         .child(
             column()
                 .flex_none()
-                .child(field("Runtime", text(runtime(film), theme), theme)),
+                .child(field("Runtime", text(runtime(film), theme), theme).h(px(first))),
         )
 }
 
@@ -281,8 +311,25 @@ mod tests {
     }
 
     #[test]
-    fn the_fields_block_fits_its_rows() {
-        assert!((FIELDS_HEIGHT - 121.3).abs() < 0.01, "{FIELDS_HEIGHT}");
+    fn directors_stack_two_to_a_field() {
+        let with = |names: &[&str]| {
+            let mut film = film(None, None, None);
+            film.director = names.iter().map(|name| (*name).to_owned()).collect();
+            film
+        };
+        let one = with(&["Charlotte Wells"]);
+        assert!(
+            (fields_height(&one) - 121.3).abs() < 0.01,
+            "{}",
+            fields_height(&one)
+        );
+        assert!((fields_height(&with(&[])) - 121.3).abs() < 0.01);
+        let two = with(&["Januel Mercado", "Joel Crawford"]);
+        assert_eq!(directors(&two), ["Januel Mercado", "Joel Crawford"]);
+        assert!((fields_height(&two) - fields_height(&one) - VALUE_HEIGHT).abs() < 0.01);
+        let four = with(&["A", "B", "C", "D"]);
+        assert_eq!(directors(&four), ["A", "B +2"]);
+        assert_eq!(fields_height(&four), fields_height(&two));
     }
 
     #[test]

@@ -524,7 +524,7 @@ impl FilmGrid {
                         .border_color(theme.image_outline),
                 ),
             )
-            .child(stub(height, ticket::FIELDS_HEIGHT, theme, lift))
+            .child(stub(height, ticket::fields_height(film), theme, lift))
             .child(details)
     }
 }
