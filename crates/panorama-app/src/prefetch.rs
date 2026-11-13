@@ -57,7 +57,7 @@ pub fn hovered(state: &Entity<AppState>, kind: Kind, id: &str, cx: &mut App) {
                     details = Some(meta);
                 }
             }
-            let mut title = services.original_title(film.clone());
+            let mut title = services.titles(kind, film.clone(), false);
             if let Some(details) = details {
                 let mut artwork = services.warm_artwork(&details);
                 let _ = (&mut artwork.0).await;

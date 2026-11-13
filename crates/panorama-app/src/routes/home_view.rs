@@ -118,6 +118,7 @@ impl Home {
         let services = self.state.read(cx).services.clone();
         let images = self.images.clone();
         let mt = if self.switcher_visible(cx) { 0.0 } else { 32.0 };
+        self.grid.sync_quality(self.state.read(cx));
         self.grid
             .render_rows(
                 offset,

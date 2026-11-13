@@ -1,5 +1,4 @@
 use super::*;
-use crate::assets::Weighted;
 use crate::{
     film_card,
     film_display::{self, Quality},
@@ -12,7 +11,7 @@ use crate::{
     titlebar::SAFE_TOP,
     transition::bezier,
 };
-use gpui::{Div, FontWeight, Render, div, img, point, prelude::*, px, relative, svg};
+use gpui::{Div, Render, div, img, point, prelude::*, px, relative, svg};
 
 /// Space above and below the genre line, so it sits centred between origin and quality.
 const GENRE_GAP: f32 = 12.0;
@@ -40,8 +39,7 @@ const BLUR_WASH: f32 = 0.6;
 fn blur_progress(top: f32, height: f32) -> f32 {
     ((top / height.max(1.0) - BLUR_START) / (BLUR_END - BLUR_START)).clamp(0.0, 1.0)
 }
-/// Quality badge height; the clock's visible disc matches it.
-const BADGE: f32 = 18.0;
+use film_display::BADGE;
 /// The clock glyph's disc is 20 of the icon's 24 units, so the icon is drawn this much larger.
 const CLOCK_INSET: f32 = 24.0 / 20.0;
 
@@ -124,25 +122,9 @@ impl Film {
                 ("kern".into(), 1),
             ])));
         let mut any = false;
-        for badge in quality
-            .video
-            .into_iter()
-            .chain(quality.surround.then_some("5.1"))
-        {
+        for badge in quality.badges(theme.ink_muted) {
             any = true;
-            facts = facts.child(
-                div()
-                    .h(px(BADGE))
-                    .flex()
-                    .items_center()
-                    .border_1()
-                    .border_color(theme.ink_muted)
-                    .px(px(6.0))
-                    .text_size(px(11.0))
-                    .weight(FontWeight::MEDIUM)
-                    .line_height(relative(1.0))
-                    .child(badge),
-            );
+            facts = facts.child(badge);
         }
         if let Some(runtime) = &meta.runtime {
             any = true;

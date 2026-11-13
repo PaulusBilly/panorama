@@ -9,7 +9,8 @@ use super::{
 };
 use crate::theme::{Theme, Typography};
 use gpui::{
-    AnyElement, Context, Div, ScrollHandle, Stateful, Window, div, prelude::*, px, relative,
+    AnyElement, Context, Div, ScrollHandle, Stateful, Window, div, linear_color_stop,
+    linear_gradient, prelude::*, px, relative,
 };
 use std::time::Instant;
 
@@ -19,6 +20,10 @@ const HEADER: f32 = 52.0;
 const LABEL_HEIGHT: f32 = 11.0 * 1.4 + 12.0 + 4.0;
 /// A stuck label sits 8 px above the list's top edge, under the sticky header.
 const STICK_OFFSET: f32 = -8.0;
+/// One line of a row label: 14 px at 1.43 line height.
+const LABEL_LINE: f32 = 14.0 * 1.43;
+/// Height of the fade over the list's bottom edge while rows remain below.
+const FADE: f32 = 48.0;
 
 /// Which section label sticks and where, given each label's natural top (all in window space).
 pub(super) fn sticky_label(view_top: f32, tops: &[f32]) -> Option<(usize, f32)> {
@@ -143,6 +148,9 @@ impl Player {
                 }
             }
         };
+        // Audio and Sources only: Settings and Subtitles lay out their own scrolling bodies.
+        let fade = !matches!(id, PanelId::Settings | PanelId::Subtitles)
+            && more_below(&self.scrolls[id as usize]);
         let (x, opacity) = slide.map_or((0.0, 1.0), |(x, opacity)| (x * width, opacity));
         let max_height = 448.0f32.min(window_height - 160.0);
         let page = div()
@@ -174,7 +182,8 @@ impl Player {
                     .heading()
                     .child(title),
             )
-            .child(body);
+            .child(body)
+            .when(fade, |page| page.child(bottom_fade(theme)));
         Some(match sticky {
             Some(overlay) => page.child(overlay),
             None => page,
@@ -292,12 +301,7 @@ impl Player {
                 div()
                     .min_w_0()
                     .flex_1()
-                    .child(clamp(
-                        div()
-                            .text_size(px(14.0))
-                            .line_height(relative(1.43))
-                            .child(row.label.clone()),
-                    ))
+                    .child(label_text(&row.label, row.multiline))
                     .when_some(row.description.clone(), |column, description| {
                         column.child(clamp(
                             div()
@@ -325,6 +329,47 @@ impl Player {
                 element.child(div().absolute().inset_0().border_2().border_color(ink))
             })
     }
+}
+
+/// A row's label. Multiline labels break only at spaces, so a run of symbols such as an addon's
+/// `★★★★★` stays whole; GPUI would otherwise wrap between any two of them. Two lines at most.
+fn label_text(label: &str, multiline: bool) -> Div {
+    let text = div().text_size(px(14.0)).line_height(relative(1.43));
+    if !multiline {
+        return text.truncate().child(label.to_owned());
+    }
+    text.flex()
+        .flex_wrap()
+        .gap_x(px(4.0))
+        .max_h(px(2.0 * LABEL_LINE))
+        .overflow_hidden()
+        .children(
+            label
+                .split(' ')
+                .map(|word| div().max_w_full().truncate().child(word.to_owned())),
+        )
+}
+
+/// Whether the list has rows hidden below its bottom edge, as of the last layout.
+fn more_below(scroll: &ScrollHandle) -> bool {
+    let max = f32::from(scroll.max_offset().y);
+    max - -f32::from(scroll.offset().y) > 1.0
+}
+
+/// A canvas fade over the list's bottom edge, saying the list goes on. It takes no input, so
+/// rows under it stay clickable and the wheel still scrolls.
+fn bottom_fade(theme: Theme) -> Div {
+    div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .h(px(FADE))
+        .bg(linear_gradient(
+            180.0,
+            linear_color_stop(theme.player_canvas.opacity(0.0), 0.0),
+            linear_color_stop(theme.player_canvas.opacity(0.92), 1.0),
+        ))
 }
 
 pub(super) fn caption(text: &str, theme: Theme, danger: bool) -> Div {

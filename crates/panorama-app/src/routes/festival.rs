@@ -77,6 +77,7 @@ pub struct Festival {
     years: Vec<FocusHandle>,
     request: Option<Task<()>>,
     _images: Subscription,
+    _state: Subscription,
     _shell: Option<Subscription>,
 }
 
@@ -92,6 +93,8 @@ impl Festival {
     ) -> Self {
         let images = state.read(cx).images.clone();
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
+        // A preview's quality arrives with the source lookup.
+        let state_observer = cx.observe(&state, |_, _, cx| cx.notify());
         let shell_observer = shell
             .upgrade()
             .map(|shell| cx.observe(&shell, |_, _, cx| cx.notify()));
@@ -118,6 +121,7 @@ impl Festival {
             years: vec![],
             request: None,
             _images: image_observer,
+            _state: state_observer,
             _shell: shell_observer,
         };
         festival.load(cx);
@@ -803,6 +807,7 @@ impl Render for Festival {
             let offset = Self::grid_top(view) - top;
             let images = self.images.clone();
             self.grid.quiet = self.state.read(cx).quiet.clone();
+            self.grid.sync_quality(self.state.read(cx));
             section = section.child(self.grid.render_rows(
                 offset,
                 self.loading && self.films.is_empty(),

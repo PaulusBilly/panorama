@@ -79,6 +79,8 @@ impl Search {
             {
                 search.load(cx);
             }
+            // A preview's quality arrives with the source lookup.
+            cx.notify();
         });
         let images = state.read(cx).images.clone();
         let image_observer = cx.observe(&images, |_, _, cx| cx.notify());
@@ -375,6 +377,7 @@ impl Render for Search {
             let services = self.state.read(cx).services.clone();
             let images = self.images.clone();
             self.grid.quiet = self.state.read(cx).quiet.clone();
+            self.grid.sync_quality(self.state.read(cx));
             section = section.child(
                 self.grid
                     .render_rows(

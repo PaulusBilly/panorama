@@ -319,3 +319,23 @@ fn addons_with_sources_lead_and_failures_sink_to_the_bottom() {
         })
     );
 }
+
+#[test]
+fn source_labels_lose_column_padding_but_keep_emoji_sequences() {
+    // SELection's real name: joiners and runs of spaces that align columns in Stremio.
+    assert_eq!(
+        tidy_label(
+            "1080P\u{200D}\u{200D}    \u{200D}\u{200D}\u{200D}⚡  〈Remux〉\u{200D} \u{200D}   ★★★★★"
+        ),
+        "1080P ⚡ 〈Remux〉 ★★★★★"
+    );
+    assert_eq!(
+        tidy_label("〈Web\u{200D}-\u{200D}dl〉"),
+        "〈Web\u{200D}-\u{200D}dl〉"
+    );
+    assert_eq!(
+        tidy_label("👨\u{200D}👩\u{200D}👧 Family"),
+        "👨\u{200D}👩\u{200D}👧 Family"
+    );
+    assert_eq!(tidy_label(" \u{200B}\u{FEFF} "), "");
+}

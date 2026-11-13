@@ -66,6 +66,8 @@ pub struct Services {
     pub credits: Option<panorama_core::credits::CreditsClient>,
     /// MUBI awards, festivals and festival pages; absent in fixture mode.
     pub mubi: Option<panorama_core::mubi::MubiClient>,
+    /// TMDB titles, used once the user saves their own key; absent in fixture mode.
+    pub tmdb: Option<panorama_core::tmdb::TmdbClient>,
 }
 
 /// A per-run temporary file removed on drop.
@@ -130,6 +132,7 @@ impl ServicesHost {
                 fixture_file: Some(fixture_file),
                 credits: None,
                 mubi: None,
+                tmdb: None,
             }));
         }
         let path = store::default_path().ok_or_else(|| {
@@ -210,6 +213,7 @@ impl ServicesHost {
             fixture_file: None,
             credits: panorama_core::credits::CreditsClient::new().ok(),
             mubi: panorama_core::mubi::MubiClient::new().ok(),
+            tmdb: panorama_core::tmdb::TmdbClient::new().ok(),
         }))
     }
 }
@@ -390,28 +394,98 @@ impl Services {
         }))
     }
 
-    /// A film's foreign title. Addons rarely send one, so it comes from Wikidata, once per film:
-    /// the answer, even none, is kept in the store. A network failure is retried next visit.
-    pub fn original_title(self: &Arc<Self>, id: String) -> Job<Option<String>> {
-        let (wikidata, store) = (self.credits.clone(), self.store.clone());
+    /// The user's TMDB key, stored locally under `pref:tmdbKey` and never logged.
+    pub fn tmdb_key(&self) -> Option<String> {
+        let key = panorama_core::store::Key::pref("tmdbKey").ok()?;
+        let bytes = self.store.as_ref()?.get(&key).ok()??;
+        String::from_utf8(bytes).ok().filter(|key| !key.is_empty())
+    }
+
+    /// Check a key with TMDB, then keep it; `None` forgets the saved key.
+    pub fn set_tmdb_key(
+        self: &Arc<Self>,
+        value: Option<String>,
+    ) -> Job<Result<(), panorama_core::tmdb::TmdbError>> {
+        use panorama_core::tmdb::TmdbError;
+        let (tmdb, store) = (self.tmdb.clone(), self.store.clone());
         Job(self.runtime.spawn(async move {
-            let wikidata = wikidata?;
+            let store = store.ok_or(TmdbError::Invalid)?;
+            let key = panorama_core::store::Key::pref("tmdbKey").map_err(|_| TmdbError::Invalid)?;
+            match value.map(|value| value.trim().to_owned()) {
+                Some(value) => {
+                    tmdb.ok_or(TmdbError::Network)?.check(&value).await?;
+                    store.set(&key, value.as_bytes())
+                }
+                None => store.remove(&key),
+            }
+            .map_err(|_| TmdbError::Invalid)
+        }))
+    }
+
+    /// A film's titles. With a TMDB key, TMDB's English title and the original (romanized when
+    /// it can be); without one, only a foreign title from Wikidata, skipped when the addon
+    /// already `knows` it. Answers, even none, are kept; network failures retry next visit.
+    pub fn titles(
+        self: &Arc<Self>,
+        kind: Kind,
+        id: String,
+        knows: bool,
+    ) -> Job<Option<panorama_core::tmdb::Titles>> {
+        let services = self.clone();
+        Job(self.runtime.spawn(async move {
+            let store = services.store.clone();
+            let cached = |key: Option<&panorama_core::store::Key>| {
+                store
+                    .as_ref()
+                    .zip(key)
+                    .and_then(|(store, key)| store.get(key).ok().flatten())
+            };
+            let keep = |key: Option<&panorama_core::store::Key>, bytes: Vec<u8>| {
+                if let (Some(store), Some(key)) = (&store, key) {
+                    let _ = store.set(key, &bytes);
+                }
+            };
+            if let (Some(tmdb), Some(api_key)) = (&services.tmdb, services.tmdb_key()) {
+                let key = panorama_core::store::Key::tmdb_titles(&id).ok();
+                let titles = match cached(key.as_ref())
+                    .and_then(|bytes| serde_json::from_slice::<Option<_>>(&bytes).ok())
+                {
+                    Some(titles) => titles,
+                    None => {
+                        let titles = tmdb.titles(&api_key, kind, &id).await;
+                        if let Ok(titles) = &titles
+                            && let Ok(bytes) = serde_json::to_vec(titles)
+                        {
+                            keep(key.as_ref(), bytes);
+                        }
+                        titles.ok().flatten()
+                    }
+                };
+                // A film TMDB does not know, cached or fresh, falls through to Wikidata.
+                if titles.is_some() {
+                    return titles;
+                }
+            }
+            let wikidata = services.credits.clone().filter(|_| !knows)?;
             let key = panorama_core::store::Key::original_title(&id).ok();
-            let cached = store
-                .as_ref()
-                .zip(key.as_ref())
-                .and_then(|(store, key)| store.get(key).ok().flatten())
-                .and_then(|bytes| serde_json::from_slice::<Option<String>>(&bytes).ok());
-            if let Some(title) = cached {
-                return title;
-            }
-            let title = wikidata.original_title(&id).await;
-            if let (Ok(title), Some(store), Some(key)) = (&title, &store, &key)
-                && let Ok(bytes) = serde_json::to_vec(title)
+            let original = match cached(key.as_ref())
+                .and_then(|bytes| serde_json::from_slice::<Option<String>>(&bytes).ok())
             {
-                let _ = store.set(key, &bytes);
-            }
-            title.ok().flatten()
+                Some(title) => title,
+                None => {
+                    let title = wikidata.original_title(&id).await;
+                    if let Ok(title) = &title
+                        && let Ok(bytes) = serde_json::to_vec(title)
+                    {
+                        keep(key.as_ref(), bytes);
+                    }
+                    title.ok().flatten()
+                }
+            };
+            original.map(|original| panorama_core::tmdb::Titles {
+                english: String::new(),
+                original: Some(original),
+            })
         }))
     }
 

@@ -6,6 +6,7 @@ pub mod media;
 pub mod mubi;
 pub mod store;
 pub mod stremio;
+pub mod tmdb;
 pub mod torrent;
 
 #[cfg(test)]

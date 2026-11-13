@@ -139,6 +139,7 @@ impl ContinueRow {
                     &self.rail,
                     view.column(),
                     view,
+                    None,
                     |home: &mut Home| &mut home.row.rail,
                     cx,
                 )
@@ -246,7 +247,7 @@ impl ContinueRow {
                         linear_color_stop(fade, 1.0),
                     )),
             )
-            .child(caption(&card.film, note.as_deref(), theme).opacity(
+            .child(caption(&card.film, note.as_deref(), 1.0, theme).opacity(
                 crate::zoom::caption_opacity(self.quiet.as_ref(), &card.film.id),
             ))
             .child(

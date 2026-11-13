@@ -146,6 +146,7 @@ pub(super) fn rail(
     items: Vec<gpui::AnyElement>,
     gap: f32,
     stretch: bool,
+    art: Option<f32>,
     carousel: &Carousel,
     view: ViewSettings,
     get: fn(&mut Film) -> &mut Carousel,
@@ -176,7 +177,7 @@ pub(super) fn rail(
                 .flex_shrink_0()
                 .w(px((view.width - col.left - col.width - gap).max(0.0))),
         );
-    crate::carousel::controls(id, row, carousel, col, view, get, cx)
+    crate::carousel::controls(id, row, carousel, col, view, art, get, cx)
 }
 
 pub(super) fn heading(title: &str, theme: Theme) -> Div {
@@ -283,6 +284,7 @@ impl Film {
                 cards,
                 CARD_GAP,
                 true,
+                Some((card * PHOTO_RATIO).round()),
                 &self.people_rail,
                 view,
                 |film| &mut film.people_rail,
@@ -333,7 +335,7 @@ impl Film {
                 // Hugs the name and role; the row stretches every card to its tallest, so a
                 // wrapped name lengthens the set together.
                 .flex_1()
-                .bg(theme.surface)
+                // No plate, but the plate's inset stays: the name keeps its place under the photo.
                 .px(px(16.0))
                 .pt(px(14.0))
                 .pb(px(16.0))
@@ -608,6 +610,7 @@ impl Film {
                 tiles,
                 TILE_GAP,
                 false,
+                None,
                 &self.awards_rail,
                 view,
                 |film| &mut film.awards_rail,

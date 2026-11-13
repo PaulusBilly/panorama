@@ -292,6 +292,12 @@ pub fn player_groups() -> Vec<StreamGroup> {
             "Fixture 720p",
             "Aftersun 720p WEB-DL 2.1 GB with a long release name that wraps onto a second line",
         ),
+        // Padded the way some addons align columns in Stremio, with a star rating at the end.
+        fixture_source(
+            serde_json::json!({"url": "https://fixture.invalid/aftersun-remux.mp4"}),
+            "1080P\u{200D}\u{200D}    \u{200D}\u{200D}\u{200D}⚡  〈Remux〉\u{200D} \u{200D}   ★★★★★",
+            "☁︎  Aftersun (2022)\n▣  AVC ♬ DD · DTS-HD MA 5.1\n◈  29.2 GB · 44.8 Mbps · [TB Library]",
+        ),
     ]
     .into_iter()
     .flatten()

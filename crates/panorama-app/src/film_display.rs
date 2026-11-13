@@ -40,6 +40,9 @@ impl Primary {
     }
 }
 
+/// Quality badge height; the film page's clock matches it.
+pub const BADGE: f32 = 18.0;
+
 /// Optional video and audio badges extracted from a playable source.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Quality {
@@ -49,6 +52,28 @@ pub struct Quality {
     pub surround: bool,
 }
 impl Quality {
+    /// The outlined badges, `4K` then `5.1`, as the film page and the hover ticket draw them.
+    pub fn badges(self, color: gpui::Rgba) -> impl Iterator<Item = gpui::Div> {
+        use crate::assets::Weighted;
+        use gpui::{FontWeight, div, prelude::*, px, relative};
+        self.video
+            .into_iter()
+            .chain(self.surround.then_some("5.1"))
+            .map(move |badge| {
+                div()
+                    .h(px(BADGE))
+                    .flex()
+                    .items_center()
+                    .border_1()
+                    .border_color(color)
+                    .px(px(6.0))
+                    .text_size(px(11.0))
+                    .weight(FontWeight::MEDIUM)
+                    .line_height(relative(1.0))
+                    .text_color(color)
+                    .child(badge)
+            })
+    }
     /// Parse bounded addon display names, titles and behavior-hint values.
     pub fn parse(text: &str) -> Self {
         let text = text.to_uppercase();
@@ -88,8 +113,8 @@ impl Quality {
     }
 }
 
-/// First stream of the first ready group whose target is a URL or torrent info hash.
-pub fn first_playable(groups: &[StreamGroup]) -> Option<StreamSource> {
+/// Streams of ready groups, in account order, whose target is a URL or torrent info hash.
+pub fn playable(groups: &[StreamGroup]) -> impl Iterator<Item = &StreamSource> {
     groups
         .iter()
         .filter_map(|group| match &group.state {
@@ -97,13 +122,17 @@ pub fn first_playable(groups: &[StreamGroup]) -> Option<StreamSource> {
             _ => None,
         })
         .flatten()
-        .find(|source| {
+        .filter(|source| {
             serde_json::to_value(&source.stream).is_ok_and(|value| {
                 value.get("url").is_some_and(|url| url.is_string())
                     || value.get("infoHash").is_some()
             })
         })
-        .cloned()
+}
+
+/// First stream of the first ready group whose target is a URL or torrent info hash.
+pub fn first_playable(groups: &[StreamGroup]) -> Option<StreamSource> {
+    playable(groups).next().cloned()
 }
 
 /// A positive score is visible when votes are positive or absent from addon metadata.
