@@ -32,6 +32,8 @@ pub struct Args {
     pub scroll: Vec<f32>,
     /// Expand the first visible card's image.
     pub hover_first_card: bool,
+    /// With `--hover-first-card`, plays the pinned preview's trailer for a capture.
+    pub hover_trailer: bool,
     /// Show the first card's keyboard focus ring.
     pub focus_first_card: bool,
     /// Open the account popup before capture.
@@ -89,6 +91,7 @@ impl Args {
             awards_expand_first: false,
             scroll: vec![],
             hover_first_card: false,
+            hover_trailer: false,
             focus_first_card: false,
             open_account_menu: false,
             open_sign_in: false,
@@ -194,6 +197,10 @@ impl Args {
                     result.fixtures = true;
                 }
                 "--hover-first-card" => result.hover_first_card = true,
+                "--hover-trailer" => {
+                    result.hover_first_card = true;
+                    result.hover_trailer = true;
+                }
                 "--focus-first-card" => result.focus_first_card = true,
                 "--open-account-menu" => result.open_account_menu = true,
                 "--open-sign-in" => result.open_sign_in = true,

@@ -37,6 +37,7 @@ pub mod theme;
 pub mod ticket;
 pub mod tint;
 pub mod titlebar;
+pub mod trailer_preview;
 pub mod transition;
 #[allow(unsafe_code)]
 pub mod window_controls;

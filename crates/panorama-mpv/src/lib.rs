@@ -18,6 +18,7 @@ mod types;
 pub mod win32;
 
 pub use error::MpvError;
+pub use ffi::clip::{Clip, ClipFrame, ClipState, MAX_CLIP_HEIGHT, MAX_CLIP_WIDTH};
 #[cfg(target_os = "macos")]
 pub use macos::VideoSurface;
 pub use player::{EXTRA_OPTIONS, Mpv, MpvLibrary, PROPERTIES, Player};

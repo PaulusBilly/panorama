@@ -57,6 +57,12 @@ pub struct Player {
 }
 
 impl MpvLibrary {
+    /// Starts a muted, looping `http(s)` clip drawn into memory at about `width`×`height`
+    /// pixels, for video composited inside the interface. Returns at once.
+    pub fn clip(&self, url: &str, width: u32, height: u32) -> Result<crate::Clip, MpvError> {
+        crate::ffi::clip::start(&self.api, url, width, height)
+    }
+
     /// Starts initialization on the event thread and returns immediately.
     /// `Ready` confirms initialization. Commands may be queued before readiness.
     pub fn create(&self, options: PlayerOptions) -> Result<Player, MpvError> {

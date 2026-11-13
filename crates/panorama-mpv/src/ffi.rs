@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::{MpvError, PlayerOptions, PropertyValue, RawWindow, error::check, options::OPTIONS};
+pub(crate) mod clip;
 mod nodes;
 mod receive;
 

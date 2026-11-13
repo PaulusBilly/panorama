@@ -27,10 +27,10 @@ pub(crate) const OBSERVED: &[&str] = &[
 
 #[repr(C)]
 pub(super) struct Event {
-    id: c_int,
+    pub(super) id: c_int,
     error: c_int,
     userdata: u64,
-    data: *const c_void,
+    pub(super) data: *const c_void,
 }
 
 #[repr(C)]
