@@ -4,7 +4,8 @@ use crate::{
     home_layout::{GAP, Grid, TILE_RATIO, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
-    theme::{Column, Theme, Typography, motion::*},
+    theme::{Column, Theme, motion::*},
+    ticket::{self, SourceQuality},
     transition::Tween,
     zoom::CardArt,
 };
@@ -120,9 +121,34 @@ pub struct FilmGrid {
     origin: Rc<Cell<Point<Pixels>>>,
     /// The card a film page just landed on, set by the host each frame.
     pub quiet: Option<crate::zoom::Quiet>,
+    /// Best quality the source lookup has found for the previewed film, set by the host each
+    /// frame through [`FilmGrid::sync_quality`].
+    quality: SourceQuality,
+    /// The card [`FilmGrid::quality`] belongs to, and whether its quality arrived after the
+    /// preview opened. Quality already known on opening shows with the rest of the ticket;
+    /// only a late one fades in.
+    quality_for: Option<(usize, bool)>,
 }
 
 impl FilmGrid {
+    /// Read the source lookup for the film whose preview is open or settling.
+    pub fn sync_quality(&mut self, state: &crate::app_state::AppState) {
+        let index = match self.preview {
+            Preview::Open { index, .. } => Some(index),
+            _ => self.fading.map(|(index, _)| index),
+        };
+        self.quality = index
+            .and_then(|index| self.films.get(index))
+            .map_or(SourceQuality::Unasked, |film| {
+                SourceQuality::of(state.source_lookups.get(&film.id))
+            });
+        let found = matches!(self.quality, SourceQuality::Found(_));
+        self.quality_for = index.map(|index| match self.quality_for {
+            Some((current, late)) if current == index => (index, late),
+            _ => (index, !found),
+        });
+    }
+
     /// An empty grid; `hover_first` opens the first card's preview at once, for captures.
     pub fn new(hover_first: bool, cx: &mut App) -> Self {
         Self {
@@ -143,6 +169,8 @@ impl FilmGrid {
             pinned: hover_first,
             origin: Rc::default(),
             quiet: None,
+            quality: SourceQuality::Unasked,
+            quality_for: None,
         }
     }
     /// Replace the films, keeping one focus handle per card.
@@ -354,7 +382,6 @@ impl FilmGrid {
         // Details are laid out once at the open size and pinned there, so the synopsis never
         // rewraps or slides while the card grows; artwork is requested at that size for the same reason.
         let full = grid.width * (1.0 + LIFT);
-        let inset = (full * 0.055).clamp(16.0, 28.0);
         let (image, poster, _) = artwork(
             images,
             services,
@@ -417,53 +444,43 @@ impl FilmGrid {
             }));
 
         let play = film.clone();
-        let facts = [
-            film.runtime.clone(),
-            film.genres.first().cloned(),
-            crate::film_display::rating(film.imdb_rating.as_deref(), None)
-                .map(|score| format!("IMDb {score}")),
-        ];
+        // Fields over the perforation, then the stub: Watch where a ticket has its code, and the
+        // synopsis as the fine print beside it.
         let details = div()
             .w(px(full))
             .ml(px(-(full - width) / 2.0))
-            .px(px(inset))
-            .pt(px(perforation(full) + 24.0))
-            .pb(px(inset + full * WAVE_DEPTH))
+            .px(px(INSET))
             .flex()
             .flex_col()
-            .gap(px(16.0))
             .opacity(lift)
+            // Fade only a quality that arrived while this preview was open.
+            .child(ticket::fields(
+                film,
+                self.quality,
+                view.reduced || !self.quality_for.is_some_and(|(_, late)| late),
+                theme,
+            ))
             .child(
-                div().flex().child(
-                    Button::primary(("preview-watch", index), "Watch")
-                        .leading(Icon::Play)
-                        .compact()
-                        .aria_label(format!("Watch {}", film.name))
-                        .focus(&self.watch, view.keyboard)
-                        .on_click(cx.listener(move |host: &mut V, _, window, cx| {
-                            host.play_film(play.clone(), window, cx)
-                        })),
-                ),
-            )
-            .when_some(film.description.clone(), |details, text| {
-                details.child(
-                    div()
-                        .body()
-                        .text_color(theme.ink_muted)
-                        .line_clamp(4)
-                        .child(text),
-                )
-            })
-            .when(facts.iter().any(Option::is_some), |details| {
-                details.child(
-                    div()
-                        .label()
-                        .text_color(theme.ink_muted)
-                        .flex()
-                        .gap(px(16.0))
-                        .children(facts.into_iter().flatten()),
-                )
-            });
+                div()
+                    .pt(px(STUB_TOP))
+                    .pb(px(INSET + full * WAVE_DEPTH))
+                    .flex()
+                    .items_start()
+                    .gap(px(20.0))
+                    .child(
+                        div().flex_shrink_0().child(
+                            Button::primary(("preview-watch", index), "Watch")
+                                .leading(Icon::Play)
+                                .compact()
+                                .aria_label(format!("Watch {}", film.name))
+                                .focus(&self.watch, view.keyboard)
+                                .on_click(cx.listener(move |host: &mut V, _, window, cx| {
+                                    host.play_film(play.clone(), window, cx)
+                                })),
+                        ),
+                    )
+                    .children(ticket::fine_print(film, theme)),
+            );
 
         div()
             .id((
@@ -507,7 +524,7 @@ impl FilmGrid {
                         .border_color(theme.image_outline),
                 ),
             )
-            .child(stub(height, theme, lift))
+            .child(stub(height, ticket::FIELDS_HEIGHT, theme, lift))
             .child(details)
     }
 }
@@ -553,29 +570,31 @@ pub fn card_face(
         )
         .child(fade(0.75, 0.8))
         .child(fade(0.3, 1.0))
-        .child(film_card::caption(film, note, theme).opacity(caption))
+        // The ticket's fields below repeat the director and year, so the lifted card drops them.
+        .child(film_card::caption(film, note, 1.0 - lift, theme).opacity(caption))
 }
 
 /// Ticket proportions measured from A24's AAA24 tickets, as fractions of the card's width.
-/// Notch radius: a semicircle bitten out of each side at the perforation.
-const NOTCH: f32 = 0.04;
+/// Notch radius: a semicircle bitten out of each side at the perforation, and a quarter of the
+/// same circle out of each bottom corner.
+const NOTCH: f32 = 0.03;
 /// Depth of each bite along the bottom edge.
-const WAVE_DEPTH: f32 = 0.016;
-/// Bite spacing along the bottom edge: this many pitches across the card.
-const BITES: usize = 15;
+const WAVE_DEPTH: f32 = 0.011;
+/// Bites along the bottom edge, between the corner notches, each centred in an equal share of it.
+const BITES: usize = 20;
 /// Share of each pitch a bite spans; the rest is flat land.
 const BITE_CHORD: f32 = 0.78;
 
-/// Perforation line, measured down from the top of the details panel. The notch sits wholly
-/// below the artwork, which GPUI cannot cut.
-fn perforation(width: f32) -> f32 {
-    width * NOTCH + 6.0
-}
+/// Left and right inset of the details, matching the title's on the artwork above.
+const INSET: f32 = 20.0;
+/// From the perforation down to the stub's Watch and fine print.
+const STUB_TOP: f32 = 24.0;
 
 /// The details panel drawn as a ticket stub under the artwork: side notches on a dashed
-/// perforation and a bitten bottom edge, filled with surface and outlined like the tiles.
+/// perforation, bottom corners notched to the same radius, and a bitten bottom edge between them,
+/// filled with surface and outlined like the tiles.
 /// It spans the card's current width, so the shape grows with the lift while the text holds still.
-fn stub(top: f32, theme: Theme, lift: f32) -> impl IntoElement {
+fn stub(top: f32, line: f32, theme: Theme, lift: f32) -> impl IntoElement {
     let fill = theme.surface.opacity(lift);
     let outline = theme.image_outline.opacity(lift);
     let dash = theme.ink_muted.opacity(0.35 * lift);
@@ -584,34 +603,41 @@ fn stub(top: f32, theme: Theme, lift: f32) -> impl IntoElement {
         move |bounds, _, window, _| {
             let at = |x: f32, y: f32| bounds.origin + point(px(x), px(y));
             let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-            let (notch, depth, line) = (w * NOTCH, w * WAVE_DEPTH, perforation(w));
-            // Down the left side, along the bottom, up the right; every bite curves into the
+            let (notch, depth) = (w * NOTCH, w * WAVE_DEPTH);
+            // Down the left side, along the bottom, up the right; every notch curves into the
             // panel. `e` insets the path so a 1 px stroke lands inside the card's clip.
             let edge = |path: &mut PathBuilder, e: f32| {
                 let (left, right, bottom) = (e, w - e, h - e);
-                let bite = |path: &mut PathBuilder, x: f32, from: f32, to: f32| {
-                    path.line_to(at(x, from));
-                    path.arc_to(point(px(notch), px(notch)), px(0.0), false, true, at(x, to));
+                let arc = |path: &mut PathBuilder, to: Point<Pixels>| {
+                    path.arc_to(point(px(notch), px(notch)), px(0.0), false, true, to);
                 };
-                bite(path, left, line - notch, line + notch);
-                // Round bites cut up into a straight edge, flat land between them, and half a
-                // bite at each corner. Each is a shallow arc of a circle whose centre sits below.
-                let pitch = (right - left) / BITES as f32;
+                // Semicircles centred on the perforation's ends.
+                path.line_to(at(left, line - notch));
+                arc(path, at(left, line + notch));
+                // Quarter circles centred on the bottom corners: the side notch, halved.
+                path.line_to(at(left, bottom - notch));
+                arc(path, at(left + notch, bottom));
+                // Round bites cut up into the straight edge between the corners, with flat land
+                // around each. Each is a shallow arc of a circle whose centre sits below.
+                let (from, to) = (left + notch, right - notch);
+                let pitch = (to - from) / BITES as f32;
                 let half = pitch * BITE_CHORD / 2.0;
                 let r = (half * half + depth * depth) / (2.0 * depth);
-                let arc = |path: &mut PathBuilder, to: Point<Pixels>| {
-                    path.arc_to(point(px(r), px(r)), px(0.0), false, true, to);
-                };
-                path.line_to(at(left, bottom - depth));
-                arc(path, at(left + half, bottom));
-                for i in 1..BITES {
-                    let x = left + i as f32 * pitch;
+                for i in 0..BITES {
+                    let x = from + (i as f32 + 0.5) * pitch;
                     path.line_to(at(x - half, bottom));
-                    arc(path, at(x + half, bottom));
+                    path.arc_to(
+                        point(px(r), px(r)),
+                        px(0.0),
+                        false,
+                        true,
+                        at(x + half, bottom),
+                    );
                 }
-                path.line_to(at(right - half, bottom));
-                arc(path, at(right, bottom - depth));
-                bite(path, right, line + notch, line - notch);
+                path.line_to(at(right - notch, bottom));
+                arc(path, at(right, bottom - notch));
+                path.line_to(at(right, line + notch));
+                arc(path, at(right, line - notch));
                 path.line_to(at(right, 0.0));
             };
             let mut body = PathBuilder::fill();

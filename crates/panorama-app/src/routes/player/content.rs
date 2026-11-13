@@ -12,6 +12,8 @@ use panorama_core::addons::{StreamGroup, StreamSource, StreamState};
 
 /// Every panel shares one width, so switching panels never resizes the surface.
 pub(super) const PANEL_WIDTH: f32 = 320.0;
+/// Sources is wider: a release name plus up to three quality badges fits on one line.
+const SOURCES_WIDTH: f32 = 360.0;
 
 /// What activating a row does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -229,6 +231,29 @@ pub fn subtitles(view: &subtitles::View) -> Content {
     }
 }
 
+fn zero_width(c: char) -> bool {
+    matches!(c, '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FEFF}')
+}
+
+/// An addon's source name without the padding it adds to line up columns in Stremio: invisible
+/// joiners beside spaces are dropped and runs of spaces become one. A joiner between two visible
+/// characters is kept, so emoji sequences survive.
+pub(super) fn tidy_label(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let visible = |c: Option<&char>| c.is_some_and(|c| !c.is_whitespace());
+    let kept: String = chars
+        .iter()
+        .enumerate()
+        .filter(|&(index, &c)| {
+            !zero_width(c)
+                || (visible(chars[..index].iter().rev().find(|c| !zero_width(**c)))
+                    && visible(chars[index + 1..].iter().find(|c| !zero_width(**c))))
+        })
+        .map(|(_, &c)| c)
+        .collect();
+    kept.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn source_row(group: usize, index: usize, stream: &StreamSource, current: SourceRef) -> Row {
     let key = SourceRef {
         group,
@@ -245,8 +270,10 @@ fn source_row(group: usize, index: usize, stream: &StreamSource, current: Source
     }
     let label = stream
         .name
-        .clone()
-        .or_else(|| stream.title.clone())
+        .as_deref()
+        .or(stream.title.as_deref())
+        .map(tidy_label)
+        .filter(|label| !label.is_empty())
         .unwrap_or_else(|| "Source".into());
     Row {
         key: RowKey::Source(key),
@@ -329,7 +356,7 @@ pub fn sources(groups: &[StreamGroup], current: SourceRef) -> Content {
         .collect();
     Content {
         title: "Sources",
-        width: PANEL_WIDTH,
+        width: SOURCES_WIDTH,
         empty: groups.is_empty().then_some("No sources available."),
         sections,
         error: None,

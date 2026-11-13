@@ -26,12 +26,20 @@ pub struct Theme {
     pub surface: Rgba,
     /// Skeleton bars and menu hover.
     pub surface_strong: Rgba,
+    /// Carousel arrows: dark frosted fill that reads over bright and dark artwork alike.
+    pub arrow: Rgba,
+    /// Carousel arrow hover.
+    pub arrow_hover: Rgba,
+    /// Hairline that rims a carousel arrow.
+    pub arrow_rim: Rgba,
     /// Hairlines.
     pub rule: Rgba,
     /// Errors.
     pub danger: Rgba,
     /// Primary button fill.
     pub accent: Rgba,
+    /// The accent lightened for text on surface, where the fill itself would be too dark to read.
+    pub accent_text: Rgba,
     /// Primary button hover, one step lighter.
     pub accent_hover: Rgba,
     /// Primary button press, one step darker.
@@ -78,9 +86,13 @@ impl Default for Theme {
                 ink_muted: white(0.62),
                 surface: oklch(0.2, 0.0, 0.0, 1.0),
                 surface_strong: oklch(0.27, 0.0, 0.0, 1.0),
+                arrow: oklch(0.16, 0.0, 0.0, 0.72),
+                arrow_hover: oklch(0.22, 0.0, 0.0, 0.82),
+                arrow_rim: white(0.22),
                 rule: white(0.14),
                 danger: oklch(0.68, 0.145, 29.093, 1.0),
                 accent: hex(0x3048ff),
+                accent_text: oklch(0.8, 0.105, 274.0, 1.0),
                 accent_hover: hex(0x4a5fff),
                 accent_pressed: hex(0x2338e0),
                 glass: white(0.18),

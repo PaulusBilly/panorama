@@ -193,6 +193,40 @@ async fn streams_grouped_by_addon_in_account_order_with_failures_isolated() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn streams_never_ask_stremio_local_files() {
+    let fake = Fake::default();
+    let client = client(&fake).await;
+    let addons = [
+        addon(
+            "local.test",
+            "org.stremio.local",
+            json!([]),
+            json!(["stream"]),
+            Value::Null,
+        ),
+        home_addon("ready.test"),
+    ];
+    fake.set(
+        "ready.test",
+        "stream",
+        "tt1",
+        Reply::json(json!({"streams":[{"url":"https://video.test/a"}]})),
+    );
+    let events = client
+        .streams(&addons, Kind::Movie, "tt1")
+        .collect::<Vec<_>>()
+        .await;
+    let [StreamsEvent::Groups(groups)] = events.as_slice() else {
+        panic!("expected one groups event, got {events:?}");
+    };
+    assert_eq!(
+        groups.iter().map(|group| group.name.as_str()).collect::<Vec<_>>(),
+        ["ready.test"]
+    );
+    assert_eq!(fake.hosts(), ["ready.test"]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn details_offline_cache_and_removed_installation_and_non_imdb_fallback() {
     let fake = Fake::default();
     let client = client(&fake).await;

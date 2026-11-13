@@ -263,6 +263,7 @@ impl Film {
                     cards,
                     TILE_GAP,
                     false,
+                    Some((tile * TILE_RATIO).round()),
                     &self.episode_rail,
                     view,
                     |film| &mut film.episode_rail,

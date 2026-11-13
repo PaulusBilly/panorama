@@ -83,6 +83,12 @@ impl Key {
         Ok(Self(format!("meta:foreign|{}", &meta["meta:".len()..])))
     }
 
+    /// Identifies a film's cached TMDB titles, under `meta:` as [`Key::awards`] is.
+    pub fn tmdb_titles(film_id: &str) -> Result<Self, StoreError> {
+        let Self(meta) = Self::meta(film_id)?;
+        Ok(Self(format!("meta:tmdb|{}", &meta["meta:".len()..])))
+    }
+
     /// Identifies a preference by name.
     pub fn pref(name: &str) -> Result<Self, StoreError> {
         Self::single("pref", name)

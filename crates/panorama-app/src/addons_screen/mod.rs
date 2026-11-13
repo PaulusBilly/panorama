@@ -1,4 +1,5 @@
-//! The Addons screen: install from a link, reorder and remove, and pick the film details source.
+//! The Addons screen: install from a link, reorder and remove, pick the film details source,
+//! and keep a TMDB key for film titles.
 mod actions;
 mod backend;
 mod choices;
@@ -12,6 +13,7 @@ mod source_view;
 mod state;
 #[cfg(test)]
 mod state_tests;
+mod tmdb_view;
 mod widgets;
 
 use crate::{
@@ -55,6 +57,8 @@ enum Slot {
     ConfirmRemove(AddonKey),
     Keep(AddonKey),
     Radio(Option<AddonKey>),
+    TmdbSave,
+    TmdbRemove,
 }
 
 /// Retained Addons entry with its own scroll, focus and in-flight work.
@@ -88,7 +92,8 @@ pub struct Addons {
     handles: HashMap<Slot, FocusHandle>,
     launched: Instant,
     signed_in: bool,
-    _subscriptions: [Subscription; 3],
+    tmdb: tmdb_view::TmdbKey,
+    _subscriptions: [Subscription; 4],
 }
 
 fn signed_in(state: &AppState) -> bool {
@@ -112,6 +117,16 @@ impl Addons {
                 InputEvent::Change => this.input_changed(cx),
                 _ => {}
             });
+        let tmdb_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .masked(true)
+                .placeholder("Paste your API key or read access token")
+        });
+        let tmdb_events = cx.subscribe_in(&tmdb_input, window, |this, _, event, window, cx| {
+            if let InputEvent::PressEnter { .. } = event {
+                this.save_tmdb_key(false, window, cx);
+            }
+        });
         let account = cx.observe(&state, |this, state, cx| {
             let now = signed_in(state.read(cx));
             if now != this.signed_in {
@@ -138,6 +153,10 @@ impl Addons {
             .as_ref()
             .map(|services| Backend::new(services.session.clone(), services.runtime.clone()));
         let images = current.images.clone();
+        let tmdb_key = current
+            .services
+            .as_ref()
+            .and_then(|services| services.tmdb_key());
         let is_signed_in = signed_in(current);
         let mut addons = Self {
             shell,
@@ -169,7 +188,8 @@ impl Addons {
             handles: HashMap::new(),
             launched: Instant::now(),
             signed_in: is_signed_in,
-            _subscriptions: [input_events, account, shell_observer],
+            tmdb: tmdb_view::TmdbKey::new(tmdb_input, tmdb_key.as_deref()),
+            _subscriptions: [input_events, account, shell_observer, tmdb_events],
         };
         if is_signed_in {
             addons.reload(cx);
@@ -337,7 +357,16 @@ impl Render for Addons {
             }
             self.images.update(cx, |images, _| images.finish_frame());
         }
-        if self.animating(now, view.reduced) {
+        page = page.child(self.tmdb_section(view, window, cx));
+        // Debug scrolls (`--scroll`), once the list has laid out.
+        let max = f32::from(self.scroll.max_offset().y);
+        let debug_scroll =
+            !self.args.scroll.is_empty() && self.launched.elapsed().as_secs_f32() < 1.0;
+        if debug_scroll && max > 0.0 {
+            let top = self.args.scroll.iter().sum::<f32>().min(max).max(0.0);
+            self.scroll.set_offset(gpui::point(px(0.0), px(-top)));
+        }
+        if debug_scroll || self.animating(now, view.reduced) {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
             window.request_animation_frame();
         }

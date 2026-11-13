@@ -89,7 +89,7 @@ pub fn render<V: GridHost>(
             )),
     );
     if let Some(film) = props.film {
-        tile = tile.child(caption(film, props.note, theme).opacity(props.caption));
+        tile = tile.child(caption(film, props.note, 1.0, theme).opacity(props.caption));
         let target = film.clone();
         let note = props.note.map(str::to_owned);
         let on_screen = Rc::new(Cell::new(gpui::Bounds::default()));
@@ -167,7 +167,8 @@ pub fn render<V: GridHost>(
 
 /// Title and credits pinned to the bottom of a tile, at fixed sizes like MUBI's cards, with
 /// an optional `note` over the title.
-pub fn caption(film: &FilmDetails, note: Option<&str>, theme: Theme) -> Div {
+/// `shown` is the opacity of the director and year line under the title.
+pub fn caption(film: &FilmDetails, note: Option<&str>, shown: f32, theme: Theme) -> Div {
     let credits = div()
         .flex()
         .min_w_0()
@@ -240,5 +241,5 @@ pub fn caption(film: &FilmDetails, note: Option<&str>, theme: Theme) -> Div {
                 .line_clamp(2)
                 .child(film.name.to_uppercase()),
         )
-        .child(credits)
+        .child(credits.opacity(shown))
 }

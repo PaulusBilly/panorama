@@ -40,8 +40,7 @@ impl Film {
                         match event {
                             ResourceEvent::CacheHit(meta) | ResourceEvent::Fresh(meta) => {
                                 let mut meta = trusted(film.card.as_ref(), meta);
-                                meta.original_name =
-                                    meta.original_name.or_else(|| film.original_title.clone());
+                                film.retitle(&mut meta);
                                 film.set_episodes(std::mem::take(&mut meta.episodes));
                                 film.metadata = Some(meta);
                                 film.details_error = false;
@@ -124,28 +123,49 @@ impl Film {
             }
         }));
     }
+    /// TMDB's titles, when the user saved a key, win over the addon's; otherwise a foreign title
+    /// from Wikidata fills in only what the addon left out.
+    fn retitle(&self, meta: &mut panorama_core::addons::FilmDetails) {
+        match &self.english_title {
+            Some(english) => {
+                meta.name = english.clone();
+                meta.original_name = self.original_title.clone();
+            }
+            None => {
+                meta.original_name = meta
+                    .original_name
+                    .take()
+                    .or_else(|| self.original_title.clone())
+            }
+        }
+    }
     fn load_original_title(&mut self, cx: &mut Context<Self>) {
         let Some(services) = self.state.read(cx).services.clone() else {
             return;
         };
-        let known = self
+        let Some(knows) = self
             .metadata
             .as_ref()
-            .is_none_or(|meta| meta.original_name.is_some());
-        if known || self.original_task.is_some() {
+            .map(|meta| meta.original_name.is_some())
+        else {
+            return;
+        };
+        if self.original_task.is_some() {
             return;
         }
         self.original_pending = true;
-        let mut job = services.original_title(self.id.clone());
+        let mut job = services.titles(self.kind, self.id.clone(), knows);
         self.original_task = Some(cx.spawn(async move |entity, cx| {
-            let title = (&mut job.0).await.ok().flatten();
+            let titles = (&mut job.0).await.ok().flatten();
             let _ = entity.update(cx, |film, cx| {
                 film.original_pending = false;
-                if let Some(title) = title {
-                    if let Some(meta) = &mut film.metadata {
-                        meta.original_name.get_or_insert_with(|| title.clone());
+                if let Some(titles) = titles {
+                    film.english_title = Some(titles.english).filter(|english| !english.is_empty());
+                    film.original_title = titles.original;
+                    if let Some(mut meta) = film.metadata.take() {
+                        film.retitle(&mut meta);
+                        film.metadata = Some(meta);
                     }
-                    film.original_title = Some(title);
                 }
                 cx.notify();
             });

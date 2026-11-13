@@ -46,6 +46,10 @@ pub struct AddonClient {
     generation: Option<u64>,
 }
 
+/// Stremio's protected Local Files addon. It is served by Stremio's own streaming server on
+/// 127.0.0.1:11470, which Panorama does not run, so every request to it fails; it is never asked.
+const LOCAL_FILES_ID: &str = "org.stremio.local";
+
 #[derive(Clone)]
 struct Installation {
     key: AddonKey,
@@ -176,6 +180,9 @@ impl AddonClient {
         addons: &'a [Descriptor],
     ) -> impl Iterator<Item = Installation> + 'a {
         addons.iter().filter_map(|addon| {
+            if addon.as_core().manifest.id == LOCAL_FILES_ID {
+                return None;
+            }
             self.addon_key(addon).ok().map(|key| Installation {
                 key,
                 descriptor: addon.shared_core(),
