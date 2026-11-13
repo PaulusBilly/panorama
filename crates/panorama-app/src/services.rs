@@ -68,6 +68,10 @@ pub struct Services {
     pub mubi: Option<panorama_core::mubi::MubiClient>,
     /// TMDB titles, used once the user saves their own key; absent in fixture mode.
     pub tmdb: Option<panorama_core::tmdb::TmdbClient>,
+    /// Trailer lookups for the lift card; absent in fixture mode, which never touches YouTube.
+    pub trailers: Option<Arc<panorama_core::trailer::TrailerClient>>,
+    /// libmpv for trailer clips, loaded on the first one.
+    pub clips: tokio::sync::OnceCell<Option<panorama_mpv::MpvLibrary>>,
 }
 
 /// A per-run temporary file removed on drop.
@@ -133,6 +137,8 @@ impl ServicesHost {
                 credits: None,
                 mubi: None,
                 tmdb: None,
+                trailers: None,
+                clips: tokio::sync::OnceCell::new(),
             }));
         }
         let path = store::default_path().ok_or_else(|| {
@@ -214,6 +220,10 @@ impl ServicesHost {
             credits: panorama_core::credits::CreditsClient::new().ok(),
             mubi: panorama_core::mubi::MubiClient::new().ok(),
             tmdb: panorama_core::tmdb::TmdbClient::new().ok(),
+            trailers: panorama_core::trailer::TrailerClient::new()
+                .ok()
+                .map(Arc::new),
+            clips: tokio::sync::OnceCell::new(),
         }))
     }
 }
@@ -240,6 +250,36 @@ impl<T> Drop for Job<T> {
 }
 
 impl Services {
+    /// A film's trailer as a playlist about `height` pixels tall, with the runtime that plays it;
+    /// `None` when there is no trailer, YouTube refuses, or libmpv is missing.
+    pub fn trailer(
+        self: &Arc<Self>,
+        kind: Kind,
+        id: String,
+        height: u32,
+    ) -> Job<Option<(url::Url, panorama_mpv::MpvLibrary)>> {
+        let services = self.clone();
+        Job(self.runtime.spawn(async move {
+            let trailers = services.trailers.as_ref()?;
+            let playlist = trailers.playlist(kind.stremio(), &id, height).await.ok()?;
+            let library = services
+                .clips
+                .get_or_init(|| async {
+                    tokio::task::spawn_blocking(|| {
+                        let directory =
+                            std::env::var_os("PANORAMA_LIBMPV_DIR").map(std::path::PathBuf::from);
+                        panorama_mpv::Mpv::load_library(directory.as_deref()).ok()
+                    })
+                    .await
+                    .ok()
+                    .flatten()
+                })
+                .await
+                .clone()?;
+            Some((playlist, library))
+        }))
+    }
+
     /// Bridge cache-first catalog events without polling core on GPUI.
     pub fn catalog(
         self: &Arc<Self>,

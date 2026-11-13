@@ -6,6 +6,7 @@ use crate::{
     services::Services,
     theme::{Column, Theme, motion::*},
     ticket::{self, SourceQuality},
+    trailer_preview::TrailerPreview,
     transition::Tween,
     zoom::CardArt,
 };
@@ -128,6 +129,10 @@ pub struct FilmGrid {
     /// preview opened. Quality already known on opening shows with the rest of the ticket;
     /// only a late one fades in.
     quality_for: Option<(usize, bool)>,
+    /// The open or settling preview's trailer.
+    trailer: Option<TrailerPreview>,
+    /// Lets a capture's pinned preview play its trailer.
+    pub capture_trailer: bool,
 }
 
 impl FilmGrid {
@@ -171,6 +176,8 @@ impl FilmGrid {
             quiet: None,
             quality: SourceQuality::Unasked,
             quality_for: None,
+            trailer: None,
+            capture_trailer: false,
         }
     }
     /// Replace the films, keeping one focus handle per card.
@@ -236,6 +243,10 @@ impl FilmGrid {
             .fading
             .is_some_and(|(_, tween)| tween.moving(now, reduced));
         fading
+            || self
+                .trailer
+                .as_ref()
+                .is_some_and(|trailer| trailer.moving(reduced))
             || match self.preview {
                 Preview::Closed => false,
                 Preview::Dwelling { .. } => true,
@@ -335,6 +346,7 @@ impl FilmGrid {
         {
             self.fading = None;
         }
+        self.sync_trailer(grid, view, services, now, window, cx);
         let rendered = start * grid.columns..end * grid.columns;
         let open = match self.preview {
             Preview::Open { index, tween } => Some((index, tween, true)),
@@ -356,6 +368,58 @@ impl FilmGrid {
             }
         }
         result
+    }
+
+    /// Starts the trailer once a preview has finished opening, stops it when the card is left,
+    /// and lets its last frame go once the card has settled back.
+    fn sync_trailer<V: GridHost>(
+        &mut self,
+        grid: Grid,
+        view: ViewSettings,
+        services: Option<&Arc<Services>>,
+        now: Instant,
+        window: &Window,
+        cx: &mut Context<V>,
+    ) {
+        let open = match self.preview {
+            Preview::Open { index, tween } => Some((index, !tween.moving(now, view.reduced))),
+            _ => None,
+        };
+        let settling = self.fading.map(|(index, _)| index);
+        if let Some(trailer) = &mut self.trailer {
+            let here = open.is_some_and(|(index, _)| index == trailer.index);
+            if !here {
+                trailer.stop();
+            }
+            if ((!here && settling != Some(trailer.index)) || !view.active)
+                && let Some(trailer) = self.trailer.take()
+            {
+                trailer.release(window);
+            }
+        }
+        // Captures pin a preview and need still frames, unless one asks for the trailer; reduced
+        // motion never autoplays video.
+        if self.trailer.is_none()
+            && (!self.pinned || self.capture_trailer)
+            && view.active
+            && !view.reduced
+            && let Some((index, true)) = open
+            && let (Some(services), Some(film)) = (services, self.films.get(index))
+        {
+            let full = grid.width * (1.0 + LIFT);
+            self.trailer = Some(TrailerPreview::start(
+                index,
+                film,
+                (full, full * TILE_RATIO),
+                services,
+                window,
+                cx,
+                |host: &mut V| host.film_grid().trailer.as_mut(),
+            ));
+        }
+        if let Some(trailer) = &mut self.trailer {
+            trailer.advance(window);
+        }
     }
 
     /// The opened card: artwork lifted over its neighbours, then Watch, synopsis and facts.
@@ -408,6 +472,12 @@ impl FilmGrid {
                 1.0,
             ));
         }
+        art = art.children(
+            self.trailer
+                .as_ref()
+                .filter(|trailer| trailer.is_for(index, film))
+                .and_then(|trailer| trailer.layer((width, height), lift, view.reduced)),
+        );
         let open = film.clone();
         let origin = self.origin.clone();
         let note = self.note(index).map(str::to_owned);

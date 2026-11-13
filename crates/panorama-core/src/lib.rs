@@ -8,6 +8,7 @@ pub mod store;
 pub mod stremio;
 pub mod tmdb;
 pub mod torrent;
+pub mod trailer;
 
 #[cfg(test)]
 mod test_tracing;
