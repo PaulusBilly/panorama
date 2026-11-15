@@ -78,9 +78,37 @@ pub fn plan(
     (applied != Some(&next)).then_some(next)
 }
 
-/// Plain cue text: ASS override blocks removed, line breaks normalised, control characters
+/// Windows-1252's 0x80–0x9F block; its gaps keep their Latin-1 control characters.
+const WINDOWS_1252_HIGH: [char; 32] = [
+    '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}',
+    '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}', 'ž', 'Ÿ',
+];
+
+/// UTF-8 that was read as Windows-1252 or Latin-1 and encoded again (`Ã©` for `é`), as
+/// Stremio's subtitle conversion does to some files that were already UTF-8. `None` unless every
+/// character maps back to one byte and those bytes are valid UTF-8 beyond ASCII, which real
+/// text such as `SÃO` or `café` never is.
+fn undo_double_encoding(text: &str) -> Option<String> {
+    let bytes: Vec<u8> = text
+        .chars()
+        .map(|c| {
+            u8::try_from(u32::from(c)).ok().or_else(|| {
+                let index = WINDOWS_1252_HIGH.iter().position(|&high| high == c)?;
+                u8::try_from(0x80 + index).ok()
+            })
+        })
+        .collect::<Option<_>>()?;
+    if bytes.is_ascii() {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// Plain cue text: misencoded UTF-8 repaired, ASS override blocks removed, line breaks normalised, control characters
 /// dropped, capped at [`MAX_CUE_CHARS`]. `None` when nothing visible remains.
 pub fn sanitize_cue(text: &str) -> Option<String> {
+    let repaired = undo_double_encoding(text);
+    let text = repaired.as_deref().unwrap_or(text);
     let mut out = String::new();
     let mut chars = text.chars().peekable();
     let mut count = 0;
@@ -260,6 +288,28 @@ mod tests {
         assert_eq!(sanitize_cue("nul\0l\u{7}ed").as_deref(), Some("nulled"));
         assert_eq!(sanitize_cue("  \n ").as_deref(), None);
         assert_eq!(sanitize_cue("<b>kept</b>").as_deref(), Some("<b>kept</b>"));
+    }
+
+    #[test]
+    fn utf8_read_as_windows_1252_is_repaired() {
+        // The Story of a Cheat (tt0028201), OpenSubtitles file 1953488172 as Stremio converts it.
+        assert_eq!(
+            sanitize_cue("The sets are by Henri MÃ©nessier,\nand Mailleray furnished them.")
+                .as_deref(),
+            Some("The sets are by Henri Ménessier,\nand Mailleray furnished them.")
+        );
+        assert_eq!(sanitize_cue("Itâ€™s Â£5").as_deref(), Some("It’s £5"));
+        assert_eq!(
+            sanitize_cue("{\\i1}FranÃ§ois{\\i0}").as_deref(),
+            Some("François")
+        );
+    }
+
+    #[test]
+    fn text_that_only_looks_misencoded_is_kept() {
+        for text in ["SÃO PAULO", "café", "It’s fine", "Ã©t’é", "plain"] {
+            assert_eq!(sanitize_cue(text).as_deref(), Some(text), "{text}");
+        }
     }
 
     #[test]
