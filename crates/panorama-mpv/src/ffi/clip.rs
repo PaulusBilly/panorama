@@ -7,8 +7,8 @@ use std::{
     ffi::{c_int, c_void},
     ptr,
     sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     thread,
     time::Duration,
@@ -36,8 +36,8 @@ const UPDATE_FRAME: u64 = 1;
 /// Longest wait between checks for mpv events while no frame is due.
 const POLL: Duration = Duration::from_millis(40);
 /// Largest frame drawn; previews are small, and memory and CPU scale with the area.
-pub const MAX_CLIP_WIDTH: u32 = 960;
-pub const MAX_CLIP_HEIGHT: u32 = 540;
+pub const MAX_CLIP_WIDTH: u32 = 1920;
+pub const MAX_CLIP_HEIGHT: u32 = 1080;
 
 /// mpv options for a clip. Fixed here: callers pass only a URL and a size.
 const CLIP_OPTIONS: &[(&str, &str, bool)] = &[
@@ -51,6 +51,9 @@ const CLIP_OPTIONS: &[(&str, &str, bool)] = &[
     ("loop-file", "inf", false),
     // Trailers open on studio logos over black; a preview starts past them.
     ("start", "8%", false),
+    // A start time lands on that exact frame, not the keyframe before it, so a sharper stream
+    // held there lines up with the one playing.
+    ("hr-seek", "yes", false),
     // Software decoding: a 480p trailer is cheap, and copying hardware frames back for the
     // software renderer costs about as much as decoding them.
     ("hwdec", "no", false),
@@ -87,8 +90,14 @@ pub struct ClipFrame {
 
 struct Shared {
     stop: AtomicBool,
+    /// Asks a clip started paused to play.
+    resume: AtomicBool,
     state: AtomicU8,
     latest: Mutex<Option<ClipFrame>>,
+    /// The drawn size, width in the high half; changeable while playing.
+    size: AtomicU64,
+    /// Playback position in seconds as `f64` bits; NaN until mpv reports one.
+    position: AtomicU64,
     /// Set by mpv's render update callback and by `stop`; the worker sleeps on it.
     due: Mutex<bool>,
     wake: Condvar,
@@ -122,6 +131,25 @@ impl Clip {
     /// The newest frame since the last call, if one was drawn.
     pub fn take_frame(&self) -> Option<ClipFrame> {
         self.shared.latest.lock().ok()?.take()
+    }
+
+    /// Plays a clip that was started paused.
+    pub fn resume(&self) {
+        self.shared.resume.store(true, Ordering::Release);
+        self.shared.signal();
+    }
+
+    /// Draws later frames at about `width`×`height`, clamped like the starting size, without
+    /// reopening the stream.
+    pub fn resize(&self, width: u32, height: u32) {
+        if let Some(size) = clip_size(width, height) {
+            self.shared.size.store(pack(size), Ordering::Release);
+        }
+    }
+
+    /// Seconds into the video, once playback has started.
+    pub fn position(&self) -> Option<f64> {
+        Some(f64::from_bits(self.shared.position.load(Ordering::Acquire))).filter(|s| s.is_finite())
     }
 
     pub fn state(&self) -> ClipState {
@@ -177,18 +205,33 @@ impl Render {
     }
 }
 
-/// Starts `url` muted and looping, drawn at `width`×`height` (clamped to the maximum).
-/// Only `http(s)` URLs are accepted. Returns at once; frames arrive through [`Clip::take_frame`].
-pub(crate) fn start(api: &Arc<Api>, url: &str, width: u32, height: u32) -> Result<Clip, MpvError> {
+/// Starts `url` muted and looping, drawn at `width`×`height` (clamped to the maximum), at `from`
+/// seconds, or past the opening logos when `None`. A `paused` clip draws its first frame and
+/// waits for [`Clip::resume`]. Only `http(s)` URLs are accepted. Returns at once; frames arrive
+/// through [`Clip::take_frame`].
+pub(crate) fn start(
+    api: &Arc<Api>,
+    url: &str,
+    width: u32,
+    height: u32,
+    from: Option<f64>,
+    paused: bool,
+) -> Result<Clip, MpvError> {
     if !(url.starts_with("https://") || url.starts_with("http://")) || url.contains('\0') {
+        return Err(MpvError::InvalidArgument);
+    }
+    if from.is_some_and(|from| !from.is_finite() || from < 0.0) {
         return Err(MpvError::InvalidArgument);
     }
     let (width, height) = clip_size(width, height).ok_or(MpvError::InvalidArgument)?;
     let render = Render::load(api)?;
     let shared = Arc::new(Shared {
         stop: AtomicBool::new(false),
+        resume: AtomicBool::new(false),
         state: AtomicU8::new(ClipState::Loading as u8),
         latest: Mutex::new(None),
+        size: AtomicU64::new(pack((width, height))),
+        position: AtomicU64::new(f64::NAN.to_bits()),
         due: Mutex::new(false),
         wake: Condvar::new(),
     });
@@ -198,12 +241,20 @@ pub(crate) fn start(api: &Arc<Api>, url: &str, width: u32, height: u32) -> Resul
     thread::Builder::new()
         .name("panorama-mpv-clip".into())
         .spawn(move || {
-            if run(&api, render, &url, (width, height), &worker).is_err() {
+            if run(&api, render, &url, from, paused, &worker).is_err() {
                 worker.set_state(ClipState::Failed);
             }
         })
         .map_err(|_| MpvError::Thread)?;
     Ok(Clip { shared })
+}
+
+fn pack((width, height): (u32, u32)) -> u64 {
+    (u64::from(width) << 32) | u64::from(height)
+}
+
+fn unpack(size: u64) -> (u32, u32) {
+    ((size >> 32) as u32, size as u32)
 }
 
 /// Scales a requested size into the maximum, keeping its shape; `None` for an empty one.
@@ -226,13 +277,36 @@ unsafe extern "C" fn on_update(data: *mut c_void) {
     shared.signal();
 }
 
+/// mpv routes FFmpeg's log through the first live instance and prints it to stderr once that
+/// one is gone, and FFmpeg logs every stream URL it opens. Clips come and go while others play,
+/// so a silent instance created before the first of them, and kept for the life of the process,
+/// keeps that route and the URLs out of the output.
+fn keep_logs_quiet(api: &Arc<Api>) {
+    static QUIET: OnceLock<bool> = OnceLock::new();
+    QUIET.get_or_init(|| {
+        let Ok(client) = api.create(None) else {
+            return false;
+        };
+        let quiet = client.option("terminal", "no").is_ok()
+            && client.option("msg-level", "all=no").is_ok()
+            && client.option("idle", "yes").is_ok()
+            // SAFETY: Live handle, configured above.
+            && check(unsafe { (client.api.initialize)(client.handle as Handle) }).is_ok();
+        // Never terminated: the route lasts as long as the process.
+        std::mem::forget(client);
+        quiet
+    });
+}
+
 fn run(
     api: &Arc<Api>,
     render: Render,
     url: &str,
-    size: (u32, u32),
+    from: Option<f64>,
+    paused: bool,
     shared: &Arc<Shared>,
 ) -> Result<(), MpvError> {
+    keep_logs_quiet(api);
     let client = api.create(None)?;
     for &(key, value, best_effort) in CLIP_OPTIONS {
         let result = client.option(key, value);
@@ -240,8 +314,14 @@ fn run(
             result?;
         }
     }
+    if paused {
+        client.option("pause", "yes")?;
+    }
     // SAFETY: Live handle, configured above and owned by this thread.
     check(unsafe { (client.api.initialize)(client.handle as Handle) })?;
+    let position = cstring("time-pos")?;
+    // SAFETY: mpv copies the name; DOUBLE (5) changes carry a plain `f64`.
+    check(unsafe { (client.api.observe)(client.handle as Handle, 1, position.as_ptr(), 5) })?;
 
     let mut context: Context = ptr::null_mut();
     let kind = cstring("sw")?;
@@ -264,7 +344,7 @@ fn run(
     // SAFETY: `shared` outlives the context: it is freed below, before this frame returns.
     unsafe { (render.set_update)(context, Some(on_update), callback_data) };
 
-    let result = play(&client, render, context, url, size, shared);
+    let result = play(&client, render, context, url, from, shared);
 
     // SAFETY: The render context must be freed before the handle is destroyed; nothing calls
     // the update callback after this returns.
@@ -278,14 +358,16 @@ fn play(
     render: Render,
     context: Context,
     url: &str,
-    (width, height): (u32, u32),
+    from: Option<f64>,
     shared: &Shared,
 ) -> Result<(), MpvError> {
-    client.command(&["loadfile".into(), url.into(), "replace".into()])?;
-    let stride = width as usize * 4;
-    let mut size = [width as c_int, height as c_int];
+    let mut load = vec!["loadfile".to_owned(), url.to_owned(), "replace".to_owned()];
+    if let Some(from) = from {
+        // Built from a number, never from caller text.
+        load.extend(["-1".to_owned(), format!("start={from:.3}")]);
+    }
+    client.command(&load)?;
     let format = cstring("bgr0")?;
-    let mut stride_value = stride;
     let mut block: c_int = 0;
     while !shared.stop.load(Ordering::Acquire) {
         if let Ok(due) = shared.due.lock() {
@@ -298,7 +380,10 @@ fn play(
         if shared.stop.load(Ordering::Acquire) {
             break;
         }
-        if drain_events(client) {
+        if shared.resume.swap(false, Ordering::AcqRel) {
+            client.set("pause", &mut crate::PropertyValue::Bool(false))?;
+        }
+        if drain_events(client, shared) {
             shared.set_state(ClipState::Failed);
             break;
         }
@@ -307,6 +392,9 @@ fn play(
         if flags & UPDATE_FRAME == 0 {
             continue;
         }
+        let (width, height) = unpack(shared.size.load(Ordering::Acquire));
+        let mut size = [width as c_int, height as c_int];
+        let mut stride = width as usize * 4;
         let mut bgra = vec![0u8; stride * height as usize];
         let mut params = [
             Param {
@@ -319,7 +407,7 @@ fn play(
             },
             Param {
                 kind: PARAM_SW_STRIDE,
-                data: (&mut stride_value as *mut usize).cast(),
+                data: (&mut stride as *mut usize).cast(),
             },
             Param {
                 kind: PARAM_SW_POINTER,
@@ -352,7 +440,7 @@ fn play(
 }
 
 /// Reads every queued event; true when the file failed to load or play.
-fn drain_events(client: &Client) -> bool {
+fn drain_events(client: &Client, shared: &Shared) -> bool {
     loop {
         // SAFETY: Only this thread waits on the handle; the event is read before the next wait.
         let Some(event) = (unsafe { (client.api.wait)(client.handle as Handle, 0.0).as_ref() })
@@ -362,6 +450,22 @@ fn drain_events(client: &Client) -> bool {
         match event.id {
             0 => return false,
             1 => return true,
+            22 => {
+                // SAFETY: PROPERTY_CHANGE carries `mpv_event_property`; the only observed
+                // property is `time-pos` as DOUBLE, whose data is an `f64` when present.
+                let seconds = unsafe {
+                    event
+                        .data
+                        .cast::<PropertyChange>()
+                        .as_ref()
+                        .filter(|change| change.format == 5)
+                        .and_then(|change| change.data.cast::<f64>().as_ref())
+                        .copied()
+                };
+                shared
+                    .position
+                    .store(seconds.unwrap_or(f64::NAN).to_bits(), Ordering::Release);
+            }
             7 => {
                 // SAFETY: END_FILE carries `mpv_event_end_file`, valid until the next wait.
                 let reason = unsafe { event.data.cast::<EndFileReason>().as_ref() };
@@ -372,6 +476,13 @@ fn drain_events(client: &Client) -> bool {
             _ => {}
         }
     }
+}
+
+#[repr(C)]
+struct PropertyChange {
+    name: *const std::ffi::c_char,
+    format: c_int,
+    data: *const c_void,
 }
 
 #[repr(C)]
@@ -394,9 +505,15 @@ mod tests {
     #[test]
     fn sizes_keep_their_shape_inside_the_maximum() {
         assert_eq!(clip_size(480, 270), Some((480, 270)));
-        assert_eq!(clip_size(1920, 1080), Some((960, 540)));
-        assert_eq!(clip_size(1080, 1920), Some((304, 540)));
+        assert_eq!(clip_size(3840, 2160), Some((1920, 1080)));
+        assert_eq!(clip_size(1080, 1920), Some((608, 1080)));
         assert_eq!(clip_size(0, 270), None);
+    }
+
+    #[test]
+    fn sizes_pack_both_halves() {
+        assert_eq!(unpack(pack((1280, 720))), (1280, 720));
+        assert_eq!(unpack(pack((1, u32::MAX))), (1, u32::MAX));
     }
 
     #[test]
@@ -414,7 +531,19 @@ mod tests {
         let dir = std::env::var_os("PANORAMA_LIBMPV_DIR").map(std::path::PathBuf::from);
         let library = crate::Mpv::load_library(dir.as_deref()).expect("libmpv");
         let started = std::time::Instant::now();
-        let clip = library.clip(&url, 480, 270).expect("clip");
+        // Held on its first frame at 20 s, then played.
+        let clip = library
+            .clip(&url, 480, 270, Some(20.0), true)
+            .expect("clip");
+        let held = std::time::Instant::now();
+        while clip.take_frame().is_none() && held.elapsed() < Duration::from_secs(10) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let at = clip.position().expect("a position while held");
+        assert!((at - 20.0).abs() < 1.0, "held at {at}");
+        thread::sleep(Duration::from_millis(600));
+        assert_eq!(clip.position(), Some(at), "a held clip stays put");
+        clip.resume();
         let mut frames = 0;
         let mut first = None;
         while started.elapsed() < Duration::from_secs(12) && frames < 60 {
@@ -429,6 +558,32 @@ mod tests {
         }
         eprintln!("first frame after {first:?}, {frames} frames");
         assert!(frames >= 30, "only {frames} frames");
+        clip.resize(1920, 1080);
+        let started = std::time::Instant::now();
+        let resized = loop {
+            if let Some(frame) = clip.take_frame()
+                && frame.width == 1920
+            {
+                break Some(frame);
+            }
+            if started.elapsed() > Duration::from_secs(3) {
+                break None;
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        let resized = resized.expect("a frame at the new size");
+        assert_eq!(resized.bgra.len(), 1920 * 1080 * 4);
+        let lit = resized
+            .bgra
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[1] > 40)
+            .count();
+        eprintln!("lit pixels at 1920x1080: {lit}");
+        assert!(lit > 1920 * 10, "a full-size frame has picture");
+        let at = clip.position().expect("a position");
+        assert!((20.0..40.0).contains(&at), "started at {at}");
     }
 
     #[test]
@@ -438,7 +593,7 @@ mod tests {
         };
         for url in ["file:///etc/passwd", "/tmp/x.mp4", "https://a\0b"] {
             assert_eq!(
-                library.clip(url, 480, 270).err(),
+                library.clip(url, 480, 270, None, false).err(),
                 Some(MpvError::InvalidArgument)
             );
         }

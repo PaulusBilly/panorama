@@ -250,18 +250,18 @@ impl<T> Drop for Job<T> {
 }
 
 impl Services {
-    /// A film's trailer as a playlist about `height` pixels tall, with the runtime that plays it;
+    /// A film's trailer as a stream about `width` pixels wide, with the runtime that plays it;
     /// `None` when there is no trailer, YouTube refuses, or libmpv is missing.
     pub fn trailer(
         self: &Arc<Self>,
         kind: Kind,
         id: String,
-        height: u32,
-    ) -> Job<Option<(url::Url, panorama_mpv::MpvLibrary)>> {
+        width: u32,
+    ) -> Job<Option<(panorama_core::trailer::Variant, panorama_mpv::MpvLibrary)>> {
         let services = self.clone();
         Job(self.runtime.spawn(async move {
             let trailers = services.trailers.as_ref()?;
-            let playlist = trailers.playlist(kind.stremio(), &id, height).await.ok()?;
+            let playlist = trailers.playlist(kind.stremio(), &id, width).await.ok()?;
             let library = services
                 .clips
                 .get_or_init(|| async {

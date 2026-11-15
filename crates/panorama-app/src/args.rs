@@ -34,6 +34,8 @@ pub struct Args {
     pub hover_first_card: bool,
     /// With `--hover-first-card`, plays the pinned preview's trailer for a capture.
     pub hover_trailer: bool,
+    /// With `--hover-trailer`, opens the card once its trailer shows, as a click would.
+    pub open_trailer_card: bool,
     /// Show the first card's keyboard focus ring.
     pub focus_first_card: bool,
     /// Open the account popup before capture.
@@ -92,6 +94,7 @@ impl Args {
             scroll: vec![],
             hover_first_card: false,
             hover_trailer: false,
+            open_trailer_card: false,
             focus_first_card: false,
             open_account_menu: false,
             open_sign_in: false,
@@ -197,6 +200,11 @@ impl Args {
                     result.fixtures = true;
                 }
                 "--hover-first-card" => result.hover_first_card = true,
+                "--open-trailer-card" => {
+                    result.hover_first_card = true;
+                    result.hover_trailer = true;
+                    result.open_trailer_card = true;
+                }
                 "--hover-trailer" => {
                     result.hover_first_card = true;
                     result.hover_trailer = true;

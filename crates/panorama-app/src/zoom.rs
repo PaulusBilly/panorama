@@ -145,6 +145,7 @@ impl Zoom {
         &self,
         viewport: Size<Pixels>,
         theme: Theme,
+        window: &gpui::Window,
         cx: &mut Context<AppShell>,
     ) -> impl IntoElement {
         let now = Instant::now();
@@ -154,6 +155,14 @@ impl Zoom {
         let rect = between(card, Bounds::new(Point::default(), viewport), fill);
         let size = (f32::from(rect.size.width), f32::from(rect.size.height));
         let art = hero::cover(self.card.image.clone(), size, self.card.poster, 1.0);
+        // The card's trailer keeps playing as it grows, on its way to the page's banner.
+        let trailer = (self.direction == Direction::Open)
+            .then(|| crate::trailer_preview::Handoff::get(&self.card.film.id, cx))
+            .flatten()
+            .and_then(|trailer| {
+                trailer.advance(window);
+                trailer.layer(size, 1.0, false)
+            });
         let lift = self.card.lift * (1.0 - rested);
         let face = film_grid::card_face(
             &self.card.film,
@@ -179,6 +188,7 @@ impl Zoom {
                     )
                 })
                 .child(art)
+                .children(trailer)
                 // The film page's scrims, there as soon as the artwork is the page's backdrop.
                 .child(
                     div()

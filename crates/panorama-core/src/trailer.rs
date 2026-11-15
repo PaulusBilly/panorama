@@ -44,7 +44,7 @@ pub struct TrailerClient {
     visitor: Mutex<Option<(String, Instant)>>,
     /// Film ID to YouTube video ID, `None` for a film without one.
     videos: Mutex<HashMap<String, Option<String>>>,
-    playlists: Mutex<HashMap<(String, u32), (Url, Instant)>>,
+    playlists: Mutex<HashMap<(String, u32), (Variant, Instant)>>,
 }
 
 impl TrailerClient {
@@ -65,32 +65,32 @@ impl TrailerClient {
         })
     }
 
-    /// A video-only playlist of the film's trailer, about `height` pixels tall. `kind` is the
+    /// A video-only playlist of the film's trailer, about `width` pixels wide. `kind` is the
     /// addon type (`movie` or `series`); only IMDb IDs have Cinemeta trailers.
     pub async fn playlist(
         &self,
         kind: &str,
         film_id: &str,
-        height: u32,
-    ) -> Result<Url, TrailerError> {
+        width: u32,
+    ) -> Result<Variant, TrailerError> {
         let video = self.video(kind, film_id).await?;
-        let key = (video.clone(), height);
-        if let Some((url, at)) = self
+        let key = (video.clone(), width);
+        if let Some((variant, at)) = self
             .playlists
             .lock()
             .ok()
             .and_then(|cache| cache.get(&key).cloned())
             && at.elapsed() < PLAYLIST_FOR
         {
-            return Ok(url);
+            return Ok(variant);
         }
         let master = self.master(&video).await?;
         let text = self.text(self.http.get(master.as_str())).await?;
-        let url = best_variant(&text, height).ok_or(TrailerError::Unavailable)?;
+        let variant = best_variant(&text, width).ok_or(TrailerError::Unavailable)?;
         if let Ok(mut cache) = self.playlists.lock() {
-            cache.insert(key, (url.clone(), Instant::now()));
+            cache.insert(key, (variant.clone(), Instant::now()));
         }
-        Ok(url)
+        Ok(variant)
     }
 
     /// The film's YouTube trailer ID from Cinemeta, remembered for the session.
@@ -281,10 +281,18 @@ fn is_manifest(url: &Url) -> bool {
     url.scheme() == "https" && url.host_str() == Some("manifest.googlevideo.com")
 }
 
-/// Picks a video variant from a master playlist: H.264 (cheap to decode) at the smallest height
-/// covering `height`, else the tallest below it. YouTube's variants are video only, with audio
-/// in separate renditions, so the clip downloads no sound.
-fn best_variant(master: &str, height: u32) -> Option<Url> {
+/// One stream of a trailer: its video-only playlist and how wide its picture is.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Variant {
+    pub url: Url,
+    pub width: u32,
+}
+
+/// Picks a video variant from a master playlist: H.264 (cheap to decode) at the narrowest width
+/// covering `width`, else the widest below it. Width, not height, since trailers come both
+/// letterboxed in 16:9 and cut to their own wider shape. YouTube's variants are video only, with
+/// audio in separate renditions, so the clip downloads no sound.
+fn best_variant(master: &str, width: u32) -> Option<Variant> {
     let mut variants = Vec::new();
     let mut lines = master.lines();
     while let Some(line) = lines.next() {
@@ -294,9 +302,9 @@ fn best_variant(master: &str, height: u32) -> Option<Url> {
         let Some(uri) = lines.next().map(str::trim) else {
             break;
         };
-        let Some(tall) = attribute(attributes, "RESOLUTION")
+        let Some(wide) = attribute(attributes, "RESOLUTION")
             .and_then(|size| size.split_once('x'))
-            .and_then(|(_, tall)| tall.parse::<u32>().ok())
+            .and_then(|(wide, _)| wide.parse::<u32>().ok())
         else {
             continue;
         };
@@ -305,16 +313,16 @@ fn best_variant(master: &str, height: u32) -> Option<Url> {
             continue;
         };
         if h264 && is_manifest(&url) {
-            variants.push((tall, url));
+            variants.push(Variant { url, width: wide });
         }
     }
     let covering = variants
         .iter()
-        .filter(|(tall, _)| *tall >= height)
-        .min_by_key(|(tall, _)| *tall);
+        .filter(|variant| variant.width >= width)
+        .min_by_key(|variant| variant.width);
     covering
-        .or_else(|| variants.iter().max_by_key(|(tall, _)| *tall))
-        .map(|(_, url)| url.clone())
+        .or_else(|| variants.iter().max_by_key(|variant| variant.width))
+        .cloned()
 }
 
 /// An attribute of an HLS tag, unquoted. Quoted values may contain commas.
@@ -359,27 +367,33 @@ https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/244/vp9.m3u8
 https://evil.example/v360.m3u8
 "#;
 
-    fn tail(url: Option<Url>) -> Option<String> {
-        url.and_then(|url| url.path_segments()?.next_back().map(str::to_owned))
+    fn tail(variant: Option<Variant>) -> Option<String> {
+        variant.and_then(|variant| {
+            variant
+                .url
+                .path_segments()?
+                .next_back()
+                .map(|name| format!("{name}@{}", variant.width))
+        })
     }
 
     #[test]
-    fn variants_cover_the_height_with_h264_from_youtube() {
+    fn variants_cover_the_width_with_h264_from_youtube() {
         assert_eq!(
-            tail(best_variant(MASTER, 400)).as_deref(),
-            Some("v480.m3u8")
+            tail(best_variant(MASTER, 700)).as_deref(),
+            Some("v480.m3u8@854")
         );
         assert_eq!(
-            tail(best_variant(MASTER, 480)).as_deref(),
-            Some("v480.m3u8")
+            tail(best_variant(MASTER, 854)).as_deref(),
+            Some("v480.m3u8@854")
         );
         assert_eq!(
-            tail(best_variant(MASTER, 200)).as_deref(),
-            Some("v240.m3u8")
+            tail(best_variant(MASTER, 300)).as_deref(),
+            Some("v240.m3u8@426")
         );
         assert_eq!(
-            tail(best_variant(MASTER, 2000)).as_deref(),
-            Some("v720.m3u8")
+            tail(best_variant(MASTER, 3000)).as_deref(),
+            Some("v720.m3u8@1280")
         );
         assert_eq!(best_variant("#EXTM3U\n", 480), None);
     }
@@ -438,8 +452,15 @@ https://evil.example/v360.m3u8
     async fn a_live_trailer_resolves() {
         let client = TrailerClient::new().unwrap();
         let started = Instant::now();
-        let url = client.playlist("movie", "tt1375666", 480).await.unwrap();
-        eprintln!("{:?} {}", started.elapsed(), url.host_str().unwrap_or(""));
-        assert!(is_manifest(&url));
+        let small = client.playlist("movie", "tt1375666", 800).await.unwrap();
+        let large = client.playlist("movie", "tt1375666", 1920).await.unwrap();
+        eprintln!(
+            "{:?} {} then {}",
+            started.elapsed(),
+            small.width,
+            large.width
+        );
+        assert!(is_manifest(&small.url) && is_manifest(&large.url));
+        assert!(small.width >= 800 && small.width < large.width && large.width >= 1920);
     }
 }

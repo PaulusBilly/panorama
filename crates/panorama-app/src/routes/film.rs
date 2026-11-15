@@ -57,6 +57,8 @@ pub struct Film {
     award_more: Vec<FocusHandle>,
     /// Tiles opened past their first lines, by index.
     awards_expanded: std::collections::HashSet<usize>,
+    /// The banner's trailer, handed on from the card that opened the page or its own.
+    banner_trailer: crate::trailer_preview::BannerTrailer,
     /// The title's own type, carried by every addon request for it.
     kind: Kind,
     /// What Play plays: the film, or an episode once a show's are known.
@@ -200,6 +202,7 @@ impl Film {
             award_tiles: vec![],
             award_more: vec![],
             awards_expanded,
+            banner_trailer: Default::default(),
             people_rail: Default::default(),
             account,
             installed,

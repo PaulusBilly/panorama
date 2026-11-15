@@ -251,6 +251,21 @@ impl Render for Film {
         // to load. The scrims belong to the still, so the bare color has none. Past the threshold
         // the blurred copy takes over under an even wash. The bottom scrim stays.
         let bounds = (view.width, view.height);
+        let services = self.state.read(cx).services.clone();
+        let (kind, id) = (self.kind, self.id.clone());
+        self.banner_trailer.sync(
+            kind,
+            &id,
+            bounds,
+            view.active,
+            view.reduced,
+            services.as_ref(),
+            window,
+            cx,
+            |film: &mut Self| &mut film.banner_trailer,
+        );
+        // Under the scrims like the still, and gone with it as the blurred copy takes over.
+        let trailer = self.banner_trailer.layer(bounds, 1.0 - blur, view.reduced);
         let scrims = artwork
             .as_ref()
             .map_or(0.0, |art| film_card::fade_in(art, view.reduced));
@@ -272,6 +287,7 @@ impl Render for Film {
                         .child(hero::cover(art.image, bounds, poster, 1.0)),
                 )
             })
+            .children(trailer)
             .when_some(blurred.filter(|_| blur > 0.0), |backdrop, art| {
                 backdrop.child(hero::cover(art.image, bounds, poster, 1.0).opacity(blur))
             })
@@ -368,6 +384,7 @@ impl Render for Film {
             || self.people_rail.moving(view.reduced)
             || self.awards_rail.moving(view.reduced)
             || self.episode_rail.moving(view.reduced)
+            || view.active && self.banner_trailer.moving(view.reduced)
             || self.debug_step < self.args.scroll.len()
         {
             cx.on_next_frame(window, |film, window, cx| film.tick(window, cx));
