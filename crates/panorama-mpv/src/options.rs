@@ -5,6 +5,10 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     ("keep-open", "yes", false),
     ("hr-seek", "default", false),
     ("vo", "gpu-next", false),
+    // mpv's window lives as long as the player and is black while there is no picture. Without
+    // it mpv has no window before the first frame or between files, and the surface shows
+    // stale pixels there: the film page, or whatever window last covered it.
+    ("force-window", "immediate", false),
     ("gpu-api", "d3d11", false),
     ("gpu-context", "d3d11", false),
     ("target-colorspace-hint", "auto", false),
