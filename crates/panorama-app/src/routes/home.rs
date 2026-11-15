@@ -111,6 +111,7 @@ impl Home {
         switcher.set_open(args.open_catalog_menu);
         let mut grid = FilmGrid::new(args.hover_first_card, cx);
         grid.capture_trailer = args.hover_trailer;
+        grid.capture_open = args.open_trailer_card;
         grid.set_films(films, cx);
         Self {
             shell,

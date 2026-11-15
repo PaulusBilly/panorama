@@ -23,6 +23,15 @@ impl Render for AppShell {
             });
         }
         let now = Instant::now();
+        // A trailer handed on from a card lives while its zoom opens or its film page shows.
+        let keep = match (&self.zoom, self.history.current()) {
+            (Some(zoom), _) if zoom.direction == crate::zoom::Direction::Open => {
+                Some(zoom.card.film.id.clone())
+            }
+            (None, Route::Film { id, .. }) => Some(id.clone()),
+            _ => None,
+        };
+        crate::trailer_preview::Handoff::settle(keep.as_deref(), window, cx);
         if self.viewport != window.viewport_size() {
             self.viewport = window.viewport_size();
             self.menu.dismiss();
@@ -187,7 +196,7 @@ impl Render for AppShell {
             .children(
                 self.zoom
                     .as_ref()
-                    .map(|zoom| zoom.render(window.viewport_size(), self.theme, cx)),
+                    .map(|zoom| zoom.render(window.viewport_size(), self.theme, window, cx)),
             )
             // Drawn last on both platforms, taking no layout space.
             .when(!window.is_fullscreen(), |shell| {

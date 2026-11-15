@@ -6,7 +6,7 @@ use crate::{
     services::Services,
     theme::{Column, Theme, motion::*},
     ticket::{self, SourceQuality},
-    trailer_preview::TrailerPreview,
+    trailer_preview::{Handoff, TrailerPreview},
     transition::Tween,
     zoom::CardArt,
 };
@@ -129,10 +129,13 @@ pub struct FilmGrid {
     /// preview opened. Quality already known on opening shows with the rest of the ticket;
     /// only a late one fades in.
     quality_for: Option<(usize, bool)>,
-    /// The open or settling preview's trailer.
-    trailer: Option<TrailerPreview>,
+    /// The open or settling preview's trailer, by card index.
+    trailer: Option<(usize, TrailerPreview)>,
     /// Lets a capture's pinned preview play its trailer.
     pub capture_trailer: bool,
+    /// Has a capture open the pinned card once its trailer shows, as a click would.
+    pub capture_open: bool,
+    capture_opened: Cell<bool>,
 }
 
 impl FilmGrid {
@@ -178,6 +181,8 @@ impl FilmGrid {
             quality_for: None,
             trailer: None,
             capture_trailer: false,
+            capture_open: false,
+            capture_opened: Cell::new(false),
         }
     }
     /// Replace the films, keeping one focus handle per card.
@@ -246,7 +251,7 @@ impl FilmGrid {
             || self
                 .trailer
                 .as_ref()
-                .is_some_and(|trailer| trailer.moving(reduced))
+                .is_some_and(|(_, trailer)| trailer.moving(reduced))
             || match self.preview {
                 Preview::Closed => false,
                 Preview::Dwelling { .. } => true,
@@ -386,13 +391,14 @@ impl FilmGrid {
             _ => None,
         };
         let settling = self.fading.map(|(index, _)| index);
-        if let Some(trailer) = &mut self.trailer {
-            let here = open.is_some_and(|(index, _)| index == trailer.index);
+        if let Some((card, trailer)) = &mut self.trailer {
+            let card = *card;
+            let here = open.is_some_and(|(index, _)| index == card);
             if !here {
                 trailer.stop();
             }
-            if ((!here && settling != Some(trailer.index)) || !view.active)
-                && let Some(trailer) = self.trailer.take()
+            if ((!here && settling != Some(card)) || !view.active)
+                && let Some((_, trailer)) = self.trailer.take()
             {
                 trailer.release(window);
             }
@@ -407,18 +413,36 @@ impl FilmGrid {
             && let (Some(services), Some(film)) = (services, self.films.get(index))
         {
             let full = grid.width * (1.0 + LIFT);
-            self.trailer = Some(TrailerPreview::start(
+            self.trailer = Some((
                 index,
-                film,
-                (full, full * TILE_RATIO),
-                services,
-                window,
-                cx,
-                |host: &mut V| host.film_grid().trailer.as_mut(),
+                TrailerPreview::start(
+                    film.kind,
+                    &film.id,
+                    (full, full * TILE_RATIO),
+                    services,
+                    window,
+                    cx,
+                    |host: &mut V| {
+                        host.film_grid()
+                            .trailer
+                            .as_mut()
+                            .map(|(_, trailer)| trailer)
+                    },
+                ),
             ));
         }
-        if let Some(trailer) = &mut self.trailer {
+        if let Some((_, trailer)) = &mut self.trailer {
             trailer.advance(window);
+        }
+    }
+
+    /// The playing trailer of card `index`, taken to go on with its film page.
+    fn hand_off(&mut self, index: usize) -> Option<TrailerPreview> {
+        match &self.trailer {
+            Some((card, trailer)) if *card == index && trailer.playing() => {
+                self.trailer.take().map(|(_, trailer)| trailer)
+            }
+            _ => None,
         }
     }
 
@@ -475,7 +499,8 @@ impl FilmGrid {
         art = art.children(
             self.trailer
                 .as_ref()
-                .filter(|trailer| trailer.is_for(index, film))
+                .filter(|(card, trailer)| *card == index && trailer.film() == film.id)
+                .map(|(_, trailer)| trailer)
                 .and_then(|trailer| trailer.layer((width, height), lift, view.reduced)),
         );
         let open = film.clone();
@@ -485,15 +510,19 @@ impl FilmGrid {
             px((index % grid.columns) as f32 * (grid.width + GAP)),
             px((index / grid.columns) as f32 * grid.stride()),
         );
-        let art = art
-            .child(card_face(
-                film,
-                self.note(index),
-                lift,
-                crate::zoom::caption_opacity(self.quiet.as_ref(), &film.id),
-                theme,
-            ))
-            .on_click(cx.listener(move |host: &mut V, _, window, cx| {
+        let art = art.child(card_face(
+            film,
+            self.note(index),
+            lift,
+            crate::zoom::caption_opacity(self.quiet.as_ref(), &film.id),
+            theme,
+        ));
+        let choose = Rc::new(
+            move |host: &mut V, window: &mut Window, cx: &mut Context<V>| {
+                // A playing trailer goes on: through the zoom and into the page's banner.
+                if let Some(trailer) = host.film_grid().hand_off(index) {
+                    Handoff::give(trailer, window, cx);
+                }
                 let Some(image) = &image else {
                     return host.open_film(open.clone(), window, cx);
                 };
@@ -511,7 +540,22 @@ impl FilmGrid {
                 };
                 host.film_grid().leave_preview(index);
                 host.zoom_film(open.clone(), card, window, cx)
-            }));
+            },
+        );
+        // A capture that asks opens the card the way a click does, once its trailer shows.
+        if self.capture_open
+            && !self.capture_opened.get()
+            && self
+                .trailer
+                .as_ref()
+                .is_some_and(|(card, trailer)| *card == index && trailer.shown())
+        {
+            self.capture_opened.set(true);
+            let choose = choose.clone();
+            cx.defer_in(window, move |host, window, cx| choose(host, window, cx));
+        }
+        let art =
+            art.on_click(cx.listener(move |host: &mut V, _, window, cx| choose(host, window, cx)));
 
         let play = film.clone();
         // Fields over the perforation, then the stub: Watch where a ticket has its code, and the
