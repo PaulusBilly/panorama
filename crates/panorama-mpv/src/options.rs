@@ -62,7 +62,10 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     // AVFoundation does for Apple TV and QuickTime. The default (`target`) tone-mapped in
     // libplacebo against a headroom read before any EDR content was on screen, and came
     // out visibly darker than QuickTime from the mid-tones up. SDR is unaffected.
-    ("target-colorspace-hint-mode", "source", false),
+    // `-dynamic` hands macOS each scene's peak from Dolby Vision or HDR10+ metadata, so a
+    // dark scene is mapped for its own range rather than the film's brightest frame, as
+    // Apple TV does with Dolby Vision; plain HDR10 falls back to MaxCLL.
+    ("target-colorspace-hint-mode", "source-dynamic", false),
     // Per-frame HDR peak measurement is a compute pass on every 4K frame; HDR10/HDR10+
     // metadata already carries the peak, and skipping it keeps fanless Macs cooler.
     ("hdr-compute-peak", "no", false),
