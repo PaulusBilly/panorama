@@ -1,6 +1,6 @@
 use crate::{MpvError, PhysicalRect, RawWindow};
 use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
-use objc2_app_kit::{NSView, NSWindowOrderingMode};
+use objc2_app_kit::{NSScreen, NSView, NSWindowOrderingMode};
 use objc2_core_graphics::CGColor;
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use objc2_quartz_core::CAMetalLayer;
@@ -9,8 +9,26 @@ use std::{
     ffi::c_void,
     marker::PhantomData,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
+
+/// Screens that can show at least this multiple of SDR white get HDR as PQ, tone-mapped by
+/// macOS. Below it (a MacBook Air reports 2x; XDR panels 16x) HDR is mapped to SDR in mpv,
+/// see `LOW_HEADROOM_OPTIONS`.
+const HDR_HEADROOM: f64 = 4.0;
+
+fn low_headroom(screen: Option<&NSScreen>) -> bool {
+    screen.is_none_or(|screen| {
+        is_low_headroom(screen.maximumPotentialExtendedDynamicRangeColorComponentValue())
+    })
+}
+
+fn is_low_headroom(potential: f64) -> bool {
+    potential.is_nan() || potential < HDR_HEADROOM
+}
 
 /// `panorama_surface_state` of the `panorama-macvk` mpv patch (libmpv/patches).
 #[repr(C)]
@@ -48,6 +66,8 @@ pub(crate) struct WindowLease {
     state: Box<Mutex<SurfaceState>>,
     /// +1 retained `NSView`; released on the main thread.
     view: *mut NSView,
+    /// Whether the window's screen lacks real HDR headroom; read when a player starts.
+    low_headroom: AtomicBool,
 }
 
 // SAFETY: The view pointer is only dereferenced on the main thread (VideoSurface is
@@ -60,6 +80,10 @@ unsafe impl Sync for WindowLease {}
 impl WindowLease {
     pub(crate) fn id(&self) -> usize {
         &*self.descriptor as *const Descriptor as usize
+    }
+
+    pub(crate) fn low_headroom(&self) -> bool {
+        self.low_headroom.load(Ordering::Relaxed)
     }
 }
 
@@ -143,6 +167,12 @@ impl VideoSurface {
                 descriptor,
                 state,
                 view: Retained::into_raw(view),
+                low_headroom: AtomicBool::new(low_headroom(
+                    sibling
+                        .window()
+                        .and_then(|window| window.screen())
+                        .as_deref(),
+                )),
             }),
             layer,
             _main_thread: PhantomData,
@@ -181,6 +211,9 @@ impl VideoSurface {
             f64::from(rect.height.max(1)),
         ));
         let screen = window.screen();
+        self.lease
+            .low_headroom
+            .store(low_headroom(screen.as_deref()), Ordering::Relaxed);
         self.update(|state| {
             state.width = rect.width;
             state.height = rect.height;
@@ -224,5 +257,21 @@ impl VideoSurface {
                 *state = next;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_low_headroom;
+
+    #[test]
+    fn only_real_hdr_screens_keep_pq() {
+        // SDR display, MacBook Air, HDR400-class monitor: mapped to SDR in mpv.
+        assert!(is_low_headroom(1.0));
+        assert!(is_low_headroom(2.0));
+        assert!(is_low_headroom(f64::NAN));
+        // HDR1000-class monitor and XDR panels: PQ to macOS.
+        assert!(!is_low_headroom(4.0));
+        assert!(!is_low_headroom(16.0));
     }
 }

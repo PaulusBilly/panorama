@@ -122,9 +122,14 @@ if not (paths['libplacebo'] / '.panorama-host-import-patch').exists():
     (paths['libplacebo'] / '.panorama-host-import-patch').touch()
     for name in ('libplacebo', 'mpv'):
         (builds / name / '.installed').unlink(missing_ok=True)
+placebo_stamp = (builds / 'libplacebo' / '.installed').read_text() if (builds / 'libplacebo' / '.installed').exists() else None
 meson('libplacebo', ['-Dauto_features=disabled', '-Dvulkan=enabled', '-Dvk-proc-addr=enabled',
                     f"-Dvulkan-registry={paths['vulkan-headers']}/registry/vk.xml",
-                    '-Dglslang=enabled', '-Dshaderc=disabled', '-Ddemos=false', '-Dtests=false'])
+                    '-Dglslang=enabled', '-Dshaderc=disabled', '-Ddovi=enabled',
+                    '-Ddemos=false', '-Dtests=false'])
+# mpv links libplacebo statically, so a rebuilt libplacebo means relinking mpv.
+if (builds / 'libplacebo' / '.installed').read_text() != placebo_stamp:
+    (builds / 'mpv' / '.installed').unlink(missing_ok=True)
 ffmpeg = builds / 'ffmpeg'
 if not (ffmpeg / '.installed').exists():
     ffmpeg.mkdir(exist_ok=True)
