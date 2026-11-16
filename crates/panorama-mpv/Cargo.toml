@@ -22,5 +22,9 @@ objc2-quartz-core = { version = "=0.3.2", default-features = false, features = [
 [target.'cfg(any(windows, target_os = "macos"))'.dev-dependencies]
 tempfile.workspace = true
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSEvent", "NSGraphics", "NSRunningApplication"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSDate", "NSObjCRuntime", "NSString"] }
+
 [lints]
 workspace = true
