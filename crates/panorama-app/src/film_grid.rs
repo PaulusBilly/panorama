@@ -27,6 +27,8 @@ gpui::actions!(panorama_card, [NextCard, PreviousCard]);
 const SKELETONS: usize = 9;
 /// How long the pointer rests on a card before its preview opens.
 const DWELL: Duration = Duration::from_millis(500);
+/// How long the pointer rests on a card before its trailer is looked up, ahead of the lift.
+const WARM: Duration = Duration::from_millis(150);
 /// The preview's artwork grows by this fraction of the tile.
 const LIFT: f32 = 0.08;
 
@@ -131,6 +133,8 @@ pub struct FilmGrid {
     quality_for: Option<(usize, bool)>,
     /// The open or settling preview's trailer, by card index.
     trailer: Option<(usize, TrailerPreview)>,
+    /// The card whose trailer went on to its film page; it starts no other while still open.
+    handed: Option<usize>,
     /// Lets a capture's pinned preview play its trailer.
     pub capture_trailer: bool,
     /// Has a capture open the pinned card once its trailer shows, as a click would.
@@ -180,6 +184,7 @@ impl FilmGrid {
             quality: SourceQuality::Unasked,
             quality_for: None,
             trailer: None,
+            handed: None,
             capture_trailer: false,
             capture_open: false,
             capture_opened: Cell::new(false),
@@ -375,7 +380,7 @@ impl FilmGrid {
         result
     }
 
-    /// Starts the trailer once a preview has finished opening, stops it when the card is left,
+    /// Starts the trailer once the pointer has rested `WARM`, stops it when the card is left,
     /// and lets its last frame go once the card has settled back.
     fn sync_trailer<V: GridHost>(
         &mut self,
@@ -386,14 +391,20 @@ impl FilmGrid {
         window: &Window,
         cx: &mut Context<V>,
     ) {
-        let open = match self.preview {
-            Preview::Open { index, tween } => Some((index, !tween.moving(now, view.reduced))),
+        // The trailer starts while the pointer rests, before the card lifts, so its lookup and
+        // first frame are under way by the time the lift is; a pointer passing over starts none.
+        let wanted = match self.preview {
+            Preview::Open { index, .. } => Some(index),
+            Preview::Dwelling { index, since } if now.duration_since(since) >= WARM => Some(index),
             _ => None,
         };
+        if self.handed != wanted {
+            self.handed = None;
+        }
         let settling = self.fading.map(|(index, _)| index);
         if let Some((card, trailer)) = &mut self.trailer {
             let card = *card;
-            let here = open.is_some_and(|(index, _)| index == card);
+            let here = wanted == Some(card);
             if !here {
                 trailer.stop();
             }
@@ -409,7 +420,8 @@ impl FilmGrid {
             && (!self.pinned || self.capture_trailer)
             && view.active
             && !view.reduced
-            && let Some((index, true)) = open
+            && let Some(index) = wanted
+            && self.handed != Some(index)
             && let (Some(services), Some(film)) = (services, self.films.get(index))
         {
             let full = grid.width * (1.0 + LIFT);
@@ -440,6 +452,7 @@ impl FilmGrid {
     fn hand_off(&mut self, index: usize) -> Option<TrailerPreview> {
         match &self.trailer {
             Some((card, trailer)) if *card == index && trailer.playing() => {
+                self.handed = Some(index);
                 self.trailer.take().map(|(_, trailer)| trailer)
             }
             _ => None,
