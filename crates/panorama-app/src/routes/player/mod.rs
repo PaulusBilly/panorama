@@ -491,6 +491,7 @@ impl Player {
     fn sync_surface(&mut self, window: &Window, cx: &mut gpui::App) {
         self.model.fullscreen = window.is_fullscreen();
         self.sync_shell(cx);
+        #[cfg(any(windows, target_os = "macos"))]
         let rect = physical_rect(
             f32::from(window.viewport_size().width),
             f32::from(window.viewport_size().height),
@@ -501,13 +502,19 @@ impl Player {
         if let Some(surface) = &self.surface {
             // On macOS this also refreshes the display's refresh rate and HDR headroom,
             // which change when the window moves to another screen at the same size.
-            if self.rect != Some(rect) || cfg!(target_os = "macos") {
-                let _ = surface.set_bounds(panorama_mpv::PhysicalRect {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                });
+            // `rect` is what this surface was given: the player renders while its sources are
+            // looked up, before the surface exists, and a new surface starts at 1×1.
+            if (self.rect != Some(rect) || cfg!(target_os = "macos"))
+                && surface
+                    .set_bounds(panorama_mpv::PhysicalRect {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                    })
+                    .is_ok()
+            {
+                self.rect = Some(rect);
             }
             let visible = self.model.surface_visible();
             if visible != self.surface_shown {
@@ -519,7 +526,6 @@ impl Player {
                 self.surface_shown = visible;
             }
         }
-        self.rect = Some(rect);
         self.awake.set(
             matches!(
                 self.model.status,
