@@ -49,8 +49,6 @@ const CLIP_OPTIONS: &[(&str, &str, bool)] = &[
     ("mute", "yes", false),
     ("sid", "no", false),
     ("loop-file", "inf", false),
-    // Trailers open on studio logos over black; a preview starts past them.
-    ("start", "8%", false),
     // A start time lands on that exact frame, not the keyframe before it, so a sharper stream
     // held there lines up with the one playing.
     ("hr-seek", "yes", false),
@@ -206,7 +204,7 @@ impl Render {
 }
 
 /// Starts `url` muted and looping, drawn at `width`×`height` (clamped to the maximum), at `from`
-/// seconds, or past the opening logos when `None`. A `paused` clip draws its first frame and
+/// seconds, or from its start when `None`. A `paused` clip draws its first frame and
 /// waits for [`Clip::resume`]. Only `http(s)` URLs are accepted. Returns at once; frames arrive
 /// through [`Clip::take_frame`].
 pub(crate) fn start(

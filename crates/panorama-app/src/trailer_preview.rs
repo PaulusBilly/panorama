@@ -1,19 +1,18 @@
-//! Trailers inside the interface. A lift card's preview looks up its film's trailer once it has
-//! opened and plays it muted inside the artwork, fading in over it at the first frame and back
-//! out after `PREVIEW_FOR`. Opening the film hands the playing clip on (see [`Handoff`]): it keeps
-//! playing as the card grows, then as the film page's banner, drawn at the banner's size. A card
-//! streams only as sharp as it needs, so the banner opens a sharper stream of the same trailer
-//! a few seconds ahead, holds it on that frame, and crossfades to it as the first one gets
-//! there. The artwork always stays underneath, so a film without a trailer, or one YouTube refuses, looks
-//! exactly as it did.
+//! Trailers inside the interface. A card's trailer is looked up as the pointer settles on it, so
+//! it is under way by the time the preview lifts, and plays muted inside the lifted artwork,
+//! fading in over it at the first frame and back out after `PREVIEW_FOR`. Opening the film hands
+//! the playing clip on (see [`Handoff`]): it keeps playing as the card grows, then as the film
+//! page's banner, drawn at the banner's size. Every trailer streams at its best quality from the
+//! start, so the banner never has to swap streams. The artwork always stays underneath, so a
+//! film without a trailer, or one YouTube refuses, looks exactly as it did.
 use crate::{
     services::{Job, Services},
-    theme::motion::{DURATION_DELIBERATE, DURATION_STANDARD, EASE_OUT},
+    theme::motion::{DURATION_DELIBERATE, EASE_OUT},
     transition::Tween,
 };
 use gpui::{App, Context, Div, Global, RenderImage, Task, Window, div, img, prelude::*, px};
 use panorama_core::addons::Kind;
-use panorama_mpv::{Clip, ClipState, MAX_CLIP_WIDTH};
+use panorama_mpv::{Clip, ClipState};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -22,11 +21,6 @@ use std::{
 /// How long a trailer plays before giving way to the artwork again, counted from when it first
 /// shows, across the card, the zoom and the banner.
 const PREVIEW_FOR: Duration = Duration::from_secs(30);
-/// How far ahead of the playing trailer a sharper stream is held, to have it open and on its
-/// frame in time: a lookup and a stream's first frame each take about a second.
-const SHARPEN_LEAD: f64 = 3.5;
-/// Attempts at a sharper stream per visit; one that misses its moment is tried again.
-const SHARPEN_TRIES: u8 = 3;
 /// Frames with picture in them that decide how much letterbox to crop.
 const BAR_SAMPLES: u8 = 8;
 /// A channel this dark or darker counts as letterbox black (video black sits near 16).
@@ -46,12 +40,6 @@ pub struct TrailerPreview {
     /// When the trailer gives way to the artwork; set as it fades in, cleared once it has
     /// ended, so it plays only once.
     ends: Option<Instant>,
-    /// The width of the stream playing, once known.
-    width: u32,
-    /// A sharper stream held on the frame at these seconds, waiting to take over.
-    hold: Option<f64>,
-    /// The lookup found nothing sharper, or nothing at all.
-    gave_up: bool,
 }
 
 impl TrailerPreview {
@@ -67,7 +55,24 @@ impl TrailerPreview {
         found: impl Fn(&mut V) -> Option<&mut TrailerPreview> + 'static,
     ) -> Self {
         let pixels = pixels(size, window);
-        let lookup = Self::look_up(kind, id, pixels, pixels.0, None, services, cx, found);
+        let mut job: Job<_> = services.trailer(kind, id.to_owned());
+        let film = id.to_owned();
+        let lookup = cx.spawn(async move |view, cx| {
+            let result = (&mut job.0).await.ok().flatten();
+            let _ = view.update(cx, |view, cx| {
+                let Some(trailer) = found(view).filter(|trailer| trailer.film == film) else {
+                    return;
+                };
+                if trailer.clip.is_none()
+                    && let Some((found, library)) = result
+                {
+                    trailer.clip = library
+                        .clip(&found.playlist, pixels.0, pixels.1, None, false)
+                        .ok();
+                    cx.notify();
+                }
+            });
+        });
         Self {
             film: id.to_owned(),
             lookup: Some(lookup),
@@ -76,88 +81,7 @@ impl TrailerPreview {
             fade: Tween::fixed(0.0),
             bars: (1.0, 0),
             ends: None,
-            width: 0,
-            hold: None,
-            gave_up: false,
         }
-    }
-
-    /// A sharper stream of `base`'s trailer for a place `size` points large, opened
-    /// `SHARPEN_LEAD` seconds ahead and held there; `None` before `base` reports a position.
-    #[allow(clippy::too_many_arguments)]
-    pub fn sharpen<V: 'static>(
-        base: &TrailerPreview,
-        kind: Kind,
-        size: (f32, f32),
-        services: &Arc<Services>,
-        window: &Window,
-        cx: &mut Context<V>,
-        found: impl Fn(&mut V) -> Option<&mut TrailerPreview> + 'static,
-    ) -> Option<Self> {
-        let hold = base.position()? + SHARPEN_LEAD;
-        let pixels = pixels(size, window);
-        let wanted = pixels.0.min(MAX_CLIP_WIDTH);
-        let held = Some((hold, base.width));
-        let lookup = Self::look_up(kind, &base.film, pixels, wanted, held, services, cx, found);
-        Some(Self {
-            film: base.film.clone(),
-            lookup: Some(lookup),
-            clip: None,
-            image: None,
-            fade: Tween::fixed(0.0),
-            // The same trailer drawn at the same shape: the measured letterbox holds.
-            bars: base.bars,
-            ends: base.ends,
-            width: 0,
-            hold: Some(hold),
-            gave_up: false,
-        })
-    }
-
-    /// Finds a stream about `width` pixels wide and plays it at `pixels`; `held` opens it
-    /// paused at those seconds, and only if it is wider than the one given.
-    #[allow(clippy::too_many_arguments)]
-    fn look_up<V: 'static>(
-        kind: Kind,
-        id: &str,
-        pixels: (u32, u32),
-        width: u32,
-        held: Option<(f64, u32)>,
-        services: &Arc<Services>,
-        cx: &mut Context<V>,
-        found: impl Fn(&mut V) -> Option<&mut TrailerPreview> + 'static,
-    ) -> Task<()> {
-        let mut job: Job<_> = services.trailer(kind, id.to_owned(), width);
-        let film = id.to_owned();
-        cx.spawn(async move |view, cx| {
-            let result = (&mut job.0).await.ok().flatten();
-            let _ = view.update(cx, |view, cx| {
-                let Some(trailer) = found(view).filter(|trailer| trailer.film == film) else {
-                    return;
-                };
-                if trailer.clip.is_some() {
-                    return;
-                }
-                let sharper = |width: u32| held.is_none_or(|(_, playing)| width > playing);
-                match result {
-                    Some((variant, library)) if sharper(variant.width) => {
-                        trailer.width = variant.width;
-                        trailer.clip = library
-                            .clip(
-                                variant.url.as_str(),
-                                pixels.0,
-                                pixels.1,
-                                held.map(|(at, _)| at),
-                                held.is_some(),
-                            )
-                            .ok();
-                        trailer.gave_up = trailer.clip.is_none();
-                    }
-                    _ => trailer.gave_up = true,
-                }
-                cx.notify();
-            });
-        })
     }
 
     pub fn film(&self) -> &str {
@@ -169,11 +93,6 @@ impl TrailerPreview {
         self.clip
             .as_ref()
             .is_some_and(|clip| clip.state() != ClipState::Failed)
-    }
-
-    /// Seconds into the trailer, once it plays.
-    pub fn position(&self) -> Option<f64> {
-        self.clip.as_ref()?.position()
     }
 
     /// Whether the trailer has finished fading in and is still on.
@@ -355,13 +274,10 @@ impl Handoff {
 }
 
 /// The film page's banner trailer: the one handed on from the card that opened the page, or one
-/// of its own, played once per visit, and swapped for a sharper stream when it can be.
+/// of its own, played once per visit.
 #[derive(Default)]
 pub struct BannerTrailer {
     trailer: Option<TrailerPreview>,
-    /// A sharper stream of the same trailer, held ahead until the playing one reaches it.
-    sharper: Option<TrailerPreview>,
-    tries: u8,
     started: bool,
 }
 
@@ -383,13 +299,10 @@ impl BannerTrailer {
         banner: fn(&mut V) -> &mut BannerTrailer,
     ) {
         if !active || reduced {
-            for trailer in [self.trailer.take(), self.sharper.take()]
-                .into_iter()
-                .flatten()
-            {
+            if let Some(trailer) = self.trailer.take() {
                 trailer.release(window);
             }
-            (self.started, self.tries) = (false, 0);
+            self.started = false;
             return;
         }
         if !self.started {
@@ -402,91 +315,20 @@ impl BannerTrailer {
                 })
             });
         }
-        let Some(trailer) = &mut self.trailer else {
-            return;
-        };
-        trailer.resize(size, window);
-        trailer.advance(window);
-        let wanted = (size.0 * window.scale_factor()).min(MAX_CLIP_WIDTH as f32) as u32;
-        if self.sharper.is_none()
-            && self.tries < SHARPEN_TRIES
-            && trailer.shown()
-            && trailer.width > 0
-            && (trailer.width as f32) < wanted as f32 * 0.9
-            && let Some(services) = services
-        {
-            self.sharper =
-                TrailerPreview::sharpen(trailer, kind, size, services, window, cx, move |view| {
-                    banner(view).sharper.as_mut()
-                });
-            self.tries += u8::from(self.sharper.is_some());
-        }
-        self.settle_sharper(size, window);
-    }
-
-    /// Plays the sharper stream once the trailer reaches the frame it holds, and lets the
-    /// trailer go once it has faded in over it; drops one that misses its moment or finds
-    /// nothing sharper.
-    fn settle_sharper(&mut self, size: (f32, f32), window: &Window) {
-        let (Some(trailer), Some(sharper)) = (&self.trailer, &mut self.sharper) else {
-            return;
-        };
-        sharper.resize(size, window);
-        sharper.advance(window);
-        let missed = match (sharper.hold, trailer.position()) {
-            _ if sharper.gave_up || !trailer.playing() => {
-                if sharper.gave_up {
-                    self.tries = SHARPEN_TRIES;
-                }
-                true
-            }
-            // Past the held frame (where mpv actually stopped, once it says), or looped back
-            // to the start of the trailer.
-            (Some(hold), Some(at)) if at >= sharper.position().unwrap_or(hold) - 0.02 => {
-                if sharper.image.is_some() && sharper.playing() {
-                    if let Some(clip) = &sharper.clip {
-                        clip.resume();
-                    }
-                    sharper.hold = None;
-                    sharper
-                        .fade
-                        .retarget(1.0, DURATION_STANDARD, Some(EASE_OUT), Instant::now());
-                    false
-                } else {
-                    true
-                }
-            }
-            (Some(hold), Some(at)) => at + 2.0 * SHARPEN_LEAD < hold,
-            (None, _) => {
-                if !sharper.fade.moving(Instant::now(), false)
-                    && let Some(sharper) = self.sharper.take()
-                    && let Some(old) = self.trailer.replace(sharper)
-                {
-                    old.release(window);
-                }
-                false
-            }
-            (Some(_), None) => false,
-        };
-        if missed && let Some(sharper) = self.sharper.take() {
-            sharper.release(window);
+        if let Some(trailer) = &mut self.trailer {
+            trailer.resize(size, window);
+            trailer.advance(window);
         }
     }
 
     pub fn moving(&self, reduced: bool) -> bool {
-        [&self.trailer, &self.sharper]
-            .into_iter()
-            .flatten()
-            .any(|trailer| trailer.moving(reduced))
+        self.trailer
+            .as_ref()
+            .is_some_and(|trailer| trailer.moving(reduced))
     }
 
     pub fn layer(&self, bounds: (f32, f32), shown: f32, reduced: bool) -> Option<Div> {
-        let below = self.trailer.as_ref()?.layer(bounds, shown, reduced)?;
-        let above = self
-            .sharper
-            .as_ref()
-            .and_then(|sharper| sharper.layer(bounds, shown, reduced));
-        Some(div().absolute().inset_0().child(below).children(above))
+        self.trailer.as_ref()?.layer(bounds, shown, reduced)
     }
 }
 

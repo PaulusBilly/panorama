@@ -1,11 +1,16 @@
 //! Trailer clips for the hover preview: a film's YouTube trailer from Cinemeta, turned into a
 //! video-only HLS playlist that libmpv can open directly. Asks YouTube the way its visionOS app
 //! does, whose answer carries plain playlist links (no signature puzzles to solve), so a lookup
-//! is two small requests instead of a bundled downloader.
+//! is a few small requests instead of a bundled downloader. The stream's own playlist is read
+//! here, cut to start where the clip does, and served to libmpv through a loopback relay
+//! ([`relay`]) that has the segments ready before libmpv asks.
+mod relay;
+
+use relay::Relay;
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use url::Url;
@@ -28,6 +33,13 @@ const VISITOR_FOR: Duration = Duration::from_secs(60 * 60);
 const PLAYLIST_FOR: Duration = Duration::from_secs(60 * 60);
 /// Largest response read from any of these services.
 const MAX_BODY: usize = 2 * 1024 * 1024;
+/// Where a clip starts, as a share of the trailer: past the rating card and studio logos that
+/// trailers open on.
+const START_SHARE: f64 = 0.08;
+/// Widest stream taken. Clips are drawn at no more than 1080p, so wider streams add only
+/// download and decoding; a 1440p stream drawn down is still the sharpest picture, since
+/// YouTube gives it several times the bitrate of its 1080p ones.
+const MAX_STREAM_WIDTH: u32 = 2560;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrailerError {
@@ -44,7 +56,10 @@ pub struct TrailerClient {
     visitor: Mutex<Option<(String, Instant)>>,
     /// Film ID to YouTube video ID, `None` for a film without one.
     videos: Mutex<HashMap<String, Option<String>>>,
-    playlists: Mutex<HashMap<(String, u32), (Variant, Instant)>>,
+    playlists: Mutex<HashMap<String, (Variant, Instant)>>,
+    /// A stream's own playlist, by its link.
+    segments: Mutex<HashMap<Url, (String, Instant)>>,
+    relay: tokio::sync::OnceCell<Option<Arc<Relay>>>,
 }
 
 impl TrailerClient {
@@ -62,33 +77,63 @@ impl TrailerClient {
             visitor: Mutex::new(None),
             videos: Mutex::new(HashMap::new()),
             playlists: Mutex::new(HashMap::new()),
+            segments: Mutex::new(HashMap::new()),
+            relay: tokio::sync::OnceCell::new(),
         })
     }
 
-    /// A video-only playlist of the film's trailer, about `width` pixels wide. `kind` is the
-    /// addon type (`movie` or `series`); only IMDb IDs have Cinemeta trailers.
-    pub async fn playlist(
-        &self,
-        kind: &str,
-        film_id: &str,
-        width: u32,
-    ) -> Result<Variant, TrailerError> {
+    /// The film's trailer at its best quality, ready for libmpv. `kind` is the addon type
+    /// (`movie` or `series`); only IMDb IDs have Cinemeta trailers.
+    pub async fn clip(&self, kind: &str, film_id: &str) -> Result<Trailer, TrailerError> {
+        let variant = self.playlist(kind, film_id).await?;
+        let cached = self
+            .segments
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&variant.url).cloned())
+            .filter(|(_, at)| at.elapsed() < PLAYLIST_FOR);
+        let media = match cached {
+            Some((media, _)) => media,
+            None => {
+                let media = self.text(self.http.get(variant.url.as_str())).await?;
+                if let Ok(mut cache) = self.segments.lock() {
+                    cache.insert(variant.url.clone(), (media.clone(), Instant::now()));
+                }
+                media
+            }
+        };
+        let cut = trim(&media).ok_or(TrailerError::Unavailable)?;
+        let relay = self
+            .relay
+            .get_or_init(Relay::start)
+            .await
+            .as_ref()
+            .ok_or(TrailerError::Network)?;
+        Ok(Trailer {
+            playlist: relay
+                .add(cut.init, &cut.segments)
+                .ok_or(TrailerError::Network)?,
+            width: variant.width,
+        })
+    }
+
+    /// The video-only playlist of the film's trailer at its best quality.
+    async fn playlist(&self, kind: &str, film_id: &str) -> Result<Variant, TrailerError> {
         let video = self.video(kind, film_id).await?;
-        let key = (video.clone(), width);
         if let Some((variant, at)) = self
             .playlists
             .lock()
             .ok()
-            .and_then(|cache| cache.get(&key).cloned())
+            .and_then(|cache| cache.get(&video).cloned())
             && at.elapsed() < PLAYLIST_FOR
         {
             return Ok(variant);
         }
         let master = self.master(&video).await?;
         let text = self.text(self.http.get(master.as_str())).await?;
-        let variant = best_variant(&text, width).ok_or(TrailerError::Unavailable)?;
+        let variant = best_variant(&text).ok_or(TrailerError::Unavailable)?;
         if let Ok(mut cache) = self.playlists.lock() {
-            cache.insert(key, (variant.clone(), Instant::now()));
+            cache.insert(video, (variant.clone(), Instant::now()));
         }
         Ok(variant)
     }
@@ -288,12 +333,11 @@ pub struct Variant {
     pub width: u32,
 }
 
-/// Picks a video variant from a master playlist: H.264 (cheap to decode) at the narrowest width
-/// covering `width`, else the widest below it. Width, not height, since trailers come both
-/// letterboxed in 16:9 and cut to their own wider shape. YouTube's variants are video only, with
-/// audio in separate renditions, so the clip downloads no sound.
-fn best_variant(master: &str, width: u32) -> Option<Variant> {
-    let mut variants = Vec::new();
+/// Picks the best video variant from a master playlist: the highest bitrate, H.264 or VP9, no
+/// wider than `MAX_STREAM_WIDTH`. YouTube's variants are video only, with audio in separate
+/// renditions, so the clip downloads no sound.
+fn best_variant(master: &str) -> Option<Variant> {
+    let mut best: Option<(u64, Variant)> = None;
     let mut lines = master.lines();
     while let Some(line) = lines.next() {
         let Some(attributes) = line.strip_prefix("#EXT-X-STREAM-INF:") else {
@@ -308,21 +352,100 @@ fn best_variant(master: &str, width: u32) -> Option<Variant> {
         else {
             continue;
         };
-        let h264 = attribute(attributes, "CODECS").is_some_and(|codecs| codecs.contains("avc1"));
+        let Some(bandwidth) =
+            attribute(attributes, "BANDWIDTH").and_then(|bits| bits.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        let codec = attribute(attributes, "CODECS").and_then(|codecs| codecs.split(',').next());
+        let decodable =
+            codec.is_some_and(|codec| codec.starts_with("avc1") || codec.starts_with("vp09"));
         let Ok(url) = Url::parse(uri) else {
             continue;
         };
-        if h264 && is_manifest(&url) {
-            variants.push(Variant { url, width: wide });
+        if decodable
+            && wide <= MAX_STREAM_WIDTH
+            && is_manifest(&url)
+            && best.as_ref().is_none_or(|(most, _)| bandwidth > *most)
+        {
+            best = Some((bandwidth, Variant { url, width: wide }));
         }
     }
-    let covering = variants
+    best.map(|(_, variant)| variant)
+}
+
+/// A trailer ready for libmpv.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Trailer {
+    /// The stream's playlist from the segment the clip starts in, as a loopback link.
+    pub playlist: String,
+    pub width: u32,
+}
+
+/// A stream's segments from the one the clip starts in, and the header segment fragmented MP4
+/// streams (VP9) start with.
+#[derive(Debug, PartialEq)]
+struct Cut {
+    init: Option<Url>,
+    segments: Vec<(f64, Url)>,
+}
+
+/// The stream's playlist cut to begin with the segment `START_SHARE` of the way in, so libmpv's
+/// first download is the picture it shows. Only a plain playlist of whole segments from
+/// YouTube's video servers passes: anything else, such as encryption or byte ranges, is refused
+/// rather than handed on.
+fn trim(media: &str) -> Option<Cut> {
+    let mut init = None;
+    let mut segments = Vec::new();
+    let mut duration = None;
+    let mut ended = false;
+    for line in media.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if let Some(seconds) = line.strip_prefix("#EXTINF:") {
+            let seconds = seconds.split(',').next()?.parse::<f64>().ok()?;
+            (seconds.is_finite() && seconds > 0.0).then_some(())?;
+            duration = Some(seconds);
+        } else if let Some(map) = line.strip_prefix("#EXT-X-MAP:") {
+            // Only a whole header file, and only one.
+            (init.is_none() && attribute(map, "BYTERANGE").is_none()).then_some(())?;
+            let url = Url::parse(attribute(map, "URI")?).ok()?;
+            relay::is_video_server(&url).then_some(())?;
+            init = Some(url);
+        } else if line == "#EXT-X-ENDLIST" {
+            ended = true;
+        } else if line.starts_with('#') {
+            const HEADER: [&str; 6] = [
+                "#EXTM3U",
+                "#EXT-X-VERSION:",
+                "#EXT-X-PLAYLIST-TYPE:VOD",
+                "#EXT-X-TARGETDURATION:",
+                "#EXT-X-MEDIA-SEQUENCE:",
+                "#EXT-X-INDEPENDENT-SEGMENTS",
+            ];
+            HEADER
+                .iter()
+                .any(|tag| line.starts_with(tag))
+                .then_some(())?;
+        } else {
+            let url = Url::parse(line).ok()?;
+            relay::is_video_server(&url).then_some(())?;
+            segments.push((duration.take()?, url));
+        }
+    }
+    (ended && !segments.is_empty()).then_some(())?;
+    let total: f64 = segments.iter().map(|(seconds, _)| seconds).sum();
+    let target = total * START_SHARE;
+    let mut elapsed = 0.0;
+    let first = segments
         .iter()
-        .filter(|variant| variant.width >= width)
-        .min_by_key(|variant| variant.width);
-    covering
-        .or_else(|| variants.iter().max_by_key(|variant| variant.width))
-        .cloned()
+        .position(|(seconds, _)| {
+            elapsed += seconds;
+            elapsed > target
+        })
+        .unwrap_or(0);
+    Some(Cut {
+        init,
+        segments: segments.split_off(first),
+    })
 }
 
 /// An attribute of an HLS tag, unquoted. Quoted values may contain commas.
@@ -363,7 +486,17 @@ https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/231/v480.m3u8
 https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/232/v720.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=338123,CODECS="vp09.00.20.08,mp4a.40.2",RESOLUTION=854x480,FRAME-RATE=24,AUDIO="234"
 https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/244/vp9.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=9,CODECS="avc1.4D401F",RESOLUTION=640x360
+#EXT-X-STREAM-INF:BANDWIDTH=1765000,CODECS="vp09.00.40.08,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=24,AUDIO="234"
+https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/248/vp9-1080.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=3350000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=24,AUDIO="234"
+https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/137/v1080.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=6008533,CODECS="vp09.00.50.08,mp4a.40.2",RESOLUTION=2560x1440,FRAME-RATE=24,AUDIO="234"
+https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/271/vp9-1440.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=16460000,CODECS="vp09.00.50.08,mp4a.40.2",RESOLUTION=3840x2160,FRAME-RATE=24,AUDIO="234"
+https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/313/vp9-2160.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=9000000,CODECS="av01.0.08M.08",RESOLUTION=1920x1080
+https://manifest.googlevideo.com/api/manifest/hls_playlist/itag/399/av1.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=99000000,CODECS="avc1.4D401F",RESOLUTION=640x360
 https://evil.example/v360.m3u8
 "#;
 
@@ -378,24 +511,154 @@ https://evil.example/v360.m3u8
     }
 
     #[test]
-    fn variants_cover_the_width_with_h264_from_youtube() {
+    fn the_best_stream_is_the_richest_up_to_1440p() {
+        // Not 4K (too wide), AV1 (not decoded) or another host, however rich.
         assert_eq!(
-            tail(best_variant(MASTER, 700)).as_deref(),
-            Some("v480.m3u8@854")
+            tail(best_variant(MASTER)).as_deref(),
+            Some("vp9-1440.m3u8@2560")
         );
+        // Without VP9, H.264 1080p.
+        let mut h264 = String::new();
+        let mut lines = MASTER.lines();
+        while let Some(line) = lines.next() {
+            if line.contains("vp09") {
+                lines.next();
+            } else {
+                h264.push_str(&format!("{line}\n"));
+            }
+        }
         assert_eq!(
-            tail(best_variant(MASTER, 854)).as_deref(),
-            Some("v480.m3u8@854")
+            tail(best_variant(&h264)).as_deref(),
+            Some("v1080.m3u8@1920")
         );
+        assert_eq!(best_variant("#EXTM3U\n"), None);
+    }
+
+    const MEDIA: &str = "#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-TARGETDURATION:8
+#EXTINF:5.0,
+https://rr1---sn-a.googlevideo.com/videoplayback/sq/0/x.ts
+#EXTINF:5.0,
+https://rr1---sn-a.googlevideo.com/videoplayback/sq/1/x.ts
+#EXTINF:6.5,
+https://rr1---sn-a.googlevideo.com/videoplayback/sq/2/x.ts
+#EXTINF:3.5,
+https://rr1---sn-a.googlevideo.com/videoplayback/sq/3/x.ts
+#EXT-X-ENDLIST
+";
+
+    fn segments(cut: &Cut) -> Vec<&str> {
+        cut.segments.iter().map(|(_, url)| url.as_str()).collect()
+    }
+
+    #[test]
+    fn clips_start_with_the_segment_they_show() {
+        // 8% of 20 s is 1.6 s, in the first segment.
+        let short = trim(MEDIA).unwrap();
+        assert_eq!(segments(&short).len(), 4);
+        assert_eq!(short.init, None);
+        // 8% of 100 s is 8 s, in the second segment (5 to 10 s).
+        let long = MEDIA.replace("6.5,", "10.0,").replace("3.5,", "80.0,");
+        let long = trim(&long).unwrap();
         assert_eq!(
-            tail(best_variant(MASTER, 300)).as_deref(),
-            Some("v240.m3u8@426")
+            segments(&long),
+            [
+                "https://rr1---sn-a.googlevideo.com/videoplayback/sq/1/x.ts",
+                "https://rr1---sn-a.googlevideo.com/videoplayback/sq/2/x.ts",
+                "https://rr1---sn-a.googlevideo.com/videoplayback/sq/3/x.ts",
+            ]
         );
+        assert_eq!(long.segments[0].0, 5.0);
+    }
+
+    #[test]
+    fn fragmented_streams_keep_their_header() {
+        let header = "#EXT-X-MAP:URI=\"https://rr1---sn-a.googlevideo.com/videoplayback/init\"\n";
+        let vp9 = MEDIA.replace(
+            "#EXTINF:5.0,\nhttps://rr1---sn-a.googlevideo.com/videoplayback/sq/0",
+            &format!("{header}#EXTINF:5.0,\nhttps://rr1---sn-a.googlevideo.com/videoplayback/sq/0"),
+        );
+        let cut = trim(&vp9).unwrap();
         assert_eq!(
-            tail(best_variant(MASTER, 3000)).as_deref(),
-            Some("v720.m3u8@1280")
+            cut.init.as_ref().map(Url::as_str),
+            Some("https://rr1---sn-a.googlevideo.com/videoplayback/init")
         );
-        assert_eq!(best_variant("#EXTM3U\n", 480), None);
+        let ranged = vp9.replace("/init\"", "/init\",BYTERANGE=\"720@0\"");
+        let elsewhere = vp9.replace(
+            "rr1---sn-a.googlevideo.com/videoplayback/init",
+            "evil.example/init",
+        );
+        let twice = vp9.replace("#EXT-X-VERSION:3", &format!("#EXT-X-VERSION:3\n{header}"));
+        for media in [ranged, elsewhere, twice] {
+            assert_eq!(trim(&media), None, "{media}");
+        }
+    }
+
+    #[test]
+    fn only_plain_youtube_playlists_are_trimmed() {
+        let elsewhere = MEDIA.replace("rr1---sn-a.googlevideo.com", "evil.example");
+        let lookalike = MEDIA.replace("rr1---sn-a.googlevideo.com", "googlevideo.com.evil.example");
+        let plain = MEDIA.replace("https://rr1", "http://rr1");
+        let local = MEDIA.replace("https://rr1---sn-a.googlevideo.com", "file://");
+        let keyed = MEDIA.replace("#EXT-X-VERSION:3", "#EXT-X-KEY:METHOD=AES-128,URI=\"x\"");
+        let unfinished = MEDIA.replace("#EXT-X-ENDLIST", "");
+        let untimed = MEDIA.replacen("#EXTINF:5.0,", "", 1);
+        for media in [
+            elsewhere,
+            lookalike,
+            plain,
+            local,
+            keyed,
+            unfinished,
+            untimed,
+            String::new(),
+        ] {
+            assert_eq!(trim(&media), None, "{media}");
+        }
+    }
+
+    /// The relay serves a clip's playlist under its own path and nothing else.
+    #[tokio::test]
+    async fn the_relay_serves_only_its_clips() {
+        let relay = relay::Relay::start().await.unwrap();
+        let cut = trim(MEDIA).unwrap();
+        let link = Url::parse(&relay.add(None, &cut.segments[2..]).unwrap()).unwrap();
+        assert_eq!(link.host_str(), Some("127.0.0.1"));
+        let http = reqwest::Client::new();
+        let playlist = http.get(link.clone()).send().await.unwrap();
+        assert_eq!(playlist.status(), 200);
+        assert_eq!(
+            playlist.text().await.unwrap(),
+            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:7\n\
+             #EXTINF:6.5,\n0.ts\n#EXTINF:3.5,\n1.ts\n#EXT-X-ENDLIST\n"
+        );
+        let header = Url::parse("https://rr1---sn-a.googlevideo.com/videoplayback/init").unwrap();
+        let fragmented = Url::parse(&relay.add(Some(header), &cut.segments[3..]).unwrap()).unwrap();
+        assert!(
+            http.get(fragmented)
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+                .contains(
+                    "#EXT-X-VERSION:6\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:4\n\
+                 #EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:3.5,\n0.m4s\n"
+                )
+        );
+        let mut other = link.clone();
+        other.set_path("/0123456789abcdef0123456789abcdef/index.m3u8");
+        let mut missing = link.clone();
+        missing.set_path(&link.path().replace("index.m3u8", "9.ts"));
+        let mut headless = link.clone();
+        headless.set_path(&link.path().replace("index.m3u8", "init.mp4"));
+        for url in [other, missing, headless] {
+            assert_eq!(http.get(url).send().await.unwrap().status(), 404);
+        }
+        assert_eq!(http.post(link).send().await.unwrap().status(), 405);
     }
 
     #[test]
@@ -452,15 +715,29 @@ https://evil.example/v360.m3u8
     async fn a_live_trailer_resolves() {
         let client = TrailerClient::new().unwrap();
         let started = Instant::now();
-        let small = client.playlist("movie", "tt1375666", 800).await.unwrap();
-        let large = client.playlist("movie", "tt1375666", 1920).await.unwrap();
-        eprintln!(
-            "{:?} {} then {}",
-            started.elapsed(),
-            small.width,
-            large.width
-        );
-        assert!(is_manifest(&small.url) && is_manifest(&large.url));
-        assert!(small.width >= 800 && small.width < large.width && large.width >= 1920);
+        let clip = client.clip("movie", "tt1375666").await.unwrap();
+        eprintln!("{:?} {}", started.elapsed(), clip.width);
+        assert!(clip.width >= 1920 && clip.width <= MAX_STREAM_WIDTH);
+        // The first segment comes through the relay, fetched from YouTube.
+        let base = Url::parse(&clip.playlist).unwrap();
+        let playlist = reqwest::get(base.clone())
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let first = playlist
+            .lines()
+            .find(|line| line.starts_with("0."))
+            .expect("a first segment");
+        for file in ["init.mp4", first] {
+            let wanted = playlist.contains(file) || file == first;
+            if !wanted {
+                continue;
+            }
+            let response = reqwest::get(base.join(file).unwrap()).await.unwrap();
+            assert_eq!(response.status(), 200, "{file}");
+            assert!(response.bytes().await.unwrap().len() > 500, "{file}");
+        }
     }
 }

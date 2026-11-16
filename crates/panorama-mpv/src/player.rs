@@ -58,8 +58,8 @@ pub struct Player {
 
 impl MpvLibrary {
     /// Starts a muted, looping `http(s)` clip drawn into memory at about `width`×`height`
-    /// pixels, for video composited inside the interface, at `from` seconds or past its
-    /// opening logos. A `paused` clip holds its first frame until [`crate::Clip::resume`].
+    /// pixels, for video composited inside the interface, at `from` seconds or from its
+    /// start. A `paused` clip holds its first frame until [`crate::Clip::resume`].
     /// Returns at once.
     pub fn clip(
         &self,
