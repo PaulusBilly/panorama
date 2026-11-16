@@ -58,6 +58,11 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     ("gpu-api", "vulkan", false),
     ("gpu-context", "panorama-macvk", false),
     ("target-colorspace-hint", "auto", false),
+    // HDR goes to the layer as PQ so macOS tone-maps it to the screen's EDR headroom, as
+    // AVFoundation does for Apple TV and QuickTime. The default (`target`) tone-mapped in
+    // libplacebo against a headroom read before any EDR content was on screen, and came
+    // out visibly darker than QuickTime from the mid-tones up. SDR is unaffected.
+    ("target-colorspace-hint-mode", "source", false),
     // Per-frame HDR peak measurement is a compute pass on every 4K frame; HDR10/HDR10+
     // metadata already carries the peak, and skipping it keeps fanless Macs cooler.
     ("hdr-compute-peak", "no", false),
