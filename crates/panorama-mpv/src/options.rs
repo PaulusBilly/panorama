@@ -70,3 +70,18 @@ pub(crate) const OPTIONS: &[(&str, &str, bool)] = &[
     // metadata already carries the peak, and skipping it keeps fanless Macs cooler.
     ("hdr-compute-peak", "no", false),
 ];
+
+/// Applied over `OPTIONS` when the window's screen has little HDR headroom, like a MacBook
+/// Air's (2x). Handing PQ to such a screen lets macOS show diffuse white well below SDR
+/// white, so HDR films look darker than their SDR release; Stremio and Nuvio come out
+/// brighter. Here libplacebo maps HDR to plain SDR instead: 120 nits, near where SDR grades
+/// sit, becomes white, and `mobius` keeps tones linear below 60% of white and rolls the
+/// rest off. On an HDR10 test ramp on an M2 MacBook Air this lifts 100 nits from 150 to
+/// 225 and 203 nits from 185 to 244, while 400 and 1000 nits stay apart (251, 253).
+#[cfg(target_os = "macos")]
+pub(crate) const LOW_HEADROOM_OPTIONS: &[(&str, &str)] = &[
+    ("target-colorspace-hint", "no"),
+    ("tone-mapping", "mobius"),
+    ("tone-mapping-param", "0.6"),
+    ("hdr-reference-white", "120"),
+];

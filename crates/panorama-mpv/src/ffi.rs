@@ -105,6 +105,12 @@ impl Client {
         }
         if let Some(window) = &options.wid {
             self.option("wid", &window.id().to_string())?;
+            #[cfg(target_os = "macos")]
+            if window.lease.low_headroom() {
+                for &(key, value) in crate::options::LOW_HEADROOM_OPTIONS {
+                    self.option(key, value)?;
+                }
+            }
         }
         for (key, value) in &options.extra {
             self.option(key, value)?;
