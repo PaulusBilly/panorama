@@ -52,6 +52,8 @@ struct EndFile {
 pub(crate) struct Received {
     pub events: Vec<PlayerEvent>,
     pub reply: bool,
+    /// The userdata the replied request was queued with; 0 unless it was tagged.
+    pub tag: u64,
     pub shutdown: bool,
 }
 
@@ -60,6 +62,7 @@ impl Client {
         let mut result = Received {
             events: Vec::new(),
             reply: false,
+            tag: 0,
             shutdown: false,
         };
         // SAFETY: Only the dedicated event thread waits on this live handle. Event
@@ -69,6 +72,7 @@ impl Client {
                 return result;
             };
             result.reply = matches!(event.id, 4 | 5);
+            result.tag = event.userdata;
             result.shutdown = event.id == 1;
             if event.error < 0 {
                 result

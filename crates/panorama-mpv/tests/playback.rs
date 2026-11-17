@@ -368,3 +368,37 @@ fn a_subtitle_that_cannot_load_fails_alone() {
     }
     close(player);
 }
+
+#[test]
+fn a_subtitle_that_never_arrives_does_not_hold_pause() {
+    let (_media, video, _) = media();
+    let Some((player, events)) = player(&[]) else {
+        return;
+    };
+    // A subtitle host that accepts the connection and never answers.
+    let host = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = host.local_addr().unwrap().port();
+    thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in host.incoming().flatten() {
+            held.push(stream);
+        }
+    });
+    player.load(video.to_str().unwrap()).unwrap();
+    wait(
+        &events,
+        |event| matches!(event, PlayerEvent::TrackList(tracks) if !tracks.is_empty()),
+    );
+    player
+        .add_subtitle(&format!("http://127.0.0.1:{port}/slow.srt"), "Addon", "eng")
+        .unwrap();
+    player.set_pause(true).unwrap();
+    let paused = Instant::now();
+    wait(&events, |event| *event == PlayerEvent::Pause(true));
+    assert!(
+        paused.elapsed() < Duration::from_secs(2),
+        "pause waited {:?} on the subtitle download",
+        paused.elapsed()
+    );
+    close(player);
+}
