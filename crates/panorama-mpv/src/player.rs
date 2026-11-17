@@ -16,6 +16,8 @@ use std::{
 };
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Reply userdata of `sub-add` commands, which the worker does not wait on.
+const SUBTITLE_REPLY: u64 = 1;
 
 /// Runtime loader namespace. Load on an application background thread.
 pub struct Mpv;
@@ -337,9 +339,8 @@ fn run(
         }
         let _ = updates.send(PlayerEvent::Ready);
         let mut properties = Properties::default();
+        // A request awaits its reply; the next waits so mpv applies them in order.
         let mut pending = false;
-        // The command awaiting its reply is a subtitle file's.
-        let mut subtitle = false;
         let mut batch = std::collections::VecDeque::new();
         while !stopping.load(Ordering::Acquire) {
             if !pending {
@@ -348,10 +349,16 @@ fn run(
                 } else {
                     incoming.try_recv().ok()
                 };
-                subtitle = matches!(next, Some(Request::Subtitle(_)));
                 let result = match next {
-                    Some(Request::Command(args) | Request::Subtitle(args)) => {
-                        Some(client.command(&args))
+                    Some(Request::Command(args)) => Some(client.command(&args)),
+                    // `sub-add` replies only once its file has downloaded, which can take as
+                    // long as the server likes, so nothing waits on it: a slow subtitle host
+                    // would otherwise hold pause, seeks and track changes until it answered.
+                    Some(Request::Subtitle(args)) => {
+                        if client.command_tagged(&args, SUBTITLE_REPLY).is_err() {
+                            let _ = updates.send(PlayerEvent::SubtitleFailed);
+                        }
+                        continue;
                     }
                     Some(Request::Property(name, mut value)) => Some(client.set(&name, &mut value)),
                     Some(Request::Properties(values)) => {
@@ -363,17 +370,13 @@ fn run(
                 if let Some(result) = result {
                     pending = result.is_ok();
                     if let Err(error) = result {
-                        let _ = updates.send(if subtitle {
-                            PlayerEvent::SubtitleFailed
-                        } else {
-                            PlayerEvent::Error(error)
-                        });
+                        let _ = updates.send(PlayerEvent::Error(error));
                     }
                 }
             }
             let received = client.receive(&mut properties);
-            let subtitle_reply = received.reply && std::mem::take(&mut subtitle);
-            if received.reply {
+            let subtitle_reply = received.reply && received.tag == SUBTITLE_REPLY;
+            if received.reply && !subtitle_reply {
                 pending = false;
             }
             for event in received.events {

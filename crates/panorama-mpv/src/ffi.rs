@@ -135,6 +135,11 @@ impl Client {
     }
 
     pub(crate) fn command(&self, args: &[String]) -> Result<(), MpvError> {
+        self.command_tagged(args, 0)
+    }
+
+    /// Queues `args`; its reply event carries `tag` as its userdata.
+    pub(crate) fn command_tagged(&self, args: &[String], tag: u64) -> Result<(), MpvError> {
         let args = args
             .iter()
             .map(|v| cstring(v))
@@ -142,7 +147,7 @@ impl Client {
         let mut pointers: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
         pointers.push(ptr::null());
         // SAFETY: A null-terminated argv of live C strings; async API copies them before return.
-        check(unsafe { (self.api.command)(self.handle as Handle, 0, pointers.as_ptr()) })
+        check(unsafe { (self.api.command)(self.handle as Handle, tag, pointers.as_ptr()) })
     }
 
     pub(crate) fn set(&self, name: &str, value: &mut PropertyValue) -> Result<(), MpvError> {
