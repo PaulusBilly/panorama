@@ -87,10 +87,7 @@ impl Render for Player {
         let panel = self.panel_surface(theme, keyboard, window, cx);
         let popups = self.popups(theme, cx);
         let cue = self.cue_overlay();
-        let band = crate::playback::surface::top_inset(
-            f32::from(window.viewport_size().height),
-            self.model.fullscreen,
-        );
+        let band = self.video_top(window);
         div()
             .relative()
             .size_full()

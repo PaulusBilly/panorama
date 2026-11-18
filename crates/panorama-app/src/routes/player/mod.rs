@@ -488,6 +488,15 @@ impl Player {
         ));
     }
 
+    /// Where the video starts: below the caption band on Windows and Linux, at the top on macOS
+    /// and in fullscreen. Chrome pinned to the top is measured from here.
+    pub(super) fn video_top(&self, window: &Window) -> f32 {
+        crate::playback::surface::top_inset(
+            f32::from(window.viewport_size().height),
+            self.model.fullscreen,
+        )
+    }
+
     fn sync_surface(&mut self, window: &Window, cx: &mut gpui::App) {
         self.model.fullscreen = window.is_fullscreen();
         self.sync_shell(cx);

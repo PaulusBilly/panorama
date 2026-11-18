@@ -56,7 +56,8 @@ impl Player {
             .absolute()
             .left_0()
             .right_0()
-            .top_0()
+            // Below the caption band, so minimise, maximise and close never cover the controls.
+            .top(px(self.video_top(window)))
             .px(px(20.0))
             .pt(px(
                 16.0 + TRAFFIC_LIGHTS_ROW * f32::from(traffic_lights(window))

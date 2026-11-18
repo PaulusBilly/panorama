@@ -405,7 +405,7 @@ impl Player {
                 .absolute()
                 .left_0()
                 .right_0()
-                .top(px(80.0))
+                .top(px(self.video_top(window) + 80.0))
                 .px(px(20.0))
                 .flex()
                 .justify_center()
