@@ -238,7 +238,12 @@ pub fn render(
 /// their height while empty, so details arriving after the catalog card never move the title.
 pub fn byline(film: &panorama_core::addons::FilmDetails) -> Div {
     let line = |style: TypeStyle| px(style.size * style.line_height);
-    let place = [film.origin_country.as_deref(), film.release_info.as_deref()]
+    let year = crate::film_card::first_year(film);
+    let country = film
+        .origin_country
+        .as_deref()
+        .and_then(panorama_core::addons::country_name);
+    let place = [country.as_deref(), year.as_deref()]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
@@ -274,9 +279,9 @@ pub fn byline(film: &panorama_core::addons::FilmDetails) -> Div {
                 .flex()
                 .items_baseline()
                 .gap(px(6.0))
-                .when(!film.director.is_empty(), |row| {
+                .when_some(crate::series_directors::names(film), |row, names| {
                     row.child(CREDIT_LEAD.apply(div()).child("Directed by"))
-                        .child(CREDIT_NAME.apply(div()).child(film.director.join(", ")))
+                        .child(CREDIT_NAME.apply(div()).child(names.join(", ")))
                 }),
         )
         .child(

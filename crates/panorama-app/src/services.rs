@@ -451,6 +451,32 @@ impl Services {
         }
     }
 
+    /// Films whose pages were opened lately, newest first. Kept as a core bucket so signing
+    /// out clears it.
+    pub fn recent_films(&self) -> Vec<panorama_core::addons::FilmDetails> {
+        let Some(bytes) = (|| {
+            let key = panorama_core::store::Key::core(RECENT_FILMS_KEY).ok()?;
+            self.store.as_ref()?.get(&key).ok()?
+        })() else {
+            return Vec::new();
+        };
+        serde_json::from_slice(&bytes).unwrap_or_default()
+    }
+
+    /// Move `film` to the front of the recent films.
+    pub fn remember_film(&self, film: &panorama_core::addons::FilmDetails) {
+        let Some(store) = &self.store else {
+            return;
+        };
+        let recent = push_recent(self.recent_films(), film);
+        if let (Ok(key), Ok(bytes)) = (
+            panorama_core::store::Key::core(RECENT_FILMS_KEY),
+            serde_json::to_vec(&recent),
+        ) {
+            let _ = store.set(&key, &bytes);
+        }
+    }
+
     /// The user's TMDB key, stored locally under `pref:tmdbKey` and never logged.
     pub fn tmdb_key(&self) -> Option<String> {
         let key = panorama_core::store::Key::pref("tmdbKey").ok()?;
@@ -542,6 +568,7 @@ impl Services {
             original.map(|original| panorama_core::tmdb::Titles {
                 english: String::new(),
                 original: Some(original),
+                directors: vec![],
             })
         }))
     }
@@ -598,5 +625,43 @@ async fn wait_for_library_change(
             Err(RecvError::Closed) => return false,
             _ => {}
         }
+    }
+}
+
+const RECENT_FILMS_KEY: &str = "panoramaRecentFilms";
+const RECENT_FILMS: usize = 8;
+
+/// `film` first, without its episodes, then the rest minus any earlier copy, capped.
+fn push_recent(
+    mut recent: Vec<panorama_core::addons::FilmDetails>,
+    film: &panorama_core::addons::FilmDetails,
+) -> Vec<panorama_core::addons::FilmDetails> {
+    recent.retain(|seen| seen.id != film.id);
+    let mut film = film.clone();
+    film.episodes = Default::default();
+    recent.insert(0, film);
+    recent.truncate(RECENT_FILMS);
+    recent
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+
+    #[test]
+    fn a_reopened_film_moves_to_the_front_and_the_list_stays_capped() {
+        let film = |id: &str| panorama_core::addons::FilmDetails {
+            id: id.into(),
+            ..crate::fixtures::films()[0].clone()
+        };
+        let mut recent = Vec::new();
+        for id in 0..10 {
+            recent = push_recent(recent, &film(&id.to_string()));
+        }
+        assert_eq!(recent.len(), RECENT_FILMS);
+        assert_eq!(recent[0].id, "9");
+        recent = push_recent(recent, &film("5"));
+        let ids: Vec<_> = recent.iter().map(|film| film.id.as_str()).collect();
+        assert_eq!(ids, ["5", "9", "8", "7", "6", "4", "3", "2"]);
     }
 }

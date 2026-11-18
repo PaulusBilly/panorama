@@ -21,6 +21,9 @@ pub struct Titles {
     /// The original title, romanized when TMDB has a transliteration; `None` for an English
     /// film or one whose original matches the English title.
     pub original: Option<String>,
+    /// A series' main directors; empty for films, whose addons already name theirs.
+    #[serde(default)]
+    pub directors: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -92,7 +95,14 @@ impl TmdbClient {
                 &format!("/{path}/{id}"),
                 &[
                     ("language", "en-US"),
-                    ("append_to_response", "alternative_titles"),
+                    (
+                        "append_to_response",
+                        if kind == Kind::Movie {
+                            "alternative_titles"
+                        } else {
+                            "alternative_titles,aggregate_credits,credits"
+                        },
+                    ),
                 ],
             )
             .await?;
@@ -147,7 +157,47 @@ pub fn titles_from_details(details: &Value) -> Option<Titles> {
             transliteration(details).unwrap_or(original)
         })
         .filter(|original| original.to_lowercase() != english.to_lowercase());
-    Some(Titles { english, original })
+    Some(Titles {
+        english,
+        original,
+        directors: series_directors(details),
+    })
+}
+
+/// Everyone who directed an episode of a series, most episodes first, as Letterboxd lists
+/// them; for a show whose episodes carry no credits yet, its own crew's directors.
+fn series_directors(details: &Value) -> Vec<String> {
+    let crew = |credits: &str| details[credits]["crew"].as_array().into_iter().flatten();
+    let mut directors: Vec<(u64, String)> = crew("aggregate_credits")
+        .filter_map(|member| {
+            let episodes: u64 = member["jobs"]
+                .as_array()?
+                .iter()
+                .filter(|job| job["job"].as_str() == Some("Director"))
+                .map(|job| job["episode_count"].as_u64().unwrap_or(1))
+                .sum();
+            (episodes > 0)
+                .then(|| text(&member["name"]))?
+                .map(|name| (episodes, name))
+        })
+        .collect();
+    if directors.is_empty() {
+        directors = crew("credits")
+            .filter(|member| member["job"].as_str() == Some("Director"))
+            .filter_map(|member| Some((1, text(&member["name"])?)))
+            .collect();
+    }
+    // Stable, so directors with as many episodes keep TMDB's order.
+    directors.sort_by_key(|(episodes, _)| std::cmp::Reverse(*episodes));
+    let mut names: Vec<String> = vec![];
+    for (_, name) in directors {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    // ponytail: four fit a card and the byline; a long-running show's full list would not.
+    names.truncate(4);
+    names
 }
 
 fn transliteration(details: &Value) -> Option<String> {
@@ -200,7 +250,8 @@ mod tests {
             titles_from_details(&le_mepris),
             Some(Titles {
                 english: "Contempt".into(),
-                original: Some("Le Mépris".into())
+                original: Some("Le Mépris".into()),
+                directors: vec![],
             })
         );
     }
@@ -238,6 +289,40 @@ mod tests {
             titles_from_details(&show).unwrap().original.as_deref(),
             Some("パーフェクト・デイズ")
         );
+    }
+
+    #[test]
+    fn a_series_lists_its_episode_directors_most_episodes_first() {
+        let director = |name: &str, episodes: u64| {
+            json!({ "name": name, "jobs": [
+                { "job": "Director", "episode_count": episodes },
+                { "job": "Writer", "episode_count": 9 },
+            ]})
+        };
+        let show = |crew: Value| json!({ "name": "Show", "aggregate_credits": { "crew": crew } });
+        let rotating = show(json!([
+            director("A", 1),
+            director("B", 3),
+            director("C", 1),
+            { "name": "Writer", "jobs": [{ "job": "Writer", "episode_count": 8 }] },
+            director("D", 1),
+            director("E", 1),
+        ]));
+        assert_eq!(
+            titles_from_details(&rotating).unwrap().directors,
+            ["B", "A", "C", "D"]
+        );
+        let unaired = json!({ "name": "Show", "aggregate_credits": { "crew": [] },
+        "credits": { "crew": [
+            { "name": "Christopher J. Byrne", "job": "Director" },
+            { "name": "Terry Matalas", "job": "Executive Producer" },
+        ]}});
+        assert_eq!(
+            titles_from_details(&unaired).unwrap().directors,
+            ["Christopher J. Byrne"]
+        );
+        let film = json!({ "title": "Heat" });
+        assert!(titles_from_details(&film).unwrap().directors.is_empty());
     }
 
     #[test]

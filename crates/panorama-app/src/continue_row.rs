@@ -100,6 +100,9 @@ impl ContinueRow {
             }))
             .child(div().flex_shrink_0().w(px(col.left - GAP)).h(px(size.1)));
         for (index, (card, focus)) in cards.iter().zip(&self.cards).enumerate() {
+            if visible {
+                crate::series_directors::want(&card.film, services, cx);
+            }
             let (image, poster, _) =
                 artwork(images, services, &card.film, size, visible, window, cx);
             let x = col.left + index as f32 * pitch - position;

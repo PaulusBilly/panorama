@@ -13,6 +13,11 @@ mod types;
 pub use transport::{AddonTransport, CoreAddonTransport, TransportResponse};
 pub use types::*;
 
+/// A film's origin country as a reader knows it, from the code or official name an addon sent.
+pub fn country_name(value: &str) -> Option<String> {
+    sanitize::country(value)
+}
+
 pub(crate) use transport::capture_metadata;
 
 use std::{

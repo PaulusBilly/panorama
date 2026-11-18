@@ -42,6 +42,9 @@ impl Film {
                                 let mut meta = trusted(film.card.as_ref(), meta);
                                 film.retitle(&mut meta);
                                 film.set_episodes(std::mem::take(&mut meta.episodes));
+                                if let Some(services) = &film.state.read(cx).services {
+                                    services.remember_film(&meta);
+                                }
                                 film.metadata = Some(meta);
                                 film.details_error = false;
                             }
@@ -126,6 +129,9 @@ impl Film {
     /// TMDB's titles, when the user saved a key, win over the addon's; otherwise a foreign title
     /// from Wikidata fills in only what the addon left out.
     fn retitle(&self, meta: &mut panorama_core::addons::FilmDetails) {
+        if meta.director.is_empty() {
+            meta.director.clone_from(&self.directors);
+        }
         match &self.english_title {
             Some(english) => {
                 meta.name = english.clone();
@@ -162,8 +168,13 @@ impl Film {
                 if let Some(titles) = titles {
                     film.english_title = Some(titles.english).filter(|english| !english.is_empty());
                     film.original_title = titles.original;
+                    film.directors = titles.directors;
                     if let Some(mut meta) = film.metadata.take() {
                         film.retitle(&mut meta);
+                        // Recent films keep the directors for their cards.
+                        if let Some(services) = &film.state.read(cx).services {
+                            services.remember_film(&meta);
+                        }
                         film.metadata = Some(meta);
                     }
                 }

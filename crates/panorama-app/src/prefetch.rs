@@ -34,13 +34,10 @@ impl Prefetch {
 pub fn hovered(state: &Entity<AppState>, kind: Kind, id: &str, cx: &mut App) {
     state.update(cx, |state, cx| {
         let film = id.to_owned();
-        // A show's sources belong to an episode, which only its page settles.
-        if kind == Kind::Movie {
-            state.prefetch.pause = Some(cx.spawn(async move |state, cx| {
-                cx.background_executor().timer(SOURCE_INTENT).await;
-                let _ = state.update(cx, |state, cx| state.prefetch_sources(&film, cx));
-            }));
-        }
+        state.prefetch.pause = Some(cx.spawn(async move |state, cx| {
+            cx.background_executor().timer(SOURCE_INTENT).await;
+            let _ = state.update(cx, |state, cx| state.prefetch_sources(kind, &film, cx));
+        }));
         if !state.prefetch.wants(id) {
             return;
         }

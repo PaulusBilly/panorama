@@ -321,16 +321,7 @@ impl Render for Film {
             .pb(px(crate::sidebar::AVATAR_INSET))
             .flex()
             .flex_col()
-            .justify_end()
-            .child(
-                div()
-                    .absolute()
-                    .top(px(
-                        crate::sidebar::LOGO_CENTER - crate::button::Size::Regular.height() * 0.5
-                    ))
-                    .left_0()
-                    .child(self.back(view, cx)),
-            );
+            .justify_end();
         if self.details_error {
             content = content.child(
                 div()
@@ -404,7 +395,20 @@ impl Render for Film {
                 cx.notify();
             }))
             .child(page);
-        div().relative().size_full().child(backdrop).child(scroller)
+        // Outside the scroller so it stays put; level with the logo, on the content's left edge.
+        let back = div()
+            .absolute()
+            .top(px(
+                crate::sidebar::LOGO_CENTER - crate::button::Size::Regular.height() * 0.5
+            ))
+            .left(px(col.left))
+            .child(self.back(view, cx));
+        div()
+            .relative()
+            .size_full()
+            .child(backdrop)
+            .child(scroller)
+            .child(back)
     }
 }
 

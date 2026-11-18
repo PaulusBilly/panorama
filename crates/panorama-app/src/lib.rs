@@ -29,6 +29,7 @@ pub mod playback;
 pub mod prefetch;
 pub mod router;
 pub mod routes;
+pub mod series_directors;
 pub mod services;
 pub mod sidebar;
 pub mod source_lookup;

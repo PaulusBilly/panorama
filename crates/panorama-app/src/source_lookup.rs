@@ -71,10 +71,11 @@ impl AppState {
         }
     }
 
-    /// A film's, ahead of a click, at most one at a time.
-    pub fn prefetch_sources(&mut self, id: &str, cx: &mut Context<Self>) {
-        if !self.source_lookups.busy() && !self.source_lookups.fresh(id, Instant::now()) {
-            self.start_sources(Kind::Movie, id, FixtureSources::default(), cx);
+    /// A film's, ahead of a click, at most one at a time; a show's first episode stands in for it.
+    pub fn prefetch_sources(&mut self, kind: Kind, id: &str, cx: &mut Context<Self>) {
+        let id = sources_id(kind, id);
+        if !self.source_lookups.busy() && !self.source_lookups.fresh(&id, Instant::now()) {
+            self.start_sources(kind, &id, FixtureSources::default(), cx);
         }
     }
 
@@ -171,6 +172,16 @@ fn lookup_task(
             cx.notify();
         });
     })
+}
+
+/// The id whose sources speak for a card: a film's own, or a show's first episode.
+// ponytail: S1E1 in the Cinemeta id form; shows under other id schemes simply find no quality.
+pub fn sources_id(kind: Kind, id: &str) -> String {
+    if kind == Kind::Movie {
+        id.to_owned()
+    } else {
+        format!("{id}:1:1")
+    }
 }
 
 #[cfg(test)]

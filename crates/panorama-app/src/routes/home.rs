@@ -409,9 +409,9 @@ pub(crate) fn zoom_film<V: 'static>(
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    if film.kind == Kind::Movie {
-        state.update(cx, |state, cx| state.prefetch_sources(&film.id, cx));
-    }
+    state.update(cx, |state, cx| {
+        state.prefetch_sources(film.kind, &film.id, cx)
+    });
     // The zoom shows the card's small copy; fetch the page's full-size banner (its backdrop,
     // else its poster, as in `banners`) while it runs, so the page mounts on the sharp one.
     let banner = film.background.as_ref().or(film.poster.as_ref());

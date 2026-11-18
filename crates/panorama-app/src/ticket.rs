@@ -8,7 +8,7 @@ use crate::{
     transition::bezier,
 };
 use gpui::{Animation, AnimationExt, AnyElement, Div, FontWeight, div, prelude::*, px, relative};
-use panorama_core::addons::{FilmDetails, Kind};
+use panorama_core::addons::FilmDetails;
 
 /// Field label: small capitals over each value.
 const LABEL_SIZE: f32 = 11.0;
@@ -34,7 +34,8 @@ const VALUE_HEIGHT: f32 = VALUE_SIZE * VALUE_LINE;
 
 /// The directors, one to a line: two at most, the second counting any more as `+N`.
 fn directors(film: &FilmDetails) -> Vec<String> {
-    match film.director.as_slice() {
+    let names = crate::series_directors::names(film).unwrap_or_default();
+    match &names[..] {
         [first, second, rest @ ..] if !rest.is_empty() => {
             vec![first.clone(), format!("{second} +{}", rest.len())]
         }
@@ -182,11 +183,10 @@ pub fn fields(film: &FilmDetails, quality: SourceQuality, instant: bool, theme: 
             .collect::<Vec<_>>()
             .join(", ")
     });
-    // A show's quality depends on the episode, so its column says what it is instead. A film's
-    // quality stays out of sight until the lookup finds one, then fades in whole unless `instant`.
-    let third: AnyElement = match (film.kind == Kind::Movie, quality) {
-        (false, _) => field("Type", text(Some("Series".into()), theme), theme).into_any_element(),
-        (true, SourceQuality::Found(quality)) => {
+    // Quality (a show's from its first episode) stays out of sight until the lookup finds one,
+    // then fades in whole unless `instant`.
+    let third: AnyElement = match quality {
+        SourceQuality::Found(quality) => {
             let badges = field(
                 "Quality",
                 // The badges sit in the value's line box, so the row height never changes.
@@ -211,7 +211,7 @@ pub fn fields(film: &FilmDetails, quality: SourceQuality, instant: bool, theme: 
                     .into_any_element()
             }
         }
-        (true, _) => div().into_any_element(),
+        _ => div().into_any_element(),
     };
     // Columns run top to bottom, each as wide as its widest value, so the two rows align and the
     // gaps between columns stay even. Only the director's column gives way to a long name.

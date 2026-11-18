@@ -90,6 +90,8 @@ pub struct Film {
     original_title: Option<String>,
     /// TMDB's English title, set only when the user saved a TMDB key.
     english_title: Option<String>,
+    /// A series' directors from TMDB, which its addons do not name.
+    directors: Vec<String>,
     /// The card this page was opened from.
     card: Option<FilmDetails>,
     /// The color of the card this page was opened from, if its artwork is still cached.
@@ -215,6 +217,7 @@ impl Film {
             original_pending: false,
             original_title: None,
             english_title: None,
+            directors: Vec::new(),
             card,
             tint,
             debug_step: 0,

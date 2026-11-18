@@ -149,11 +149,13 @@ impl FilmGrid {
             Preview::Open { index, .. } => Some(index),
             _ => self.fading.map(|(index, _)| index),
         };
-        self.quality = index
-            .and_then(|index| self.films.get(index))
-            .map_or(SourceQuality::Unasked, |film| {
-                SourceQuality::of(state.source_lookups.get(&film.id))
-            });
+        self.quality =
+            index
+                .and_then(|index| self.films.get(index))
+                .map_or(SourceQuality::Unasked, |film| {
+                    let id = crate::source_lookup::sources_id(film.kind, &film.id);
+                    SourceQuality::of(state.source_lookups.get(&id))
+                });
         let found = matches!(self.quality, SourceQuality::Found(_));
         self.quality_for = index.map(|index| match self.quality_for {
             Some((current, late)) if current == index => (index, late),
@@ -316,6 +318,9 @@ impl FilmGrid {
                 .gap(px(GAP));
             for index in row * grid.columns..((row + 1) * grid.columns).min(count) {
                 let film = films.get(index);
+                if visible && let Some(film) = film {
+                    crate::series_directors::want(film, services, cx);
+                }
                 let (image, poster, unavailable) = film.map_or((None, false, false), |film| {
                     artwork(
                         images,

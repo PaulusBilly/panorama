@@ -86,7 +86,8 @@ impl Key {
     /// Identifies a film's cached TMDB titles, under `meta:` as [`Key::awards`] is.
     pub fn tmdb_titles(film_id: &str) -> Result<Self, StoreError> {
         let Self(meta) = Self::meta(film_id)?;
-        Ok(Self(format!("meta:tmdb|{}", &meta["meta:".len()..])))
+        // `tmdb3` since series list every episode director; older entries hold fewer.
+        Ok(Self(format!("meta:tmdb3|{}", &meta["meta:".len()..])))
     }
 
     /// Identifies the source a film or episode last played from, under `meta:` so it ages out

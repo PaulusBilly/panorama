@@ -36,6 +36,12 @@ pub struct Search {
     /// Last submitted query; equals the route's query.
     query: String,
     grid: FilmGrid,
+    /// Films opened lately, shown while the field is empty; read again each time the page shows.
+    recent: Vec<FilmDetails>,
+    /// How many recent films the grid holds, or `None` when it holds search results.
+    showing_recent: Option<usize>,
+    /// Whether `recent` was read for this visit; the store opens after the first frames.
+    recent_read: bool,
     loading: bool,
     error: Option<String>,
     request: Option<Task<()>>,
@@ -68,8 +74,11 @@ impl Search {
             input
         });
         let input_events = cx.subscribe_in(&input, window, |search, _, event, window, cx| {
-            if matches!(event, InputEvent::PressEnter { .. }) {
-                search.submit(window, cx);
+            match event {
+                InputEvent::PressEnter { .. } => search.submit(window, cx),
+                // Recent films hide and return with the field's text.
+                InputEvent::Change => cx.notify(),
+                _ => {}
             }
         });
         let state_observer = cx.observe(&state, |search, state, cx| {
@@ -94,6 +103,9 @@ impl Search {
             input,
             query,
             grid: FilmGrid::new(args.hover_first_card, cx),
+            recent: Vec::new(),
+            showing_recent: None,
+            recent_read: false,
             loading: false,
             error: None,
             request: None,
@@ -138,6 +150,7 @@ impl Search {
         self.loading = false;
         self.error = None;
         self.grid.set_films(Arc::from([]), cx);
+        self.showing_recent = None;
         self.focus_field(window, cx);
         cx.notify();
     }
@@ -161,6 +174,7 @@ impl Search {
         self.error = None;
         // Drop the previous query's cards so the placeholders show this search is running.
         self.grid.set_films(Arc::from([]), cx);
+        self.showing_recent = None;
         self.request = Some(cx.spawn(async move |entity, cx| {
             let _job = job;
             while let Some(event) = receiver.next().await {
@@ -221,6 +235,34 @@ impl Search {
             active,
             keyboard: keyboard || self.keyboard,
             reduced,
+        }
+    }
+
+    /// With the field empty, fill one row of the grid with recent films.
+    fn sync_recent(&mut self, view: ViewSettings, cx: &mut Context<Self>) {
+        if !view.active {
+            self.recent_read = false;
+        } else if !self.recent_read
+            && let Some(services) = self.state.read(cx).services.clone()
+        {
+            self.recent = services.recent_films();
+            self.recent_read = true;
+            self.showing_recent = None;
+        }
+        if !self.query.is_empty() {
+            return;
+        }
+        // Typing hides them before the search runs.
+        let count = if self.input.read(cx).value().is_empty() {
+            self.recent
+                .len()
+                .min(Grid::fit(view.column().width).columns)
+        } else {
+            0
+        };
+        if self.showing_recent != Some(count) {
+            self.grid.set_films(self.recent[..count].into(), cx);
+            self.showing_recent = Some(count);
         }
     }
 
@@ -303,6 +345,7 @@ impl GridHost for Search {
 impl Render for Search {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.settings(window, cx);
+        self.sync_recent(view, cx);
         let theme = view.theme;
         let col = view.column();
         if view.active {
@@ -347,7 +390,14 @@ impl Render for Search {
             && self.error.is_none()
             && self.grid.films.is_empty();
         // The alert row carries the message; the line above it stays quiet.
-        let line = if empty { String::new() } else { status.clone() };
+        let recent = self.query.is_empty() && !self.grid.films.is_empty();
+        let line = if recent {
+            "Recent".to_string()
+        } else if empty {
+            String::new()
+        } else {
+            status.clone()
+        };
         let mut section = div()
             .ml(px(col.left))
             .w(px(col.width))
@@ -371,7 +421,7 @@ impl Render for Search {
                 view,
                 cx,
             ));
-        } else if !self.query.is_empty() {
+        } else if !self.query.is_empty() || recent {
             let top = -f32::from(self.scroll.offset().y);
             let offset = Self::grid_top(view.width) - top;
             let services = self.state.read(cx).services.clone();

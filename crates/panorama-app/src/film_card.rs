@@ -165,41 +165,68 @@ pub fn render<V: GridHost>(
     tile
 }
 
+/// The year a film or series came out: "2012" for a show running since then ("2012–") or one
+/// that ended ("2012–2016"); other release text as the addon sent it.
+pub fn first_year(film: &FilmDetails) -> Option<String> {
+    let info = film.release_info.as_deref()?.trim();
+    let first = info.split(['–', '-']).next().unwrap_or(info).trim();
+    (!first.is_empty()).then(|| first.to_owned())
+}
+
+#[test]
+fn a_series_shows_only_the_year_it_began() {
+    let mut film = crate::fixtures::films()[0].clone();
+    for (info, year) in [
+        ("2012–", Some("2012")),
+        ("2008–2013", Some("2008")),
+        ("2001-2003", Some("2001")),
+        ("2024", Some("2024")),
+        ("TBA", Some("TBA")),
+        ("", None),
+    ] {
+        film.release_info = Some(info.into());
+        assert_eq!(first_year(&film).as_deref(), year, "{info}");
+    }
+}
+
 /// Title and credits pinned to the bottom of a tile, at fixed sizes like MUBI's cards, with
-/// an optional `note` over the title.
+/// an optional `note` over the title; a series without one is labelled "Series" there.
 /// `shown` is the opacity of the director and year line under the title.
 pub fn caption(film: &FilmDetails, note: Option<&str>, shown: f32, theme: Theme) -> Div {
+    let note = note.or((film.kind != panorama_core::addons::Kind::Movie).then_some("Series"));
     let credits = div()
         .flex()
         .min_w_0()
         .gap(px(4.0))
         .text_size(px(12.0))
         .line_height(relative(1.25))
-        .when(!film.director.is_empty(), |row| {
+        .when_some(crate::series_directors::names(film), |row, names| {
             row.child(
                 div()
                     .min_w_0()
                     .truncate()
                     .weight(FontWeight::MEDIUM)
-                    .child(film.director.join(", ").to_uppercase()),
+                    .child(names.join(", ").to_uppercase()),
             )
         })
-        .when(film.kind != panorama_core::addons::Kind::Movie, |row| {
-            row.child(div().flex_shrink_0().child("SERIES"))
-        })
-        .when_some(film.origin_country.clone(), |row, country| {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(theme.ink)
-                    .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
-                        ("tnum".into(), 1),
-                        ("kern".into(), 1),
-                    ])))
-                    .child(country.to_uppercase()),
-            )
-        })
-        .when_some(film.release_info.clone(), |row, year| {
+        .when_some(
+            film.origin_country
+                .as_deref()
+                .and_then(panorama_core::addons::country_name),
+            |row, country| {
+                row.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(theme.ink)
+                        .font_features(gpui::FontFeatures(std::sync::Arc::new(vec![
+                            ("tnum".into(), 1),
+                            ("kern".into(), 1),
+                        ])))
+                        .child(country.to_uppercase()),
+                )
+            },
+        )
+        .when_some(first_year(film), |row, year| {
             row.child(
                 div()
                     .flex_shrink_0()
