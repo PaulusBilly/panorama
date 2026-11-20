@@ -75,11 +75,23 @@ impl Player {
         }
     }
 
-    /// Host: tell the party what is playing, from where.
+    /// Host: tell the party what is playing, from where. A switch to another source of the
+    /// same film or episode stays the host's own: members keep the copies they are playing.
     fn announce(&mut self, cx: &mut Context<Self>) {
         let Some(selection) = self.selection(cx) else {
             return;
         };
+        let announced = self
+            .state
+            .read(cx)
+            .party
+            .as_ref()
+            .and_then(|party| party.media());
+        if announced.is_some_and(|media| {
+            media.film_id == selection.film.id && media.video_id == selection.video_id
+        }) {
+            return;
+        }
         let source = self.model.source;
         let release = [self.groups.as_slice(), selection.groups.as_slice()]
             .into_iter()
