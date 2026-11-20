@@ -3,7 +3,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
 
-use iroh::endpoint::{Connection, PortmapperConfig, RecvStream, SendStream, presets};
+use iroh::endpoint::{Connection, Incoming, PortmapperConfig, RecvStream, SendStream, presets};
 use iroh::{Endpoint, EndpointAddr, SecretKey};
 use iroh_tickets::endpoint::EndpointTicket;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -130,6 +130,19 @@ impl PartialEq for PartySecret {
 
 impl Eq for PartySecret {}
 
+impl serde::Serialize for PartySecret {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PartySecret {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let hex = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+        Self::from_hex(&hex).ok_or_else(|| serde::de::Error::custom("not a party secret"))
+    }
+}
+
 impl fmt::Debug for PartySecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("PartySecret(..)")
@@ -241,21 +254,10 @@ impl PartyEndpoint {
         Ok(invite_for(self.endpoint.addr(), self.network, secret))
     }
 
-    /// `None` once the endpoint is closed.
-    pub async fn accept(&self) -> Option<Result<PartyConn, TransportError>> {
-        let incoming = self.endpoint.accept().await?;
-        let handshake = async {
-            let conn = incoming.await.map_err(|_| TransportError::Connect)?;
-            // A QUIC stream only reaches the acceptor once the opener writes to it, so this waits
-            // for the member's first line.
-            let (send, recv) = conn.accept_bi().await.map_err(|_| TransportError::Stream)?;
-            Ok(PartyConn::new(conn, send, recv))
-        };
-        Some(
-            timeout(HANDSHAKE_TIMEOUT, handshake)
-                .await
-                .unwrap_or(Err(TransportError::Timeout)),
-        )
+    /// The next connection to reach the endpoint, before its handshake, so one slow peer never
+    /// holds up the next. `None` once the endpoint is closed.
+    pub async fn accept(&self) -> Option<Joining> {
+        self.endpoint.accept().await.map(Joining)
     }
 
     pub async fn connect(&self, invite: &Invite) -> Result<PartyConn, TransportError> {
@@ -275,6 +277,30 @@ impl PartyEndpoint {
 
     pub async fn close(&self) {
         self.endpoint.close().await;
+    }
+}
+
+/// A connection that reached the endpoint and has not finished its handshake.
+pub struct Joining(Incoming);
+
+impl Joining {
+    /// The QUIC handshake, then the member's first line opening the stream, within 15 s.
+    pub async fn handshake(self) -> Result<PartyConn, TransportError> {
+        let handshake = async {
+            let conn = self.0.await.map_err(|_| TransportError::Connect)?;
+            // A QUIC stream only reaches the acceptor once the opener writes to it, so this waits
+            // for the member's first line.
+            let (send, recv) = conn.accept_bi().await.map_err(|_| TransportError::Stream)?;
+            Ok(PartyConn::new(conn, send, recv))
+        };
+        timeout(HANDSHAKE_TIMEOUT, handshake)
+            .await
+            .unwrap_or(Err(TransportError::Timeout))
+    }
+
+    /// Turns the connection away before any handshake.
+    pub fn refuse(self) {
+        self.0.refuse();
     }
 }
 

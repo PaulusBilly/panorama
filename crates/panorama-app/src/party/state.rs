@@ -146,6 +146,12 @@ impl AppState {
         {
             host.send(Command::SetSpeed(1.0));
         }
+        self.drop_party_play();
+        cx.notify();
+    }
+
+    /// Forgets a film the party asked for and that has not opened yet.
+    fn drop_party_play(&mut self) {
         if self
             .pending_play
             .as_ref()
@@ -153,7 +159,6 @@ impl AppState {
         {
             self.pending_play = None;
         }
-        cx.notify();
     }
 
     /// Host only.
@@ -299,7 +304,13 @@ impl AppState {
             return;
         };
         match event {
-            Event::View(view) => party.view = view,
+            Event::View(view) => {
+                let ended = view.ended().is_some();
+                party.view = view;
+                if ended {
+                    self.drop_party_play();
+                }
+            }
             Event::Player(command) => {
                 if let Some(host) = &self.playback_host {
                     host.send(command);

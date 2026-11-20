@@ -215,6 +215,10 @@ fn display_names_fit_the_protocol() {
     assert_eq!(display_name(" \t "), None);
     assert_eq!(display_name(&"x".repeat(40)).map(|n| n.len()), Some(32));
     assert_eq!(display_name("a\u{7}b").as_deref(), Some("ab"));
+    assert_eq!(
+        display_name("Bi\u{202E}ll\u{200B}y").as_deref(),
+        Some("Billy")
+    );
 }
 
 #[test]
@@ -228,4 +232,24 @@ fn the_invite_never_prints() {
     );
     let printed = format!("{view:?}");
     assert!(!printed.contains("secret") && !printed.contains("abc"));
+}
+
+#[test]
+fn a_connection_may_burst_then_keeps_to_its_rate() {
+    let start = Instant::now();
+    let mut limit = service::RateLimit::new(start);
+    assert_eq!((0..100).filter(|_| limit.allow(start)).count(), 60);
+    let later = start + std::time::Duration::from_secs(1);
+    assert_eq!((0..100).filter(|_| limit.allow(later)).count(), 30);
+    let much_later = later + std::time::Duration::from_secs(60);
+    assert_eq!((0..100).filter(|_| limit.allow(much_later)).count(), 60);
+}
+
+#[test]
+fn a_peer_that_stops_reading_overflows_its_queue() {
+    let (queue, _unread) = service::Queue::new();
+    for _ in 0..256 {
+        assert!(queue.line("{}".into()).is_ok());
+    }
+    assert!(queue.line("{}".into()).is_err());
 }

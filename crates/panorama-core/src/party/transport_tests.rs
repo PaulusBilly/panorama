@@ -18,7 +18,10 @@ async fn pair(network: Network) -> (PartyEndpoint, PartyEndpoint, PartyConn, Par
         conn.send(r#"{"t":"hello"}"#).await.expect("first line");
         conn
     };
-    let accepting = async { host.accept().await.expect("endpoint open").expect("accept") };
+    let accepting = async {
+        let joining = host.accept().await.expect("endpoint open");
+        joining.handshake().await.expect("accept")
+    };
     let (member_conn, host_conn) = tokio::join!(joining, accepting);
     (host, member, host_conn, member_conn)
 }
@@ -222,4 +225,52 @@ async fn relay_path_exchanges_a_line() {
         started.elapsed(),
         path.rtt
     );
+}
+
+#[tokio::test]
+async fn a_silent_peer_does_not_hold_up_the_next() {
+    let (host, _) = PartyEndpoint::bind_on(None, Network::Loopback)
+        .await
+        .unwrap();
+    let (silent, _) = PartyEndpoint::bind_on(None, Network::Loopback)
+        .await
+        .unwrap();
+    let (member, _) = PartyEndpoint::bind_on(None, Network::Loopback)
+        .await
+        .unwrap();
+    let secret = PartySecret::generate().unwrap();
+    let invite = parse_invite(&host.invite(&secret).await.unwrap()).unwrap();
+    let quiet = tokio::spawn({
+        let invite = invite.clone();
+        async move {
+            let conn = silent.connect(&invite).await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            drop((silent, conn));
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let joining = async {
+        let mut conn = member.connect(&invite).await.expect("connect");
+        conn.send("hello").await.expect("first line");
+        conn
+    };
+    let accepting = async {
+        let mut handshakes = tokio::task::JoinSet::new();
+        loop {
+            tokio::select! {
+                Some(joining) = host.accept() => {
+                    handshakes.spawn(joining.handshake());
+                }
+                Some(Ok(Ok(conn))) = handshakes.join_next() => {
+                    if conn.remote_id() == member.id() {
+                        return conn;
+                    }
+                }
+            }
+        }
+    };
+    let (_member_conn, accepted) =
+        tokio::join!(joining, timeout(Duration::from_secs(5), accepting));
+    assert!(accepted.is_ok(), "the member waited on the silent peer");
+    quiet.abort();
 }

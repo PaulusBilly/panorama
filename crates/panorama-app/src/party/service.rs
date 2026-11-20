@@ -6,9 +6,9 @@ use crate::playback::host::Command;
 use futures::channel::mpsc as gpui_mpsc;
 use panorama_core::{
     party::{
-        Action, ConnId, Down, HostInput, HostOutput, HostSession, HostSettings, MemberInput,
-        MemberOutput, MemberSession, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
-        PlaybackState, decode_down, decode_up, encode,
+        Action, ConnId, Down, HostInput, HostOutput, HostSession, HostSettings, MAX_MEMBERS,
+        MemberInput, MemberOutput, MemberSession, MemberState, MemberView, Notice, NoticeKind,
+        PartyMedia, PlaybackState, decode_down, decode_up, encode,
         transport::{
             Invite, PartyConn, PartyEndpoint, PartyPath, PartyReceiver, PartySecret, PartySender,
             TransportError,
@@ -23,8 +23,11 @@ use std::{
 };
 use tokio::{
     runtime::Handle,
-    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-    task::JoinHandle,
+    sync::{
+        OwnedSemaphorePermit, Semaphore,
+        mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel},
+    },
+    task::{JoinHandle, JoinSet},
 };
 
 const TICK: Duration = Duration::from_millis(250);
@@ -33,6 +36,14 @@ const GRACE: Duration = Duration::from_secs(2);
 /// The host moves its own player only when it is this far off the party's timeline.
 const HOST_SLACK: f64 = 0.5;
 const KEY: &str = "party.key";
+/// Lines a peer may leave unread before it is dropped.
+const QUEUE: usize = 256;
+/// Lines a second a member may send, after a burst of [`BURST`]: a ping every 2 s and a report
+/// a second leave room for the fastest key repeat on seek.
+const RATE: f64 = 30.0;
+const BURST: f64 = 60.0;
+/// Connections the host holds at once, joined or still shaking hands.
+const MAX_PEERS: usize = MAX_MEMBERS * 2;
 
 /// From the GPUI side.
 #[derive(Clone, Debug)]
@@ -164,13 +175,65 @@ async fn bind(store: Option<&Store>) -> Result<PartyEndpoint, TransportError> {
 }
 
 /// One connection's writer: lines in order, then a graceful close.
-enum Out {
+pub(super) enum Out {
     Line(String),
     Close,
 }
 
-fn writer(runtime: &Handle, mut sender: PartySender) -> (UnboundedSender<Out>, JoinHandle<()>) {
-    let (lines, mut receiver) = unbounded_channel();
+/// The lines waiting for one connection's writer, at most [`QUEUE`] of them, so a peer that
+/// stops reading costs a bounded amount of memory before it is dropped.
+pub(super) struct Queue(mpsc::Sender<Out>);
+
+/// The peer left [`QUEUE`] lines unread, or its writer is gone.
+#[derive(Debug)]
+pub(super) struct Stalled;
+
+impl Queue {
+    pub(super) fn new() -> (Self, mpsc::Receiver<Out>) {
+        let (sender, receiver) = mpsc::channel(QUEUE);
+        (Self(sender), receiver)
+    }
+
+    pub(super) fn line(&self, line: String) -> Result<(), Stalled> {
+        self.0.try_send(Out::Line(line)).map_err(|_| Stalled)
+    }
+
+    /// Asks the writer to say goodbye after what is queued; `false` when it can't take that.
+    fn close(&self) -> bool {
+        self.0.try_send(Out::Close).is_ok()
+    }
+}
+
+/// How fast one connection may send: [`RATE`] lines a second, with [`BURST`] to spare.
+#[derive(Debug)]
+pub(super) struct RateLimit {
+    tokens: f64,
+    at: Instant,
+}
+
+impl RateLimit {
+    pub(super) fn new(now: Instant) -> Self {
+        Self {
+            tokens: BURST,
+            at: now,
+        }
+    }
+
+    /// Spends a line's worth; `false` once the connection sends faster than it may.
+    pub(super) fn allow(&mut self, now: Instant) -> bool {
+        let elapsed = now.saturating_duration_since(self.at).as_secs_f64();
+        self.at = now;
+        self.tokens = (self.tokens + elapsed * RATE).min(BURST);
+        let allowed = self.tokens >= 1.0;
+        if allowed {
+            self.tokens -= 1.0;
+        }
+        allowed
+    }
+}
+
+fn writer(runtime: &Handle, mut sender: PartySender) -> (Queue, JoinHandle<()>) {
+    let (lines, mut receiver) = Queue::new();
     let task = runtime.spawn(async move {
         while let Some(out) = receiver.recv().await {
             match out {
@@ -187,15 +250,24 @@ fn writer(runtime: &Handle, mut sender: PartySender) -> (UnboundedSender<Out>, J
     (lines, task)
 }
 
-/// Lines from one connection, then `None` once it ends or breaks.
+/// Lines from one connection, then `None` once it ends, breaks, or sends faster than `limit`
+/// allows.
 fn reader<T: Copy + Send + 'static>(
     runtime: &Handle,
     mut receiver: PartyReceiver,
     tag: T,
+    mut limit: Option<RateLimit>,
     lines: UnboundedSender<(T, Option<String>)>,
 ) -> JoinHandle<()> {
     runtime.spawn(async move {
         while let Ok(Some(line)) = receiver.recv().await {
+            if limit
+                .as_mut()
+                .is_some_and(|limit| !limit.allow(Instant::now()))
+            {
+                trace(|| "peer over its rate".into());
+                break;
+            }
             if lines.send((tag, Some(line))).is_err() {
                 return;
             }
@@ -204,11 +276,47 @@ fn reader<T: Copy + Send + 'static>(
     })
 }
 
+/// Hands over connections once their handshake is done, each with its slot among
+/// [`MAX_PEERS`]. While every slot is taken, newcomers are refused before any handshake.
+async fn acceptor(
+    endpoint: PartyEndpoint,
+    opened: UnboundedSender<(PartyConn, OwnedSemaphorePermit)>,
+) {
+    let slots = Arc::new(Semaphore::new(MAX_PEERS));
+    let mut handshakes = JoinSet::new();
+    loop {
+        tokio::select! {
+            joining = endpoint.accept() => {
+                let Some(joining) = joining else {
+                    return;
+                };
+                match slots.clone().try_acquire_owned() {
+                    Ok(slot) => {
+                        handshakes.spawn(async move {
+                            joining.handshake().await.map(|conn| (conn, slot))
+                        });
+                    }
+                    Err(_) => joining.refuse(),
+                }
+            }
+            Some(done) = handshakes.join_next() => {
+                if let Ok(Ok(peer)) = done
+                    && opened.send(peer).is_err()
+                {
+                    return;
+                }
+            }
+        }
+    }
+}
+
 struct Peer {
-    out: UnboundedSender<Out>,
+    out: Queue,
     path: PartyPath,
     member: Option<u32>,
     reader: JoinHandle<()>,
+    writer: JoinHandle<()>,
+    _slot: OwnedSemaphorePermit,
 }
 
 struct Host {
@@ -216,7 +324,8 @@ struct Host {
     view: PartyView,
     events: Events,
     peers: BTreeMap<ConnId, Peer>,
-    writers: Vec<JoinHandle<()>>,
+    /// Writers of dropped peers, still saying goodbye.
+    closing: Vec<JoinHandle<()>>,
     origin: Instant,
     /// The host's own player: state, position, and when it said so.
     local: Option<(MemberState, f64, i64)>,
@@ -261,29 +370,18 @@ impl Host {
         view.link = Link::Live;
         trace(|| "host live".into());
         let mut host = Host {
-            session: HostSession::new(name, secret.to_hex(), settings),
+            session: HostSession::new(name, secret, settings),
             view,
             events,
             peers: BTreeMap::new(),
-            writers: Vec::new(),
+            closing: Vec::new(),
             origin: Instant::now(),
             local: None,
         };
         host.events.view(&host.view);
         let runtime = Handle::current();
-        let (opened, mut accepted) = unbounded_channel::<PartyConn>();
-        let acceptor = runtime.spawn({
-            let endpoint = endpoint.clone();
-            async move {
-                while let Some(conn) = endpoint.accept().await {
-                    if let Ok(conn) = conn
-                        && opened.send(conn).is_err()
-                    {
-                        return;
-                    }
-                }
-            }
-        });
+        let (opened, mut accepted) = unbounded_channel();
+        let acceptor = runtime.spawn(acceptor(endpoint.clone(), opened));
         let (lines, mut incoming) = unbounded_channel::<(ConnId, Option<String>)>();
         let mut next_conn = 0u32;
         let mut tick = tokio::time::interval(TICK);
@@ -293,15 +391,15 @@ impl Host {
                     Some(input) => host.input(input),
                     None => break,
                 },
-                Some(conn) = accepted.recv() => {
+                Some((conn, slot)) = accepted.recv() => {
                     let id = ConnId(next_conn);
                     next_conn = next_conn.wrapping_add(1);
                     let (sender, receiver) = conn.split();
                     let path = sender.path_handle();
-                    let (out, task) = writer(&runtime, sender);
-                    host.writers.push(task);
-                    let reader = reader(&runtime, receiver, id, lines.clone());
-                    host.peers.insert(id, Peer { out, path, member: None, reader });
+                    let (out, writer) = writer(&runtime, sender);
+                    let limit = Some(RateLimit::new(Instant::now()));
+                    let reader = reader(&runtime, receiver, id, limit, lines.clone());
+                    host.peers.insert(id, Peer { out, path, member: None, reader, writer, _slot: slot });
                     host.handle(HostInput::Connected { conn: id });
                 }
                 Some((conn, line)) = incoming.recv() => match line.map(|line| decode_up(&line)) {
@@ -320,6 +418,7 @@ impl Host {
                 _ = tick.tick() => {
                     host.handle(HostInput::Tick);
                     host.refresh_paths();
+                    host.closing.retain(|writer| !writer.is_finished());
                 }
             }
             host.events.view(&host.view);
@@ -328,8 +427,11 @@ impl Host {
         host.view.link = Link::Ended(EndReason::Left);
         host.events.view(&host.view);
         acceptor.abort();
-        for task in std::mem::take(&mut host.writers) {
-            let _ = tokio::time::timeout(GRACE + Duration::from_secs(1), task).await;
+        for conn in host.peers.keys().copied().collect::<Vec<_>>() {
+            host.drop_peer(conn);
+        }
+        for writer in std::mem::take(&mut host.closing) {
+            let _ = tokio::time::timeout(GRACE + Duration::from_secs(1), writer).await;
         }
         endpoint.close().await;
         trace(|| "host closed".into());
@@ -384,6 +486,7 @@ impl Host {
 
     fn handle(&mut self, input: HostInput) {
         let now = self.now();
+        let mut stalled_peers = Vec::new();
         for output in self.session.handle(now, input) {
             match output {
                 HostOutput::Send { conn, msg } => {
@@ -393,8 +496,13 @@ impl Host {
                         trace(|| format!("host welcomed member_id={member_id}"));
                         peer.member = Some(member_id);
                     }
-                    if let Some(peer) = self.peers.get(&conn) {
-                        let _ = peer.out.send(Out::Line(encode(&msg)));
+                    let stalled = self
+                        .peers
+                        .get(&conn)
+                        .is_some_and(|peer| peer.out.line(encode(&msg)).is_err());
+                    if stalled {
+                        trace(|| "peer stopped reading".into());
+                        stalled_peers.push(conn);
                     }
                 }
                 HostOutput::Drop { conn } => self.drop_peer(conn),
@@ -404,6 +512,12 @@ impl Host {
                     trace(|| format!("notice {:?}", notice.kind));
                     self.view.notify(notice);
                 }
+            }
+        }
+        for conn in stalled_peers {
+            if self.peers.contains_key(&conn) {
+                self.drop_peer(conn);
+                self.handle(HostInput::Disconnected { conn });
             }
         }
     }
@@ -446,7 +560,10 @@ impl Host {
     fn drop_peer(&mut self, conn: ConnId) {
         if let Some(peer) = self.peers.remove(&conn) {
             peer.reader.abort();
-            let _ = peer.out.send(Out::Close);
+            if !peer.out.close() {
+                peer.writer.abort();
+            }
+            self.closing.push(peer.writer);
         }
     }
 }
@@ -460,7 +577,7 @@ async fn run_member(
 ) {
     let mut view = PartyView::new(Role::Member, Link::Starting);
     events.view(&view);
-    let secret = invite.secret.to_hex();
+    let secret = invite.secret.clone();
     let connected = async {
         let endpoint = bind(store.as_deref()).await?;
         view.link = Link::Connecting;
@@ -482,7 +599,7 @@ async fn run_member(
     let path = sender.path_handle();
     let (out, writer_task) = writer(&runtime, sender);
     let (lines, mut incoming) = unbounded_channel::<((), Option<String>)>();
-    let reader_task = reader(&runtime, receiver, (), lines);
+    let reader_task = reader(&runtime, receiver, (), None, lines);
     let mut member = Member {
         session: MemberSession::new(name, secret),
         view,
@@ -520,7 +637,9 @@ async fn run_member(
         member.events.view(&member.view);
     }
     reader_task.abort();
-    let _ = member.out.send(Out::Close);
+    if !member.out.close() {
+        writer_task.abort();
+    }
     let _ = tokio::time::timeout(GRACE + Duration::from_secs(1), writer_task).await;
     endpoint.close().await;
     trace(|| "member closed".into());
@@ -530,7 +649,7 @@ struct Member {
     session: MemberSession,
     view: PartyView,
     events: Events,
-    out: UnboundedSender<Out>,
+    out: Queue,
     origin: Instant,
     done: bool,
 }
@@ -580,7 +699,10 @@ impl Member {
         for output in self.session.handle(now, input) {
             match output {
                 MemberOutput::Send(up) => {
-                    let _ = self.out.send(Out::Line(encode(&up)));
+                    if self.out.line(encode(&up)).is_err() {
+                        trace(|| "host stopped reading".into());
+                        self.end(EndReason::Lost);
+                    }
                 }
                 MemberOutput::Welcomed { member_id } => {
                     trace(|| format!("member joined member_id={member_id}"));

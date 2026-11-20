@@ -196,7 +196,7 @@ impl AppShell {
                     crate::party::Role::Member => None,
                 })
         {
-            self.invite_written = std::fs::write(path, invite.as_str()).is_ok();
+            self.invite_written = write_private(&path, invite.as_str()).is_ok();
         }
         let Some((film, video_id, pick)) =
             self.state.update(cx, |state, cx| state.take_ready_play(cx))
@@ -219,5 +219,34 @@ impl AppShell {
         self.state
             .update(cx, |state, cx| state.launch(film, video_id, None, pick, cx));
         self.navigate(Route::Player { id }, window, cx);
+    }
+}
+
+/// Writes a file only its owner can read: it holds a party secret.
+fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    file.write_all(contents.as_bytes())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    #[test]
+    fn the_invite_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("panorama-invite-{}", std::process::id()));
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        super::write_private(&path, "invite").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "invite");
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(mode, 0o600);
     }
 }

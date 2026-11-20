@@ -1,15 +1,18 @@
-use std::fmt;
+use std::{fmt, ops::RangeInclusive};
 
 use serde::{Deserialize, Serialize};
 
-use super::{MAX_LINE, MAX_MEMBERS, release::PartyRelease};
+use super::{MAX_LINE, MAX_MEMBERS, release::PartyRelease, transport::PartySecret};
 use crate::addons::{Kind, valid_id};
 
-const MAX_POSITION: f64 = 86_400.0;
-const MAX_NAME: usize = 32;
+pub(super) const MAX_POSITION: f64 = 86_400.0;
+pub(super) const MAX_NAME: usize = 32;
 const MAX_TITLE: usize = 200;
 const MAX_LABEL: usize = 5000;
 const MAX_BINGE_GROUP: usize = 200;
+/// Milliseconds on a monotonic clock that started with the app: far more than any run lasts,
+/// and exact as an `f64`.
+const MAX_TIME_MS: i64 = 1 << 53;
 
 /// Member to host.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -19,7 +22,7 @@ pub enum Up {
     Hello {
         name: String,
         version: u16,
-        secret: String,
+        secret: PartySecret,
     },
     Ping {
         id: u32,
@@ -98,7 +101,7 @@ pub struct PlaybackState {
 impl PlaybackState {
     pub fn expected_at(&self, host_ms: i64) -> f64 {
         if self.playing {
-            self.anchor_position + (host_ms - self.anchor_host_ms) as f64 / 1000.0
+            self.anchor_position + host_ms.saturating_sub(self.anchor_host_ms) as f64 / 1000.0
         } else {
             self.anchor_position
         }
@@ -207,14 +210,11 @@ impl Up {
                 name,
                 version,
                 secret,
-            } => {
-                check(is_hex(&secret, 32), "secret")?;
-                Self::Hello {
-                    name: name_of(&name)?,
-                    version,
-                    secret,
-                }
-            }
+            } => Self::Hello {
+                name: name_of(&name)?,
+                version,
+                secret,
+            },
             Self::Report {
                 position, duration, ..
             } => {
@@ -228,7 +228,11 @@ impl Up {
                 check(is_position(to), "position")?;
                 self
             }
-            Self::Ping { .. } | Self::Request { .. } => self,
+            Self::Ping { sent_ms, .. } => {
+                check(is_time(sent_ms), "time")?;
+                self
+            }
+            Self::Request { .. } => self,
         })
     }
 }
@@ -238,8 +242,12 @@ impl Down {
         match &self {
             Self::Load { media, .. } => media.check()?,
             Self::State { playback, .. } => {
-                check(is_position(playback.anchor_position), "position")?
+                check(is_position(playback.anchor_position), "position")?;
+                check(is_time(playback.anchor_host_ms), "time")?;
             }
+            Self::Pong {
+                sent_ms, host_ms, ..
+            } => check(is_time(*sent_ms) && is_time(*host_ms), "time")?,
             Self::Roster { members } => {
                 check(members.len() <= MAX_MEMBERS, "roster")?;
                 for member in members {
@@ -250,7 +258,7 @@ impl Down {
                 check(name_of(&notice.by)? == notice.by, "name")?;
                 check(notice.at.is_none_or(is_position), "position")?;
             }
-            Self::Welcome { .. } | Self::Pong { .. } | Self::Bye { .. } => {}
+            Self::Welcome { .. } | Self::Bye { .. } => {}
         }
         Ok(self)
     }
@@ -292,12 +300,47 @@ fn check(ok: bool, field: &'static str) -> Result<(), ProtocolError> {
 fn name_of(name: &str) -> Result<String, ProtocolError> {
     let name = name.trim();
     check((1..=MAX_NAME).contains(&name.chars().count()), "name")?;
-    check(!name.chars().any(char::is_control), "name")?;
+    check(!name.chars().any(is_hidden_char), "name")?;
     Ok(name.to_owned())
+}
+
+/// Unicode's format characters (category Cf): they draw nothing, yet reorder or hide the text
+/// around them, so a name could pose as another.
+const FORMAT: [RangeInclusive<char>; 21] = [
+    '\u{00AD}'..='\u{00AD}',
+    '\u{0600}'..='\u{0605}',
+    '\u{061C}'..='\u{061C}',
+    '\u{06DD}'..='\u{06DD}',
+    '\u{070F}'..='\u{070F}',
+    '\u{0890}'..='\u{0891}',
+    '\u{08E2}'..='\u{08E2}',
+    '\u{180E}'..='\u{180E}',
+    '\u{200B}'..='\u{200F}',
+    '\u{202A}'..='\u{202E}',
+    '\u{2060}'..='\u{2064}',
+    '\u{2066}'..='\u{206F}',
+    '\u{FEFF}'..='\u{FEFF}',
+    '\u{FFF9}'..='\u{FFFB}',
+    '\u{110BD}'..='\u{110BD}',
+    '\u{110CD}'..='\u{110CD}',
+    '\u{13430}'..='\u{1343F}',
+    '\u{1BCA0}'..='\u{1BCA3}',
+    '\u{1D173}'..='\u{1D17A}',
+    '\u{E0001}'..='\u{E0001}',
+    '\u{E0020}'..='\u{E007F}',
+];
+
+/// Whether a display name may not hold `c`: a control or format character.
+pub fn is_hidden_char(c: char) -> bool {
+    c.is_control() || FORMAT.iter().any(|range| range.contains(&c))
 }
 
 fn is_position(value: f64) -> bool {
     value.is_finite() && (0.0..=MAX_POSITION).contains(&value)
+}
+
+fn is_time(ms: i64) -> bool {
+    (0..=MAX_TIME_MS).contains(&ms)
 }
 
 fn is_hex(value: &str, len: usize) -> bool {

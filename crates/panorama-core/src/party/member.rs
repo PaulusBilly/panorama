@@ -5,6 +5,7 @@ use super::{
     protocol::{
         Action, ByeReason, Down, MemberState, MemberView, Notice, PartyMedia, PlaybackState, Up,
     },
+    transport::PartySecret,
 };
 
 const FAST_PING_MS: i64 = 2_000;
@@ -14,6 +15,8 @@ const FAST_PING_WINDOW_MS: i64 = 10_000;
 const REPORT_EVERY_MS: i64 = 1_000;
 /// A new timeline this close to the one already playing continues it without a seek.
 const CONTINUOUS: f64 = 0.25;
+/// Each load sets off a details fetch and a stream lookup across every addon.
+const LOAD_EVERY_MS: i64 = 2_000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberInput {
@@ -65,11 +68,13 @@ pub enum MemberOutput {
 #[derive(Debug)]
 pub struct MemberSession {
     name: String,
-    secret: String,
+    secret: PartySecret,
     link: Link,
     clock: ClockSync,
     pings: Pings,
     revision: Option<u64>,
+    media: Option<PartyMedia>,
+    opener: Opener,
     playback: Option<PlaybackState>,
     applied: Option<PlaybackState>,
     anyone_controls: Option<bool>,
@@ -102,6 +107,34 @@ struct Player {
     duration: Option<f64>,
 }
 
+/// Hands on the host's media at most once every [`LOAD_EVERY_MS`], the latest winning.
+#[derive(Debug, Default)]
+struct Opener {
+    opened: Option<(PartyMedia, i64)>,
+    pending: Option<PartyMedia>,
+}
+
+impl Opener {
+    fn offer(&mut self, media: PartyMedia) {
+        self.pending = Some(media);
+    }
+
+    fn due(&mut self, now: i64) -> Option<PartyMedia> {
+        let media = self.pending.take()?;
+        match &self.opened {
+            Some((opened, _)) if *opened == media => None,
+            Some((_, at)) if now.saturating_sub(*at) < LOAD_EVERY_MS => {
+                self.pending = Some(media);
+                None
+            }
+            _ => {
+                self.opened = Some((media.clone(), now));
+                Some(media)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Reported {
     state: MemberState,
@@ -111,7 +144,7 @@ struct Reported {
 
 impl MemberSession {
     /// `secret` comes from the invite.
-    pub fn new(name: String, secret: String) -> Self {
+    pub fn new(name: String, secret: PartySecret) -> Self {
         Self {
             name,
             secret,
@@ -119,6 +152,8 @@ impl MemberSession {
             clock: ClockSync::new(),
             pings: Pings::default(),
             revision: None,
+            media: None,
+            opener: Opener::default(),
             playback: None,
             applied: None,
             anyone_controls: None,
@@ -184,6 +219,9 @@ impl MemberSession {
         if self.link == Link::Ended {
             return out;
         }
+        if let Some(media) = self.opener.due(now_ms) {
+            out.push(MemberOutput::Load(media));
+        }
         self.follow(now_ms, &mut out);
         if moved {
             self.correct(now_ms, &mut out);
@@ -204,16 +242,18 @@ impl MemberSession {
                 sent_ms, host_ms, ..
             } => self.clock.record(sent_ms, host_ms, now),
             Down::Load { media, revision } => {
-                if self.stale(revision) {
+                let repeat = self.revision == Some(revision) && self.media.as_ref() == Some(&media);
+                if self.stale(revision) || repeat {
                     return;
                 }
                 self.revision = Some(revision);
+                self.media = Some(media.clone());
                 self.playback = None;
                 self.applied = None;
                 // Opening a new source resets the player's speed.
                 self.speed = 1.0;
                 self.last_seek_ms = None;
-                out.push(MemberOutput::Load(media));
+                self.opener.offer(media);
             }
             Down::State {
                 revision,

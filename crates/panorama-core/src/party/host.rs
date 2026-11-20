@@ -3,9 +3,10 @@ use std::collections::BTreeMap;
 use super::{
     MAX_MEMBERS, PROTOCOL_VERSION,
     protocol::{
-        Action, ByeReason, Down, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
-        PlaybackState, Up,
+        Action, ByeReason, Down, MAX_NAME, MAX_POSITION, MemberState, MemberView, Notice,
+        NoticeKind, PartyMedia, PlaybackState, Up,
     },
+    transport::PartySecret,
 };
 
 const HELLO_TIMEOUT_MS: i64 = 10_000;
@@ -23,6 +24,8 @@ const CATCH_UP: f64 = 5.0;
 const HOST_DRIFT: f64 = 0.5;
 /// How long after the timeline last moved the host's reports are trusted to show the move.
 const SETTLE_MS: i64 = 1_500;
+/// A tick: however often members' reports move the roster, everyone hears it at most this often.
+const ROSTER_EVERY_MS: i64 = 250;
 const HOST_ID: u32 = 0;
 
 /// A connection, numbered by the transport.
@@ -96,7 +99,7 @@ pub enum HostOutput {
 /// with what to send, whom to drop and what the host's own player and panel should show.
 #[derive(Debug)]
 pub struct HostSession {
-    secret: String,
+    secret: PartySecret,
     settings: HostSettings,
     host: Participant,
     conns: BTreeMap<ConnId, Conn>,
@@ -106,6 +109,7 @@ pub struct HostSession {
     published: Option<(PlaybackState, bool)>,
     published_ms: i64,
     roster: Vec<MemberView>,
+    roster_ms: Option<i64>,
     ended: bool,
 }
 
@@ -224,16 +228,17 @@ impl Showing {
         }
     }
 
-    fn set(&mut self, now: i64, phase: Phase, position: f64) {
+    /// `duration` is the host's length of the media, when its player knows it.
+    fn set(&mut self, now: i64, phase: Phase, position: f64, duration: Option<f64>) {
         self.phase = phase;
-        self.anchor_position = position;
+        self.anchor_position = within(position, duration);
         self.anchor_host_ms = now;
     }
 }
 
 impl HostSession {
-    /// `secret` is the party secret from the invite, 32 lowercase hex characters.
-    pub fn new(name: String, secret: String, settings: HostSettings) -> Self {
+    /// `secret` is the party secret from the invite.
+    pub fn new(name: String, secret: PartySecret, settings: HostSettings) -> Self {
         Self {
             secret,
             settings,
@@ -245,6 +250,7 @@ impl HostSession {
             published: None,
             published_ms: 0,
             roster: Vec::new(),
+            roster_ms: None,
             ended: false,
         }
     }
@@ -345,10 +351,10 @@ impl HostSession {
         conn: ConnId,
         name: String,
         version: u16,
-        secret: &str,
+        secret: &PartySecret,
         out: &mut Vec<HostOutput>,
     ) {
-        let refusal = if !same_secret(secret, &self.secret) {
+        let refusal = if *secret != self.secret {
             Some(ByeReason::BadSecret)
         } else if version != PROTOCOL_VERSION {
             Some(ByeReason::VersionMismatch)
@@ -366,6 +372,7 @@ impl HostSession {
             out.push(HostOutput::Drop { conn });
             return;
         }
+        let name = self.unique_name(name);
         let member_id = self.next_member;
         self.next_member += 1;
         self.conns.insert(
@@ -394,6 +401,30 @@ impl HostSession {
         self.notify(NoticeKind::Joined, name, None, out);
     }
 
+    /// `name`, or when someone in the party already goes by it, whatever the case, `name (n)`.
+    fn unique_name(&self, name: String) -> String {
+        let taken = |candidate: &str| {
+            let candidate = candidate.to_lowercase();
+            std::iter::once(&self.host)
+                .chain(self.joined())
+                .any(|p| p.name.to_lowercase() == candidate)
+        };
+        if !taken(&name) {
+            return name;
+        }
+        (2..=MAX_MEMBERS + 1)
+            .map(|n| {
+                let suffix = format!(" ({n})");
+                let base = name
+                    .chars()
+                    .take(MAX_NAME - suffix.len())
+                    .collect::<String>();
+                format!("{}{suffix}", base.trim_end())
+            })
+            .find(|candidate| !taken(candidate))
+            .unwrap_or(name)
+    }
+
     fn disconnect(&mut self, conn: ConnId, out: &mut Vec<HostOutput>) {
         if let Some(Conn::Joined(member)) = self.conns.remove(&conn) {
             self.notify(NoticeKind::Left, member.name, None, out);
@@ -419,7 +450,7 @@ impl HostSession {
         self.showing = Some(Showing {
             media,
             phase: Phase::WaitingForReady { since: now },
-            anchor_position: at,
+            anchor_position: within(at, None),
             anchor_host_ms: now,
         });
     }
@@ -435,8 +466,9 @@ impl HostSession {
             (Action::Pause, _) => (Phase::Paused, position, NoticeKind::Paused),
             (Action::Seek { to }, phase) => (phase, to, NoticeKind::Seeked),
         };
-        showing.set(now, phase, position);
-        self.notify(kind, by, Some(position), out);
+        showing.set(now, phase, position, self.host.duration);
+        let at = showing.anchor_position;
+        self.notify(kind, by, Some(at), out);
     }
 
     /// Moves the party along on time alone: readiness, buffer waits and their limits, and
@@ -520,7 +552,7 @@ impl HostSession {
             let position = stopped_at
                 .filter(|at| (expected - CATCH_UP..=expected).contains(at))
                 .unwrap_or(expected);
-            showing.set(now, next, position);
+            showing.set(now, next, position, host_duration);
         }
         if let Some(showing) = &mut self.showing
             && showing.phase == Phase::Playing
@@ -529,7 +561,7 @@ impl HostSession {
         {
             let here = self.host.position + (now - self.host.reported_ms) as f64 / 1000.0;
             if (here - showing.playback().expected_at(now)).abs() > HOST_DRIFT {
-                showing.set(now, Phase::Playing, here);
+                showing.set(now, Phase::Playing, here, host_duration);
             }
         }
         for (kind, by) in notices {
@@ -542,7 +574,7 @@ impl HostSession {
     }
 
     /// Sends the party's state whenever it changes, and every 5 s as a refresh; and the roster
-    /// whenever it changes.
+    /// when someone joins or leaves, and when only reports moved it, at most once a tick.
     fn publish(&mut self, now: i64, out: &mut Vec<HostOutput>) {
         if let Some(showing) = &self.showing {
             let current = (showing.playback(), self.settings.anyone_controls);
@@ -569,8 +601,14 @@ impl HostSession {
         let roster = std::iter::once(self.host.view(true))
             .chain(self.joined().map(|member| member.view(false)))
             .collect::<Vec<_>>();
-        if roster != self.roster {
+        let ids = |roster: &[MemberView]| roster.iter().map(|m| m.member_id).collect::<Vec<_>>();
+        let due = ids(&roster) != ids(&self.roster)
+            || self
+                .roster_ms
+                .is_none_or(|at| now.saturating_sub(at) >= ROSTER_EVERY_MS);
+        if roster != self.roster && due {
             self.roster = roster.clone();
+            self.roster_ms = Some(now);
             self.broadcast(
                 Down::Roster {
                     members: roster.clone(),
@@ -628,12 +666,14 @@ impl HostSession {
     }
 }
 
-/// Takes the same time whichever byte differs, so a joiner can't guess the secret byte by byte.
-fn same_secret(given: &str, expected: &str) -> bool {
-    given.len() == expected.len()
-        && given
-            .bytes()
-            .zip(expected.bytes())
-            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
-            == 0
+/// A position members accept: on the media, and never past its end.
+fn within(position: f64, duration: Option<f64>) -> f64 {
+    let end = duration
+        .filter(|duration| duration.is_finite() && *duration > 0.0)
+        .map_or(MAX_POSITION, |duration| duration.min(MAX_POSITION));
+    if position.is_finite() {
+        position.clamp(0.0, end)
+    } else {
+        0.0
+    }
 }

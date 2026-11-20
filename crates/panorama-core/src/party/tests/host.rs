@@ -1,11 +1,12 @@
 use super::*;
+use crate::party::transport::PartySecret;
 
 const SAM: ConnId = ConnId(1);
 const KIM: ConnId = ConnId(2);
 const LENGTH: f64 = 7_200.0;
 
 fn host() -> HostSession {
-    HostSession::new("Alex".into(), SECRET.into(), HostSettings::default())
+    HostSession::new("Alex".into(), secret(), HostSettings::default())
 }
 
 fn hello(host: &mut HostSession, now: i64, conn: ConnId, secret: &str) -> Vec<HostOutput> {
@@ -17,7 +18,7 @@ fn hello(host: &mut HostSession, now: i64, conn: ConnId, secret: &str) -> Vec<Ho
             msg: Up::Hello {
                 name: format!("M{}", conn.0),
                 version: PROTOCOL_VERSION,
-                secret: secret.into(),
+                secret: PartySecret::from_hex(secret).unwrap(),
             },
         },
     )
@@ -32,7 +33,7 @@ fn join(host: &mut HostSession, now: i64, conn: ConnId, name: &str) -> Vec<HostO
             msg: Up::Hello {
                 name: name.into(),
                 version: PROTOCOL_VERSION,
-                secret: SECRET.into(),
+                secret: secret(),
             },
         },
     )
@@ -195,7 +196,7 @@ fn version_mismatch_gets_bye() {
             msg: Up::Hello {
                 name: "Sam".into(),
                 version: PROTOCOL_VERSION + 1,
-                secret: SECRET.into(),
+                secret: secret(),
             },
         },
     );
@@ -321,6 +322,7 @@ fn play_starts_after_20s_even_if_not_ready() {
     assert_ne!(playing(&tick(&mut host, 20_000), SAM), Some(true));
     let out = tick(&mut host, 20_001);
     assert_eq!(playing(&out, SAM), Some(true));
+    let out = tick(&mut host, 20_250);
     let sam = roster(&out).unwrap().into_iter().find(|m| m.name == "Sam");
     assert!(sam.unwrap().late);
 }
@@ -507,6 +509,7 @@ fn different_release_sends_notice_and_shows_in_roster() {
 #[test]
 fn member_request_ignored_when_host_only() {
     let mut host = party();
+    tick(&mut host, 500);
     let out = request(&mut host, 1_000, SAM, Action::Pause);
     assert!(states(&out, SAM).is_empty());
     assert_eq!(
@@ -658,4 +661,87 @@ fn a_report_from_before_a_seek_does_not_undo_it() {
             .iter()
             .all(|(_, playback, _)| playback.anchor_position == 500.0)
     );
+}
+
+fn every_state_decodes(out: &[HostOutput]) {
+    for (_, playback, anyone_controls) in states(out, SAM) {
+        let line = encode(&Down::State {
+            revision: 1,
+            playback,
+            anyone_controls,
+        });
+        assert!(decode_down(&line).is_ok(), "members refuse {playback:?}");
+    }
+}
+
+#[test]
+fn the_timeline_never_leaves_what_members_accept() {
+    let mut host = host();
+    join(&mut host, 0, SAM, "Sam");
+    let out = set_media(&mut host, 0, 100_000.0);
+    every_state_decodes(&out);
+    assert_eq!(states(&out, SAM)[0].1.anchor_position, 86_400.0);
+
+    let mut host = party();
+    let out = host.handle(200_000_000, HostInput::Local(Action::Pause));
+    every_state_decodes(&out);
+}
+
+#[test]
+fn the_timeline_stops_at_the_end_of_the_media() {
+    let mut host = party();
+    local_at(&mut host, 1_000, 101.0);
+    let out = host.handle(20_000_000, HostInput::Local(Action::Pause));
+    assert_eq!(states(&out, SAM)[0].1.anchor_position, LENGTH);
+}
+
+#[test]
+fn a_member_named_like_the_host_gets_a_suffix() {
+    let mut host = host();
+    let out = join(&mut host, 0, SAM, "ALEX");
+    assert_eq!(sent_to(&out, SAM)[0], Down::Welcome { member_id: 1 });
+    let names = roster(&out)
+        .unwrap()
+        .into_iter()
+        .map(|member| member.name)
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Alex", "ALEX (2)"]);
+    assert_eq!(notices(&out)[0].by, "ALEX (2)");
+    let out = join(&mut host, 300, KIM, "alex");
+    assert_eq!(roster(&out).unwrap()[2].name, "alex (3)");
+
+    let long = "x".repeat(32);
+    let mut host = HostSession::new(long.clone(), secret(), HostSettings::default());
+    let out = join(&mut host, 0, SAM, &long);
+    let sam = &roster(&out).unwrap()[1].name;
+    assert_eq!(*sam, format!("{} (2)", "x".repeat(28)));
+    assert!(
+        decode_down(&encode(&Down::Roster {
+            members: roster(&out).unwrap()
+        }))
+        .is_ok()
+    );
+}
+
+#[test]
+fn a_flapping_member_moves_the_roster_at_most_once_a_tick() {
+    let mut host = party();
+    let mut rosters = 0;
+    for step in 0..20 {
+        let state = if step % 2 == 0 {
+            MemberState::Buffering
+        } else {
+            MemberState::Playing
+        };
+        let out = report(&mut host, 1_000 + step * 10, SAM, state);
+        rosters += sent_to(&out, SAM)
+            .iter()
+            .filter(|msg| matches!(msg, Down::Roster { .. }))
+            .count();
+    }
+    assert!(rosters <= 1, "{rosters} rosters in 200 ms");
+    let out = tick(&mut host, 1_260);
+    let sam = roster(&out).unwrap().into_iter().find(|m| m.name == "Sam");
+    assert_eq!(sam.unwrap().state, MemberState::Playing);
+    assert!(roster(&tick(&mut host, 1_520)).is_none());
 }
