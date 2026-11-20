@@ -659,3 +659,35 @@ fn a_report_from_before_a_seek_does_not_undo_it() {
             .all(|(_, playback, _)| playback.anchor_position == 500.0)
     );
 }
+
+fn every_state_decodes(out: &[HostOutput]) {
+    for (_, playback, anyone_controls) in states(out, SAM) {
+        let line = encode(&Down::State {
+            revision: 1,
+            playback,
+            anyone_controls,
+        });
+        assert!(decode_down(&line).is_ok(), "members refuse {playback:?}");
+    }
+}
+
+#[test]
+fn the_timeline_never_leaves_what_members_accept() {
+    let mut host = host();
+    join(&mut host, 0, SAM, "Sam");
+    let out = set_media(&mut host, 0, 100_000.0);
+    every_state_decodes(&out);
+    assert_eq!(states(&out, SAM)[0].1.anchor_position, 86_400.0);
+
+    let mut host = party();
+    let out = host.handle(200_000_000, HostInput::Local(Action::Pause));
+    every_state_decodes(&out);
+}
+
+#[test]
+fn the_timeline_stops_at_the_end_of_the_media() {
+    let mut host = party();
+    local_at(&mut host, 1_000, 101.0);
+    let out = host.handle(20_000_000, HostInput::Local(Action::Pause));
+    assert_eq!(states(&out, SAM)[0].1.anchor_position, LENGTH);
+}

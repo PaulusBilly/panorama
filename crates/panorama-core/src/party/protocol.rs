@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::{MAX_LINE, MAX_MEMBERS, release::PartyRelease};
 use crate::addons::{Kind, valid_id};
 
-const MAX_POSITION: f64 = 86_400.0;
+pub(super) const MAX_POSITION: f64 = 86_400.0;
 const MAX_NAME: usize = 32;
 const MAX_TITLE: usize = 200;
 const MAX_LABEL: usize = 5000;

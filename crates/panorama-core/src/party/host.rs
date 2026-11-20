@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use super::{
     MAX_MEMBERS, PROTOCOL_VERSION,
     protocol::{
-        Action, ByeReason, Down, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
-        PlaybackState, Up,
+        Action, ByeReason, Down, MAX_POSITION, MemberState, MemberView, Notice, NoticeKind,
+        PartyMedia, PlaybackState, Up,
     },
 };
 
@@ -224,9 +224,10 @@ impl Showing {
         }
     }
 
-    fn set(&mut self, now: i64, phase: Phase, position: f64) {
+    /// `duration` is the host's length of the media, when its player knows it.
+    fn set(&mut self, now: i64, phase: Phase, position: f64, duration: Option<f64>) {
         self.phase = phase;
-        self.anchor_position = position;
+        self.anchor_position = within(position, duration);
         self.anchor_host_ms = now;
     }
 }
@@ -419,7 +420,7 @@ impl HostSession {
         self.showing = Some(Showing {
             media,
             phase: Phase::WaitingForReady { since: now },
-            anchor_position: at,
+            anchor_position: within(at, None),
             anchor_host_ms: now,
         });
     }
@@ -435,8 +436,9 @@ impl HostSession {
             (Action::Pause, _) => (Phase::Paused, position, NoticeKind::Paused),
             (Action::Seek { to }, phase) => (phase, to, NoticeKind::Seeked),
         };
-        showing.set(now, phase, position);
-        self.notify(kind, by, Some(position), out);
+        showing.set(now, phase, position, self.host.duration);
+        let at = showing.anchor_position;
+        self.notify(kind, by, Some(at), out);
     }
 
     /// Moves the party along on time alone: readiness, buffer waits and their limits, and
@@ -520,7 +522,7 @@ impl HostSession {
             let position = stopped_at
                 .filter(|at| (expected - CATCH_UP..=expected).contains(at))
                 .unwrap_or(expected);
-            showing.set(now, next, position);
+            showing.set(now, next, position, host_duration);
         }
         if let Some(showing) = &mut self.showing
             && showing.phase == Phase::Playing
@@ -529,7 +531,7 @@ impl HostSession {
         {
             let here = self.host.position + (now - self.host.reported_ms) as f64 / 1000.0;
             if (here - showing.playback().expected_at(now)).abs() > HOST_DRIFT {
-                showing.set(now, Phase::Playing, here);
+                showing.set(now, Phase::Playing, here, host_duration);
             }
         }
         for (kind, by) in notices {
@@ -625,6 +627,18 @@ impl HostSession {
                 Conn::AwaitingHello { .. } => None,
             },
         ))
+    }
+}
+
+/// A position members accept: on the media, and never past its end.
+fn within(position: f64, duration: Option<f64>) -> f64 {
+    let end = duration
+        .filter(|duration| duration.is_finite() && *duration > 0.0)
+        .map_or(MAX_POSITION, |duration| duration.min(MAX_POSITION));
+    if position.is_finite() {
+        position.clamp(0.0, end)
+    } else {
+        0.0
     }
 }
 
