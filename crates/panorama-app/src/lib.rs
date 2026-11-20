@@ -25,6 +25,7 @@ pub mod hero;
 pub mod home_layout;
 pub mod image_cache;
 pub mod login;
+pub mod party;
 pub mod playback;
 pub mod prefetch;
 pub mod router;

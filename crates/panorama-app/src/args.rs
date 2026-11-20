@@ -72,6 +72,16 @@ pub struct Args {
     pub open_catalog_menu: bool,
     /// Keep the store, its lock and the caches under this directory instead of the platform default.
     pub data_dir: Option<PathBuf>,
+    /// Debug: host a party; whatever the player opens is what it watches.
+    pub party_host: bool,
+    /// Debug: join this party link at startup (never logged).
+    pub party_join: Option<String>,
+    /// Debug: the name to show in the party, for this run only.
+    pub party_name: Option<String>,
+    /// Debug: write the host's invite link here once it is ready.
+    pub party_invite_file: Option<PathBuf>,
+    /// Debug: open this film (`film:<id>`, `series:<id>` or `anime:<id>`) and play it.
+    pub party_play: Option<(panorama_core::addons::Kind, String)>,
 }
 
 impl Args {
@@ -115,6 +125,11 @@ impl Args {
             addons_error: false,
             open_catalog_menu: false,
             data_dir: None,
+            party_host: false,
+            party_join: None,
+            party_name: None,
+            party_invite_file: None,
+            party_play: None,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -192,6 +207,38 @@ impl Args {
                             .ok_or("--data-dir needs a path")?
                             .into(),
                     );
+                }
+                "--party-host" => result.party_host = true,
+                "--party-join" => {
+                    result.party_join = Some(
+                        args.next()
+                            .and_then(|value| value.into_string().ok())
+                            .filter(|value| !value.is_empty())
+                            .ok_or("--party-join needs a party link")?,
+                    );
+                }
+                "--party-name" => {
+                    result.party_name = Some(
+                        args.next()
+                            .and_then(|value| value.into_string().ok())
+                            .and_then(|value| crate::party::display_name(&value))
+                            .ok_or("--party-name needs a name")?,
+                    );
+                }
+                "--party-invite-file" => {
+                    result.party_invite_file = Some(
+                        args.next()
+                            .filter(|value| !value.is_empty())
+                            .ok_or("--party-invite-file needs a path")?
+                            .into(),
+                    );
+                }
+                "--party-play" => {
+                    let value = args.next().ok_or("--party-play needs film:<id>")?;
+                    match Route::parse(value.to_str().ok_or("Invalid film")?)? {
+                        Route::Film { id, kind } => result.party_play = Some((kind, id)),
+                        _ => return Err("--party-play needs film:<id>".into()),
+                    }
                 }
                 "--play-torrent" => result.play_torrent = true,
                 "--torrent-hash" => {
@@ -298,6 +345,12 @@ impl Args {
         if screenshot_options && result.screenshot.is_none() {
             return Err("--size requires --screenshot".into());
         }
+        if result.party_host && result.party_join.is_some() {
+            return Err("Choose --party-host or --party-join".into());
+        }
+        if result.party_invite_file.is_some() && !result.party_host {
+            return Err("--party-invite-file requires --party-host".into());
+        }
         if result.torrent_hash.is_some() && !result.play_torrent {
             return Err("--torrent-hash requires --play-torrent".into());
         }
@@ -362,6 +415,31 @@ mod tests {
         }
         let error = parse(&["--torrent-hash", hash]).unwrap_err();
         assert!(!error.contains(hash));
+    }
+    #[test]
+    fn party_flags_parse_and_never_echo_the_link() {
+        let link = "panorama://party/endpointabc?s=0123456789abcdef0123456789abcdef";
+        let args = parse(&["--party-join", link, "--party-name", "  Sam  "]).unwrap();
+        assert_eq!(args.party_join.as_deref(), Some(link));
+        assert_eq!(args.party_name.as_deref(), Some("Sam"));
+        assert!(!format!("{args:?}").contains("endpointabc"));
+        let args = parse(&[
+            "--party-host",
+            "--party-invite-file",
+            "/tmp/invite",
+            "--party-play",
+            "film:tt0111161",
+        ])
+        .unwrap();
+        assert!(args.party_host);
+        assert_eq!(
+            args.party_play,
+            Some((panorama_core::addons::Kind::Movie, "tt0111161".into()))
+        );
+        assert!(parse(&["--party-host", "--party-join", link]).is_err());
+        assert!(parse(&["--party-invite-file", "/tmp/invite"]).is_err());
+        assert!(parse(&["--party-play", "home"]).is_err());
+        assert!(parse(&["--party-name", " "]).is_err());
     }
     #[test]
     fn data_dir_takes_a_path() {

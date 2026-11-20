@@ -379,7 +379,7 @@ pub(crate) fn play_film<V: 'static>(
         .and_then(|point| point.video_id.clone())
         .unwrap_or_else(|| id.clone());
     state.update(cx, |state, cx| {
-        state.launch(film, video_id, resume, None, cx)
+        state.launch(film, video_id, resume, Default::default(), cx)
     });
     let _ = shell.update(cx, |shell, cx| {
         shell.navigate(Route::Player { id }, window, cx)
