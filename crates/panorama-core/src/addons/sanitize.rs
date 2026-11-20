@@ -8,7 +8,7 @@ use super::{Episode, FailureKind, FilmDetails, Kind, StreamSource, TransportResp
 
 pub(super) const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
-pub(super) fn valid_id(id: &str) -> bool {
+pub(crate) fn valid_id(id: &str) -> bool {
     let length = id.chars().count();
     (1..=200).contains(&length)
         && !id
