@@ -18,6 +18,11 @@ const LENGTH_TOLERANCE: f64 = 2.0;
 /// A wait pauses the party where the buffering player stopped when it is at most this far
 /// behind the timeline, so it resumes without skipping what it missed.
 const CATCH_UP: f64 = 5.0;
+/// The host's picture is the party's: once it strays this far from the timeline, the timeline
+/// moves to it.
+const HOST_DRIFT: f64 = 0.5;
+/// How long after the timeline last moved the host's reports are trusted to show the move.
+const SETTLE_MS: i64 = 1_500;
 const HOST_ID: u32 = 0;
 
 /// A connection, numbered by the transport.
@@ -143,6 +148,8 @@ struct Participant {
     release_matched: bool,
     late: bool,
     buffering_since: Option<i64>,
+    /// When the last report arrived.
+    reported_ms: i64,
     waits: u8,
     told_release: bool,
     told_length: bool,
@@ -159,6 +166,7 @@ impl Participant {
             release_matched: true,
             late: false,
             buffering_since: None,
+            reported_ms: 0,
             waits: 0,
             told_release: false,
             told_length: false,
@@ -184,6 +192,7 @@ impl Participant {
         self.state = state;
         self.position = position;
         self.duration = duration;
+        self.reported_ms = now;
     }
 
     fn holds_start(&self) -> bool {
@@ -512,6 +521,16 @@ impl HostSession {
                 .filter(|at| (expected - CATCH_UP..=expected).contains(at))
                 .unwrap_or(expected);
             showing.set(now, next, position);
+        }
+        if let Some(showing) = &mut self.showing
+            && showing.phase == Phase::Playing
+            && self.host.state == MemberState::Playing
+            && self.host.reported_ms - showing.anchor_host_ms >= SETTLE_MS
+        {
+            let here = self.host.position + (now - self.host.reported_ms) as f64 / 1000.0;
+            if (here - showing.playback().expected_at(now)).abs() > HOST_DRIFT {
+                showing.set(now, Phase::Playing, here);
+            }
         }
         for (kind, by) in notices {
             let at = match (kind, &self.showing) {

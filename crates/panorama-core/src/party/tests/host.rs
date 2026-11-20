@@ -613,3 +613,49 @@ fn end_says_host_left_and_drops_everyone() {
     assert!(dropped(&out, SAM));
     assert!(tick(&mut host, 2_000).is_empty());
 }
+
+fn local_at(host: &mut HostSession, now: i64, position: f64) -> Vec<HostOutput> {
+    host.handle(
+        now,
+        HostInput::LocalReport {
+            state: MemberState::Playing,
+            position,
+            duration: Some(LENGTH),
+        },
+    )
+}
+
+#[test]
+fn a_host_behind_its_own_timeline_moves_the_timeline_to_it() {
+    let mut host = party();
+    // Playing from 100 s at t=0, so 110 s is expected at t=10_000; the host's player is at 109.
+    let out = local_at(&mut host, 10_000, 109.0);
+    let (_, playback, _) = states(&out, SAM)[0];
+    assert!(playback.playing);
+    assert_eq!(playback.anchor_position, 109.0);
+    assert_eq!(playback.anchor_host_ms, 10_000);
+}
+
+#[test]
+fn a_small_host_lag_leaves_the_timeline_alone() {
+    let mut host = party();
+    let out = local_at(&mut host, 10_000, 109.8);
+    assert!(
+        states(&out, SAM)
+            .iter()
+            .all(|(_, playback, _)| playback.anchor_position == 100.0)
+    );
+}
+
+#[test]
+fn a_report_from_before_a_seek_does_not_undo_it() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    // The player has not caught up with the seek yet.
+    let out = local_at(&mut host, 10_500, 110.4);
+    assert!(
+        states(&out, SAM)
+            .iter()
+            .all(|(_, playback, _)| playback.anchor_position == 500.0)
+    );
+}

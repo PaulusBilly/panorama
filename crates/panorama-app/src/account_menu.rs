@@ -199,7 +199,7 @@ impl AccountMenu {
                 |(&entry, focus)| {
                     let in_party = party.is_some_and(|party| party.ended().is_none());
                     let label = entry.label(in_party);
-                    let detail = (entry == MenuEntry::Party).then(|| {
+                    let detail = (entry == MenuEntry::Party).then_some({
                         if in_party {
                             ("You can keep watching on your own.", false)
                         } else if self.no_invite {
