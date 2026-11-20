@@ -142,7 +142,9 @@ async fn error_then_retry_resumes_and_preserves_latch() {
 async fn initial_error_and_resolver_failure_are_retryable() {
     let (mut runner, backend, _) = setup();
     lock(&backend.scripts).push_back(Script {
-        error: Some(PlaybackError::LibraryMissing),
+        error: Some(PlaybackError::Runtime(
+            crate::playback::runtime::RuntimeProblem::Missing,
+        )),
         ..Default::default()
     });
     runner
@@ -151,7 +153,9 @@ async fn initial_error_and_resolver_failure_are_retryable() {
     resolve(&mut runner).await;
     assert_eq!(
         runner.model.status,
-        Status::Error(PlaybackError::LibraryMissing)
+        Status::Error(PlaybackError::Runtime(
+            crate::playback::runtime::RuntimeProblem::Missing
+        ))
     );
     runner.control(Command::Retry).await;
     resolve(&mut runner).await;

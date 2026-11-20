@@ -2,6 +2,7 @@ use super::{
     health::LinkHealth,
     host::Command,
     model::PlaybackError,
+    runtime::RuntimeProblem,
     selection::PlaybackSelection,
     source::{self, ResolvedSource},
 };
@@ -17,7 +18,7 @@ use panorama_core::{
     },
 };
 use panorama_mpv::{
-    CacheState, Mpv, MpvLibrary, Player, PlayerEvent, PlayerOptions, RawWindow, SeekMode,
+    CacheState, MpvLibrary, Player, PlayerEvent, PlayerOptions, RawWindow, SeekMode,
 };
 use std::{
     path::PathBuf,
@@ -87,13 +88,10 @@ impl NativeBackend {
     async fn library(&self) -> Result<MpvLibrary, PlaybackError> {
         self.library
             .get_or_try_init(|| async {
-                tokio::task::spawn_blocking(|| {
-                    let directory = std::env::var_os("PANORAMA_LIBMPV_DIR").map(PathBuf::from);
-                    Mpv::load_library(directory.as_deref())
-                })
-                .await
-                .map_err(|_| PlaybackError::LibraryMissing)?
-                .map_err(|_| PlaybackError::LibraryMissing)
+                tokio::task::spawn_blocking(super::runtime::load)
+                    .await
+                    .map_err(|_| PlaybackError::Runtime(RuntimeProblem::Missing))?
+                    .map_err(PlaybackError::Runtime)
             })
             .await
             .cloned()

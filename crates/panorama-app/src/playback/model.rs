@@ -1,3 +1,4 @@
+use super::runtime::RuntimeProblem;
 pub use super::selection::SourceRef;
 pub use super::torrent_ui::TorrentHealth;
 use panorama_mpv::{EndReason, MpvError, PlayerEvent, TrackKind};
@@ -10,7 +11,8 @@ pub enum Stage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlaybackError {
-    LibraryMissing,
+    /// libmpv could not be loaded.
+    Runtime(RuntimeProblem),
     /// None of the addons had a playable source for the film.
     NoSource,
     SourceUnavailable,
@@ -27,7 +29,7 @@ pub enum PlaybackError {
 impl PlaybackError {
     pub fn message(&self) -> &'static str {
         match self {
-            Self::LibraryMissing => "Playback components are missing. Reinstall Panorama.",
+            Self::Runtime(problem) => problem.message(),
             Self::NoSource => "None of your addons has a playable source for this film.",
             Self::SourceUnavailable => "This source could not be played. Try another source.",
             Self::SourceExpired => "This source has expired. Try another source.",
@@ -53,10 +55,11 @@ impl std::error::Error for PlaybackError {}
 impl From<MpvError> for PlaybackError {
     fn from(error: MpvError) -> Self {
         match error {
-            MpvError::LibraryUnavailable
-            | MpvError::MissingSymbol
-            | MpvError::IncompatibleApi
-            | MpvError::UnsupportedPlatform => Self::LibraryMissing,
+            MpvError::LibraryUnavailable => Self::Runtime(RuntimeProblem::Missing),
+            MpvError::MissingSymbol | MpvError::IncompatibleApi => {
+                Self::Runtime(RuntimeProblem::WrongVersion)
+            }
+            MpvError::UnsupportedPlatform => Self::Runtime(RuntimeProblem::Unsupported),
             MpvError::Loading => Self::SourceUnavailable,
             MpvError::NothingToPlay => Self::NoVideoFile,
             MpvError::Demuxer | MpvError::Output => Self::Decode,

@@ -1,6 +1,7 @@
 //! A watch party run from the app: the network side lives on the services runtime
 //! ([`service`]), and the GPUI side sees one [`PartyView`] and applies the party's commands to
 //! the player.
+pub mod handoff;
 mod service;
 mod state;
 

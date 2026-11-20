@@ -113,17 +113,21 @@ impl ServicesHost {
         })
     }
 
+    /// The directory holding the store, its lock and the caches.
+    pub fn data_dir(&self) -> Option<std::path::PathBuf> {
+        match &self.data_dir {
+            Some(dir) => Some(dir.clone()),
+            None => store::default_path().and_then(|path| path.parent().map(Into::into)),
+        }
+    }
+
     /// Open storage and initialize core services on Tokio and blocking workers.
     pub async fn start(&self) -> Result<Arc<Services>, StartupError> {
         if self.fixtures {
             let fixture_file = FixtureFile::unique();
             return Ok(Arc::new(Services {
                 runtime: self.runtime.clone(),
-                data_dir: self.data_dir.clone().unwrap_or_else(|| {
-                    store::default_path()
-                        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
-                        .unwrap_or_default()
-                }),
+                data_dir: self.data_dir().unwrap_or_default(),
                 // A presence with no IPC paths: the toggle works, nothing connects, and the
                 // opt-in lands in a temporary file instead of the user's settings.
                 discord: Some(panorama_core::discord::DiscordPresence::new(
@@ -145,13 +149,12 @@ impl ServicesHost {
                 clips: tokio::sync::OnceCell::new(),
             }));
         }
-        let path = match &self.data_dir {
-            Some(dir) => Some(dir.join("panorama.db")),
-            None => store::default_path(),
-        }
-        .ok_or_else(|| {
-            StartupError::Failed("Could not locate Panorama's storage directory.".into())
-        })?;
+        let path = self
+            .data_dir()
+            .map(|dir| dir.join("panorama.db"))
+            .ok_or_else(|| {
+                StartupError::Failed("Could not locate Panorama's storage directory.".into())
+            })?;
         let mut slot = self.store.lock().await;
         if slot.is_none() {
             let store_path = path.clone();
@@ -272,14 +275,10 @@ impl Services {
             let library = services
                 .clips
                 .get_or_init(|| async {
-                    tokio::task::spawn_blocking(|| {
-                        let directory =
-                            std::env::var_os("PANORAMA_LIBMPV_DIR").map(std::path::PathBuf::from);
-                        panorama_mpv::Mpv::load_library(directory.as_deref()).ok()
-                    })
-                    .await
-                    .ok()
-                    .flatten()
+                    tokio::task::spawn_blocking(|| crate::playback::runtime::load().ok())
+                        .await
+                        .ok()
+                        .flatten()
                 })
                 .await
                 .clone()?;

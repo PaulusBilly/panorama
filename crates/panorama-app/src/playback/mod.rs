@@ -8,6 +8,7 @@ pub mod model;
 pub mod output;
 pub mod prefs;
 pub mod progress;
+pub mod runtime;
 pub mod selection;
 pub mod shell;
 pub mod source;

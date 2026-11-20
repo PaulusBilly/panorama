@@ -21,15 +21,30 @@ pub struct AlertRow<'a> {
     pub keyboard: bool,
 }
 
+/// The alert row's rules and spacing, holding only a message: for a problem Panorama can't fix
+/// from a button.
+pub fn notice(message: &'static str, theme: Theme) -> impl IntoElement {
+    frame(theme).child(
+        div()
+            .id("notice")
+            .role(gpui::Role::Status)
+            .body()
+            .child(message),
+    )
+}
+
+fn frame(theme: Theme) -> Div {
+    div()
+        .mt(px(32.0))
+        .py(px(22.0))
+        .border_y_1()
+        .border_color(theme.rule)
+}
+
 impl AlertRow<'_> {
     /// Render the row; `on_click` runs when the button is activated.
     pub fn render(self, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Div {
-        let theme = self.theme;
-        div()
-            .mt(px(32.0))
-            .py(px(22.0))
-            .border_y_1()
-            .border_color(theme.rule)
+        frame(self.theme)
             .flex()
             .items_center()
             .justify_between()

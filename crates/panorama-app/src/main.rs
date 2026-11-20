@@ -6,7 +6,7 @@ use panorama_app::{
     app_state::AppState,
     args::Args,
     assets::{self, Assets},
-    debug,
+    debug, party,
     services::{self, ServicesHost, StartupError},
     theme::Theme,
 };
@@ -35,6 +35,14 @@ fn main() -> ExitCode {
     );
     let initial = runtime.block_on(host.start());
     let locked = matches!(initial, Err(StartupError::Locked));
+    if locked
+        && let Some(link) = &args.party_join
+        && host
+            .data_dir()
+            .is_some_and(|dir| party::handoff::deliver(&dir, link).is_ok())
+    {
+        return ExitCode::SUCCESS;
+    }
     let screenshot = args.screenshot.clone();
     let capture_requested = screenshot.is_some();
     let (outcome, results) = mpsc::channel();
@@ -187,6 +195,6 @@ impl gpui::Render for AlreadyRunning {
             .justify_center()
             .bg(gpui::white())
             .text_color(gpui::black())
-            .child("Panorama is already running.")
+            .child("Panorama is already open.")
     }
 }

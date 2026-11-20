@@ -229,7 +229,7 @@ fn every_event_and_error_debug_is_secret_free() {
         assert!(!debug.contains("private-token"));
     }
     for error in [
-        PlaybackError::LibraryMissing,
+        PlaybackError::Runtime(crate::playback::runtime::RuntimeProblem::Missing),
         PlaybackError::SourceUnavailable,
         PlaybackError::SourceExpired,
         PlaybackError::NoPeers,

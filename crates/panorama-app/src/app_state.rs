@@ -47,6 +47,8 @@ pub struct AppState {
     pub services: Option<Arc<Services>>,
     /// Startup failure shown with Reload Panorama.
     pub runtime_error: Option<String>,
+    /// Why this install can't play video, found once at launch.
+    pub runtime_problem: Option<crate::playback::runtime::RuntimeProblem>,
     /// Visible catalog, retained during refresh or failed network work.
     pub catalog: Option<CatalogPage>,
     /// Catalog the user picked this session; `None` follows the saved or first one.
@@ -103,7 +105,7 @@ impl AppState {
     ) -> Self {
         let (services, runtime_error) = match initial {
             Ok(services) => (Some(services), None),
-            Err(StartupError::Locked) => (None, Some("Panorama is already running.".into())),
+            Err(StartupError::Locked) => (None, Some("Panorama is already open.".into())),
             Err(StartupError::Failed(message)) => (None, Some(message)),
         };
         let fixtures = services
@@ -132,6 +134,7 @@ impl AppState {
             installed: vec![],
             services,
             runtime_error,
+            runtime_problem: None,
             catalog: None,
             remembered: None,
             catalog_groups: vec![],
@@ -147,7 +150,33 @@ impl AppState {
         };
         state.subscribe(cx);
         state.load(false, cx);
+        state.check_runtime(cx);
         state
+    }
+
+    /// Loads libmpv on a blocking worker so Home can say why playback won't work before anyone
+    /// presses Play. Fixture runs keep whatever a capture forced.
+    fn check_runtime(&mut self, cx: &mut Context<Self>) {
+        if !self
+            .services
+            .as_ref()
+            .is_some_and(|services| services.store.is_some())
+        {
+            return;
+        }
+        let check = self
+            .host
+            .runtime
+            .spawn_blocking(|| crate::playback::runtime::load().err());
+        cx.spawn(async move |state, cx| {
+            if let Ok(problem) = check.await {
+                let _ = state.update(cx, |state, cx| {
+                    state.runtime_problem = problem;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     fn subscribe(&mut self, cx: &mut Context<Self>) {
@@ -483,7 +512,7 @@ impl AppState {
                             state.load(false, cx);
                         }
                         Err(StartupError::Locked) => {
-                            state.runtime_error = Some("Panorama is already running.".into())
+                            state.runtime_error = Some("Panorama is already open.".into())
                         }
                         Err(StartupError::Failed(message)) => state.runtime_error = Some(message),
                     }
