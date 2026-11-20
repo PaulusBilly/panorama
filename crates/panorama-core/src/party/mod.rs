@@ -17,7 +17,7 @@ pub use protocol::{
     Action, ByeReason, Down, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
     PlaybackState, ProtocolError, Up, decode_down, decode_up, encode,
 };
-pub use release::{PartyRelease, TorrentRef};
+pub use release::{PartyRelease, TorrentRef, find};
 
 pub const PROTOCOL_VERSION: u16 = 1;
 /// Including the host.

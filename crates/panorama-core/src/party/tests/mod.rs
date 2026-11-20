@@ -6,6 +6,7 @@ mod drift;
 mod host;
 mod member;
 mod protocol;
+mod release;
 
 const SECRET: &str = "0123456789abcdef0123456789abcdef";
 
