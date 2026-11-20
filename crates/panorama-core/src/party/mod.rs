@@ -5,12 +5,14 @@
 mod clock;
 mod drift;
 mod host;
+mod member;
 mod protocol;
 mod release;
 
 pub use clock::ClockSync;
 pub use drift::{Correction, correct};
 pub use host::{ConnId, HostInput, HostOutput, HostSession, HostSettings};
+pub use member::{MemberInput, MemberOutput, MemberSession};
 pub use protocol::{
     Action, ByeReason, Down, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
     PlaybackState, ProtocolError, Up, decode_down, decode_up, encode,
