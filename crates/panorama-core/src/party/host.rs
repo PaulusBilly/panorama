@@ -15,6 +15,9 @@ const WAIT_LIMIT_MS: i64 = 30_000;
 const WAITS_PER_MEDIA: u8 = 3;
 const REFRESH_MS: i64 = 5_000;
 const LENGTH_TOLERANCE: f64 = 2.0;
+/// A wait pauses the party where the buffering player stopped when it is at most this far
+/// behind the timeline, so it resumes without skipping what it missed.
+const CATCH_UP: f64 = 5.0;
 const HOST_ID: u32 = 0;
 
 /// A connection, numbered by the transport.
@@ -135,6 +138,7 @@ struct Participant {
     id: u32,
     name: String,
     state: MemberState,
+    position: f64,
     duration: Option<f64>,
     release_matched: bool,
     late: bool,
@@ -150,6 +154,7 @@ impl Participant {
             id,
             name,
             state: MemberState::Loading,
+            position: 0.0,
             duration: None,
             release_matched: true,
             late: false,
@@ -164,7 +169,7 @@ impl Participant {
         *self = Self::new(self.id, std::mem::take(&mut self.name));
     }
 
-    fn report(&mut self, now: i64, state: MemberState, duration: Option<f64>) {
+    fn report(&mut self, now: i64, state: MemberState, position: f64, duration: Option<f64>) {
         if state != MemberState::Buffering {
             self.buffering_since = None;
         } else if self.state != MemberState::Buffering {
@@ -177,6 +182,7 @@ impl Participant {
             self.late = false;
         }
         self.state = state;
+        self.position = position;
         self.duration = duration;
     }
 
@@ -252,8 +258,10 @@ impl HostSession {
                 self.apply(now_ms, action, by, &mut out);
             }
             HostInput::LocalReport {
-                state, duration, ..
-            } => self.host.report(now_ms, state, duration),
+                state,
+                position,
+                duration,
+            } => self.host.report(now_ms, state, position, duration),
             HostInput::SetMedia { media, at } => self.load(now_ms, media, at, &mut out),
             HostInput::Settings(settings) => self.settings = settings,
             HostInput::End => {
@@ -301,11 +309,11 @@ impl HostSession {
             }),
             Up::Report {
                 state,
+                position,
                 duration,
                 release_matched,
-                ..
             } => {
-                joined.report(now, state, duration);
+                joined.report(now, state, position, duration);
                 joined.release_matched = release_matched;
             }
             Up::Request { action } if self.settings.anyone_controls => {
@@ -442,6 +450,7 @@ impl HostSession {
         };
         let wait = self.settings.wait_for_everyone;
         let mut notices = Vec::new();
+        let mut stopped_at = None;
         let next = match phase {
             Phase::WaitingForReady { since } => {
                 let timed_out = now - since > READY_TIMEOUT_MS;
@@ -461,6 +470,7 @@ impl HostSession {
                 })
                 .map(|holder| {
                     holder.waits += 1;
+                    stopped_at = Some(holder.position);
                     notices.push((NoticeKind::WaitingFor, holder.name.clone()));
                     Phase::WaitingFor {
                         member: holder.id,
@@ -497,7 +507,10 @@ impl HostSession {
             }
         }
         if let (Some(next), Some(showing)) = (next, &mut self.showing) {
-            let position = showing.playback().expected_at(now);
+            let expected = showing.playback().expected_at(now);
+            let position = stopped_at
+                .filter(|at| (expected - CATCH_UP..=expected).contains(at))
+                .unwrap_or(expected);
             showing.set(now, next, position);
         }
         for (kind, by) in notices {

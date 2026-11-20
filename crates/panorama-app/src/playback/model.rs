@@ -216,6 +216,11 @@ impl PlaybackModel {
         }
     }
 
+    /// This load's position has advanced at least once: frames are flowing.
+    pub fn advancing(&self) -> bool {
+        self.moved
+    }
+
     pub fn apply(&mut self, event: HostEvent) {
         match event {
             HostEvent::Resolving => {

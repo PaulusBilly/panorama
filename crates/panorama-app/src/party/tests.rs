@@ -53,8 +53,21 @@ fn the_player_reports_what_it_is_doing() {
         member_state(&model(Status::Preparing(Stage::LoadingVideo), false, None)),
         Some((MemberState::Loading, 0.0, Some(6_000.0)))
     );
-    assert_eq!(report(Status::Ready, false), MemberState::Playing);
+    assert_eq!(report(Status::Ready, false), MemberState::Buffering);
+    let mut flowing = model(Status::Ready, false, Some(10.0));
+    flowing.apply(crate::playback::model::HostEvent::Mpv(
+        panorama_mpv::PlayerEvent::TimePos(Some(10.5)),
+    ));
+    assert_eq!(member_state(&flowing).unwrap().0, MemberState::Playing);
     assert_eq!(report(Status::Ready, true), MemberState::Paused);
+    let mut starved = model(Status::Ready, true, Some(42.5));
+    starved.cache_seconds = Some(0.4);
+    assert_eq!(member_state(&starved).unwrap().0, MemberState::Buffering);
+    starved.cache_seconds = Some(8.0);
+    assert_eq!(member_state(&starved).unwrap().0, MemberState::Paused);
+    let mut at_end = model(Status::Ready, true, Some(5_999.0));
+    at_end.cache_seconds = Some(0.5);
+    assert_eq!(member_state(&at_end).unwrap().0, MemberState::Paused);
     assert_eq!(report(Status::Buffering, false), MemberState::Buffering);
     assert_eq!(report(Status::Ended, false), MemberState::Paused);
     assert_eq!(report(Status::NoPeers, false), MemberState::Failed);

@@ -142,6 +142,9 @@ impl PartyView {
     }
 }
 
+/// Seconds of media a paused player needs ahead of it before it counts as ready to play.
+const READY_CACHE: f64 = 3.0;
+
 /// What the local player tells the party: its state, position and length. `None` while there
 /// is nothing loaded to report.
 pub fn member_state(model: &PlaybackModel) -> Option<(MemberState, f64, Option<f64>)> {
@@ -149,13 +152,27 @@ pub fn member_state(model: &PlaybackModel) -> Option<(MemberState, f64, Option<f
         Status::Idle => return None,
         Status::Preparing(_) => MemberState::Loading,
         Status::Buffering => MemberState::Buffering,
+        Status::Ready if model.paused && thin_cache(model) => MemberState::Buffering,
         Status::Ready if model.paused => MemberState::Paused,
+        // mpv calls a file ready before its first frames play; until the position moves the
+        // party treats it as buffering, so the timeline waits for it.
+        Status::Ready if !model.advancing() => MemberState::Buffering,
         Status::Ready => MemberState::Playing,
         Status::Ended => MemberState::Paused,
         Status::NoPeers | Status::Error(_) => MemberState::Failed,
     };
     let position = model.time.filter(|time| time.is_finite()).unwrap_or(0.0);
     Some((state, position.clamp(0.0, 86_400.0), model.duration))
+}
+
+/// Paused with too little media ahead to start playing, except near the end, where little
+/// remains to cache.
+fn thin_cache(model: &PlaybackModel) -> bool {
+    let near_end = model
+        .time
+        .zip(model.duration)
+        .is_some_and(|(time, duration)| duration - time <= READY_CACHE);
+    model.cache_seconds.is_some_and(|ahead| ahead < READY_CACHE) && !near_end
 }
 
 /// A user's play, pause or seek as the absolute action the party decides on. Anything else is

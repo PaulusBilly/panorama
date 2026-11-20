@@ -355,6 +355,27 @@ fn buffering_over_1500ms_pauses_party() {
 }
 
 #[test]
+fn a_wait_pauses_where_the_buffering_player_stopped() {
+    let mut host = party();
+    host.handle(
+        500,
+        HostInput::Message {
+            conn: SAM,
+            msg: Up::Report {
+                state: MemberState::Buffering,
+                position: 100.4,
+                duration: Some(LENGTH),
+                release_matched: true,
+            },
+        },
+    );
+    let out = tick(&mut host, 2_500);
+    let (_, playback, _) = states(&out, SAM)[0];
+    assert!(!playback.playing);
+    assert_eq!(playback.anchor_position, 100.4);
+}
+
+#[test]
 fn resumes_when_all_playing() {
     let mut host = held_by_sam();
     let out = report(&mut host, 4_000, SAM, MemberState::Paused);
