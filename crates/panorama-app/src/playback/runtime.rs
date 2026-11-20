@@ -9,6 +9,12 @@ const LIBRARY: &str = "libmpv.2.dylib";
 #[cfg(not(any(windows, target_os = "macos")))]
 const LIBRARY: &str = "libmpv.so.2";
 
+/// The Windows build of libmpv links the Vulkan loader, which only some graphics drivers install.
+#[cfg(windows)]
+const RUNTIME_FILES: &[&str] = &[LIBRARY, "vulkan-1.dll"];
+#[cfg(not(windows))]
+const RUNTIME_FILES: &[&str] = &[LIBRARY];
+
 /// Why playback can't start on this install.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeProblem {
@@ -41,7 +47,7 @@ impl RuntimeProblem {
                 "Panorama is running from inside a zip. Extract the zip first, then open panorama.exe from the extracted folder."
             }
             Self::Missing if cfg!(windows) => {
-                "libmpv-2.dll isn't next to panorama.exe. Reinstall Panorama, or put libmpv-2.dll in the same folder."
+                "Panorama's playback files aren't next to panorama.exe. Extract the whole zip again, or reinstall Panorama."
             }
             Self::Missing if cfg!(debug_assertions) => {
                 "The playback library is missing. Run scripts/stage-macos-libmpv.sh, or set PANORAMA_LIBMPV_DIR to the folder that holds libmpv.2.dylib."
@@ -68,8 +74,7 @@ impl RuntimeProblem {
 pub struct Install<'a> {
     pub exe: Option<&'a Path>,
     pub temp: &'a Path,
-    /// Whether the library file exists in a folder Panorama loads it from.
-    pub library_present: bool,
+    pub runtime_present: bool,
 }
 
 /// Names the problem behind a library load, if it failed.
@@ -81,7 +86,7 @@ pub fn runtime_problem(load: Result<(), MpvError>, install: &Install) -> Option<
         _ if install.exe.is_some_and(|exe| inside_zip(exe, install.temp)) => {
             RuntimeProblem::RunningFromZip
         }
-        _ if install.library_present => RuntimeProblem::Blocked,
+        _ if install.runtime_present => RuntimeProblem::Blocked,
         _ => RuntimeProblem::Missing,
     })
 }
@@ -132,6 +137,10 @@ fn staged_dir() -> Option<PathBuf> {
     dir.join(LIBRARY).is_file().then_some(dir)
 }
 
+fn runtime_files_present(dir: &Path) -> bool {
+    RUNTIME_FILES.iter().all(|file| dir.join(file).is_file())
+}
+
 /// Loads libmpv from where playback will, naming the problem when it can't. Blocking.
 pub fn load() -> Result<MpvLibrary, RuntimeProblem> {
     let dir = library_dir();
@@ -145,7 +154,7 @@ pub fn load() -> Result<MpvLibrary, RuntimeProblem> {
         let install = Install {
             exe: exe.as_deref(),
             temp: &std::env::temp_dir(),
-            library_present: folders.iter().any(|dir| dir.join(LIBRARY).is_file()),
+            runtime_present: folders.iter().any(|dir| runtime_files_present(dir)),
         };
         runtime_problem(Err(error), &install).unwrap_or(RuntimeProblem::Missing)
     })
@@ -157,13 +166,13 @@ mod tests {
 
     const TEMP: &str = r"C:\Users\sam\AppData\Local\Temp";
 
-    fn diagnose(error: MpvError, exe: &str, library_present: bool) -> Option<RuntimeProblem> {
+    fn diagnose(error: MpvError, exe: &str, runtime_present: bool) -> Option<RuntimeProblem> {
         runtime_problem(
             Err(error),
             &Install {
                 exe: Some(Path::new(exe)),
                 temp: Path::new(TEMP),
-                library_present,
+                runtime_present,
             },
         )
     }
@@ -175,7 +184,7 @@ mod tests {
                 r"C:\Users\sam\AppData\Local\Temp\Temp1_panorama.zip\panorama.exe",
             )),
             temp: Path::new(TEMP),
-            library_present: false,
+            runtime_present: false,
         };
         assert_eq!(runtime_problem(Ok(()), &install), None);
     }
@@ -216,6 +225,20 @@ mod tests {
                 "{exe}"
             );
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_library_without_the_vulkan_loader_beside_it_is_missing_files() {
+        let dir = std::env::temp_dir().join(format!("panorama-runtime-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(LIBRARY), b"").unwrap();
+        let without_loader = runtime_files_present(&dir);
+        std::fs::write(dir.join("vulkan-1.dll"), b"").unwrap();
+        let with_loader = runtime_files_present(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!without_loader);
+        assert!(with_loader);
     }
 
     #[test]

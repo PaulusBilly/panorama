@@ -16,20 +16,21 @@ Need $manifestPath 'libmpv manifest' | Out-Null
 $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
 $noticesDir = Need (Join-Path $repo $manifest.noticesDirectory) 'libmpv notices directory'
 $libmpvSha = $manifest.source.sha256
+$vulkanSha = $manifest.vulkanLoader.sha256
 
-# libmpv: reuse the existing stage (this checkout's, else the main checkout's when run from a git
-# worktree); only the stage script is allowed to download.
-$stageRel = '.cache/panorama/windows-libmpv/current/libmpv-2.dll'
-$stagedDll = Join-Path $repo $stageRel
+$stageFiles = 'libmpv-2.dll', 'vulkan-1.dll', 'vulkan-loader-LICENSE'
+function Test-Stage([string]$dir) { -not ($stageFiles | Where-Object { -not (Test-Path -LiteralPath (Join-Path $dir $_)) }) }
+$stageRel = '.cache/panorama/windows-libmpv/current'
+$stageDir = Join-Path $repo $stageRel
 $mainRoot = Split-Path -Parent ([IO.Path]::GetFullPath((git -C $repo rev-parse --git-common-dir), $repo))
-if (-not (Test-Path -LiteralPath $stagedDll) -and (Test-Path -LiteralPath (Join-Path $mainRoot $stageRel))) {
-    $stagedDll = Join-Path $mainRoot $stageRel
-}
-if (-not (Test-Path -LiteralPath $stagedDll)) {
-    Write-Host 'Staged libmpv missing; running the stage script.'
+if (-not (Test-Stage $stageDir) -and (Test-Stage (Join-Path $mainRoot $stageRel))) { $stageDir = Join-Path $mainRoot $stageRel }
+if (-not (Test-Stage $stageDir)) {
+    Write-Host 'Staged libmpv or Vulkan loader missing; running the stage script.'
     & (Join-Path $PSScriptRoot 'stage-windows-libmpv.ps1')
+    $stageDir = Join-Path $repo $stageRel
 }
-Need $stagedDll 'staged libmpv-2.dll' | Out-Null
+foreach ($f in $stageFiles) { Need (Join-Path $stageDir $f) "staged $f" | Out-Null }
+$stagedDll = Join-Path $stageDir 'libmpv-2.dll'
 
 # OFL.txt and the repository LICENSE do not exist on every base branch yet: they are packaged when
 # present and a loud warning is printed when not. verify-windows-package.ps1 applies the same rule.
@@ -53,6 +54,9 @@ Push-Location $repo
 try { cargo build -p panorama-app --release --locked; if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" } }
 finally { Pop-Location }
 $exe = Need (Join-Path $repo 'target/release/panorama.exe') 'built panorama.exe'
+if ([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe)) -match '(?i)vcruntime140') {
+    throw 'panorama.exe imports VCRUNTIME140.dll; build with the static CRT from .cargo/config.toml'
+}
 
 $out = Join-Path $repo 'target/package'
 $stage = Join-Path $out 'panorama-windows-x64'
@@ -62,6 +66,9 @@ New-Item -ItemType Directory -Force (Join-Path $stage 'licenses') | Out-Null
 
 Copy-Item $exe (Join-Path $stage 'panorama.exe')
 Copy-Item $stagedDll (Join-Path $stage 'libmpv-2.dll')
+Copy-Item (Join-Path $stageDir 'vulkan-1.dll') (Join-Path $stage 'vulkan-1.dll')
+New-Item -ItemType Directory -Force (Join-Path $stage 'licenses/vulkan-loader') | Out-Null
+Copy-Item (Join-Path $stageDir 'vulkan-loader-LICENSE') (Join-Path $stage 'licenses/vulkan-loader/LICENSE')
 foreach ($f in Get-ChildItem -File -Recurse $noticesDir) {
     $rel = [IO.Path]::GetRelativePath($noticesDir, $f.FullName)
     $dest = Join-Path $stage "licenses/libmpv/$rel"
@@ -69,7 +76,7 @@ foreach ($f in Get-ChildItem -File -Recurse $noticesDir) {
     Copy-Item $f.FullName $dest
 }
 foreach ($k in $licenseFiles.Keys) { Copy-Item $licenseFiles[$k] (Join-Path $stage "licenses/$k") }
-$buildInfo = "commit: $commit`nversion: $version`nlibmpv-source-sha256: $libmpvSha`n"
+$buildInfo = "commit: $commit`nversion: $version`nlibmpv-source-sha256: $libmpvSha`nvulkan-loader-source-sha256: $vulkanSha`n"
 [IO.File]::WriteAllText((Join-Path $stage 'BUILD.txt'), $buildInfo, [Text.UTF8Encoding]::new($false))
 
 # Deterministic zip: ordinal-sorted names, forward slashes, fixed timestamps.
