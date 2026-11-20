@@ -243,7 +243,7 @@ fn debug_output_and_error_text_carry_no_hash_or_magnet() {
     let stream = &torrent_selection().groups[0];
     text.push_str(&format!("{stream:?}"));
     for error in [
-        PlaybackError::LibraryMissing,
+        PlaybackError::Runtime(crate::playback::runtime::RuntimeProblem::Missing),
         PlaybackError::SourceUnavailable,
         PlaybackError::SourceExpired,
         PlaybackError::NoPeers,

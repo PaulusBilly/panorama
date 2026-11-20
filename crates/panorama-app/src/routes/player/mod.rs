@@ -490,8 +490,9 @@ impl Player {
         }
         self.queue_subtitles(early, cx);
         #[cfg(not(any(windows, target_os = "macos")))]
-        self.model
-            .apply(HostEvent::Failed(PlaybackError::LibraryMissing));
+        self.model.apply(HostEvent::Failed(PlaybackError::Runtime(
+            crate::playback::runtime::RuntimeProblem::Unsupported,
+        )));
         self.bounds = Some(cx.observe_window_bounds(window, |player, window, cx| {
             player.sync_surface(window, cx);
             cx.notify();

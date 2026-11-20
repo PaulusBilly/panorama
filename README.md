@@ -35,6 +35,14 @@ PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo run -p panorama-app
 
 On Windows, `pwsh scripts/stage-windows-libmpv.ps1` downloads and verifies the pinned build (it needs 7-Zip).
 
+To give Panorama to someone on Windows, build the installer (needs 7-Zip and Inno Setup 6, `winget install JRSoftware.InnoSetup`):
+
+```powershell
+pwsh scripts/package-windows-installer.ps1
+```
+
+It writes `target/package/Panorama-Setup-<version>.exe`. The installer needs no administrator rights, puts `libmpv-2.dll` beside `panorama.exe`, adds Start menu and desktop shortcuts, and makes `panorama://` watch party invite links open Panorama.
+
 To look around without an account, run on fixture data: `cargo run -p panorama-app -- --fixtures`.
 
 ## Project layout
