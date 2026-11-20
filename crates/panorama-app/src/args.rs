@@ -70,6 +70,8 @@ pub struct Args {
     pub addons_error: bool,
     /// Open Home's catalog menu before capture.
     pub open_catalog_menu: bool,
+    /// Keep the store, its lock and the caches under this directory instead of the platform default.
+    pub data_dir: Option<PathBuf>,
 }
 
 impl Args {
@@ -112,6 +114,7 @@ impl Args {
             addons_confirm_remove: false,
             addons_error: false,
             open_catalog_menu: false,
+            data_dir: None,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -181,6 +184,14 @@ impl Args {
                         return Err("Invalid playback URL".into());
                     }
                     result.play_url = Some(url);
+                }
+                "--data-dir" => {
+                    result.data_dir = Some(
+                        args.next()
+                            .filter(|value| !value.is_empty())
+                            .ok_or("--data-dir needs a path")?
+                            .into(),
+                    );
                 }
                 "--play-torrent" => result.play_torrent = true,
                 "--torrent-hash" => {
@@ -351,6 +362,14 @@ mod tests {
         }
         let error = parse(&["--torrent-hash", hash]).unwrap_err();
         assert!(!error.contains(hash));
+    }
+    #[test]
+    fn data_dir_takes_a_path() {
+        let args = parse(&["--data-dir", "/tmp/pa"]).unwrap();
+        assert_eq!(args.data_dir, Some(PathBuf::from("/tmp/pa")));
+        assert_eq!(parse(&[]).unwrap().data_dir, None);
+        assert!(parse(&["--data-dir"]).is_err());
+        assert!(parse(&["--data-dir", ""]).is_err());
     }
     #[test]
     fn valid_arguments() {
