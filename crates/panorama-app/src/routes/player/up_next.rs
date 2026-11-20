@@ -78,6 +78,9 @@ impl Player {
     }
 
     pub(super) fn play_next(&mut self, cx: &mut Context<Self>) {
+        if !self.up_next_allowed(cx) {
+            return;
+        }
         let Some(next) = self.next.take() else {
             return;
         };
@@ -116,7 +119,8 @@ impl Player {
     }
 
     pub(super) fn up_next_card(&self, theme: Theme, cx: &mut Context<Self>) -> Option<Div> {
-        let shown = matches!(self.up_next, UpNext::Offered | UpNext::Counting(_));
+        let shown = matches!(self.up_next, UpNext::Offered | UpNext::Counting(_))
+            && self.up_next_allowed(cx);
         let next = self.next.as_ref().filter(|_| shown)?;
         let heading = match self.up_next.seconds_left(Instant::now()) {
             Some(seconds) => format!("Next episode in {seconds}"),
