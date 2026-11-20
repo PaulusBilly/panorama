@@ -107,7 +107,7 @@ fn drop_uses_the_same_nonblocking_shutdown_path() {
 #[test]
 fn set_property_accepts_only_listed_names() {
     let (player, incoming, _completed) = fake();
-    for name in ["wid", "options/wid", "include", "profile", "speed"] {
+    for name in ["wid", "options/wid", "include", "profile"] {
         assert_eq!(
             player.set_property(name, "1"),
             Err(MpvError::InvalidArgument),
@@ -117,6 +117,13 @@ fn set_property_accepts_only_listed_names() {
     assert!(incoming.try_recv().is_err());
     player.set_property("mute", true).unwrap();
     assert!(matches!(incoming.try_recv(), Ok(Request::Property(name, _)) if name == "mute"));
+}
+
+#[test]
+fn speed_is_accepted_as_a_float() {
+    let (player, incoming, _completed) = fake();
+    player.set_property("speed", 1.05_f64).unwrap();
+    assert!(matches!(incoming.try_recv(), Ok(Request::Property(name, _)) if name == "speed"));
 }
 
 #[test]

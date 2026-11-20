@@ -31,6 +31,8 @@ pub enum Command {
     SeekRelative(f64),
     SetVolume(u8),
     SetMuted(bool),
+    /// Playback rate, clamped to 0.9..=1.1; a new source starts at 1.0.
+    SetSpeed(f64),
     SelectAudio(i64),
     SelectSubtitle(Option<i64>),
     /// Subtitle preferences and which renderer draws the selected track.

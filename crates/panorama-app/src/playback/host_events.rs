@@ -7,7 +7,7 @@ const STUCK_AFTER: Duration = Duration::from_secs(45);
 
 impl Runner {
     pub(super) async fn player_command(&mut self, command: Command) {
-        if matches!(command, Command::Seek(value) | Command::SeekRelative(value) if !value.is_finite())
+        if matches!(command, Command::Seek(value) | Command::SeekRelative(value) | Command::SetSpeed(value) if !value.is_finite())
         {
             return;
         }
@@ -16,6 +16,7 @@ impl Runner {
             Command::SeekRelative(delta) => Command::Seek((self.position + delta).max(0.0)),
             Command::Seek(seconds) => Command::Seek(seconds.max(0.0)),
             Command::SetVolume(volume) => Command::SetVolume(volume.min(100)),
+            Command::SetSpeed(speed) => Command::SetSpeed(speed.clamp(0.9, 1.1)),
             command => command,
         };
         if let Some(active) = &mut self.active {

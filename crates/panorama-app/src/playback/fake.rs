@@ -337,6 +337,7 @@ impl Playback for FakePlayback {
             Command::SeekRelative(seconds) => format!("relative:{seconds}"),
             Command::SetVolume(volume) => format!("volume:{volume}"),
             Command::SetMuted(muted) => format!("mute:{muted}"),
+            Command::SetSpeed(speed) => format!("speed:{speed}"),
             Command::SelectAudio(id) => format!("audio:{id}"),
             Command::SelectSubtitle(id) => format!("subtitle:{id:?}"),
             Command::Subtitles(setup) => format!(
