@@ -71,3 +71,7 @@ The interface uses bundled Aspekta at weights 400, 500, and 700, under the SIL O
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Licence
+
+Panorama is licensed under the [GNU General Public License, version 3 or later](LICENSE). It plays video through libmpv, which is GPL. The licences of libmpv and everything it includes ship with each package; the Windows details are in [`libmpv/windows-licenses/`](libmpv/windows-licenses/README.md) and the macOS ones in [`libmpv/macos-SOURCE.md`](libmpv/macos-SOURCE.md).
