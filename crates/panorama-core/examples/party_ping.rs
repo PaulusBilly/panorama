@@ -15,7 +15,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (endpoint, _) = PartyEndpoint::bind(None).await?;
     let Some(invite) = std::env::args().nth(1) else {
         println!("{}", endpoint.invite(&PartySecret::generate()?).await?);
-        let mut conn = endpoint.accept().await.ok_or("endpoint closed")??;
+        let mut conn = endpoint
+            .accept()
+            .await
+            .ok_or("endpoint closed")?
+            .handshake()
+            .await?;
         println!("connected to {}", conn.remote_id());
         let started = Instant::now();
         while let Some(line) = conn.recv().await? {

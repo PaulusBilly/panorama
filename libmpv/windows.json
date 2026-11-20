@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "architecture": "x64",
   "source": {
-    "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260814/mpv-dev-x86_64-20260814-git-7b8915bc1d.7z",
+    "url": "https://github.com/PaulusBilly/panorama/releases/download/libmpv-windows-20260814/mpv-dev-x86_64-20260814-git-7b8915bc1d.7z",
     "sha256": "0af22b28e920620036d3ae08fd9283156dc9af0420bf4df84b0e02282094599c"
   },
   "files": {
@@ -10,5 +10,11 @@
     "runtime": ["libmpv-2.dll"],
     "rejectedLinkInputs": ["libmpv.dll.a"]
   },
-  "noticesDirectory": "libmpv/windows-licenses"
+  "noticesDirectory": "libmpv/windows-licenses",
+  "vulkanLoader": {
+    "url": "https://github.com/PaulusBilly/panorama/releases/download/libmpv-windows-20260814/mingw-w64-ucrt-x86_64-vulkan-loader-1.4.350.0-1-any.pkg.tar.zst",
+    "sha256": "808115a0818f3e7db74c8facb3f01fcbfac44d58767116f8653770a080b8dbf0",
+    "runtime": "ucrt64/bin/vulkan-1.dll",
+    "license": "ucrt64/share/licenses/vulkan-loader/LICENSE"
+  }
 }

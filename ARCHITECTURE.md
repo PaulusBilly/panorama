@@ -1056,8 +1056,13 @@ pwsh scripts/package-windows.ps1
 pwsh scripts/verify-windows-package.ps1
 ```
 
-`package-windows.ps1` builds `panorama-app` in release mode with `--locked`, reuses the staged libmpv from `.cache/panorama/windows-libmpv/` (running `scripts/stage-windows-libmpv.ps1`, which needs 7-Zip, only if it is missing), and writes `target/package/panorama-<version>-windows-x64.zip` plus a `.sha256` file.
+`package-windows.ps1` builds `panorama-app` in release mode with `--locked`, reuses the staged libmpv and Vulkan loader from `.cache/panorama/windows-libmpv/` (running `scripts/stage-windows-libmpv.ps1`, which needs 7-Zip 23 or later, only if they are missing), and writes `target/package/panorama-<version>-windows-x64.zip` plus a `.sha256` file. `pwsh scripts/package-windows-installer.ps1` wraps the same folder in an Inno Setup installer; the zip alone is enough to run Panorama.
 
-The zip contains `panorama.exe`, `libmpv-2.dll`, `BUILD.txt` (git commit, cargo version, libmpv manifest sha256) and `licenses/` (libmpv notices, plus `OFL.txt`, the Tabler icons licence and the repository `LICENSE` once those files exist in the repository; the script warns when one is absent).
+The zip contains `panorama.exe`, `libmpv-2.dll`, `vulkan-1.dll`, `BUILD.txt` (git commit, cargo version, libmpv and Vulkan loader sha256s) and `licenses/` (libmpv notices, the Vulkan loader's Apache-2.0 licence, plus `OFL.txt`, the Tabler icons licence and the repository `LICENSE` once those files exist in the repository; the script warns when one is absent).
 
-`verify-windows-package.ps1` checks the exact member list and paths, that both binaries are x64 PE images, the libmpv DLL hash against the stage and the zip hash against the `.sha256` file. It then runs `panorama.exe --screenshot home <png>` from an extracted copy; this step is skipped with a note while the binary does not support `--screenshot`.
+Two runtime dependencies are shipped or removed so a friend's PC needs nothing installed:
+
+- The pinned libmpv links `vulkan-1.dll`, which Windows only has when a GPU driver installed it. Panorama renders through Direct3D 11, so the Khronos loader (MSYS2 build, pinned in `libmpv/windows.json`) ships beside libmpv; on a PC without a Vulkan driver it reports no devices and playback is unaffected. If it goes missing, the launch check reports missing playback files rather than a blocked DLL.
+- `.cargo/config.toml` links the C runtime statically, so `panorama.exe` does not need the Visual C++ Redistributable.
+
+`verify-windows-package.ps1` checks the exact member list and paths, that the three binaries are x64 PE images that do not reference `VCRUNTIME140.dll`, the libmpv and Vulkan loader hashes against the stage and the zip hash against the `.sha256` file. It then runs `panorama.exe --screenshot home <png>` from an extracted copy.

@@ -11,14 +11,16 @@ $zip = Join-Path $pkgDir "panorama-$version-windows-x64.zip"
 $noticesDir = Join-Path $repo ((Get-Content -Raw (Join-Path $repo 'libmpv/windows.json') | ConvertFrom-Json).noticesDirectory)
 
 # Same stage lookup as package-windows.ps1 (this checkout, else the main checkout of a worktree).
-$stageRel = '.cache/panorama/windows-libmpv/current/libmpv-2.dll'
-$stagedDll = Join-Path $repo $stageRel
+$stageRel = '.cache/panorama/windows-libmpv/current'
+$stageDir = Join-Path $repo $stageRel
 $mainRoot = Split-Path -Parent ([IO.Path]::GetFullPath((git -C $repo rev-parse --git-common-dir), $repo))
-if (-not (Test-Path -LiteralPath $stagedDll)) { $stagedDll = Join-Path $mainRoot $stageRel }
-foreach ($p in $zip, "$zip.sha256", $stagedDll, $noticesDir) { if (-not (Test-Path -LiteralPath $p)) { throw "Missing: $p" } }
+if (@('libmpv-2.dll', 'vulkan-1.dll', 'vulkan-loader-LICENSE') | Where-Object { -not (Test-Path -LiteralPath (Join-Path $stageDir $_)) }) { $stageDir = Join-Path $mainRoot $stageRel }
+$stagedDll = Join-Path $stageDir 'libmpv-2.dll'
+$stagedVulkan = Join-Path $stageDir 'vulkan-1.dll'
+foreach ($p in $zip, "$zip.sha256", $stagedDll, $stagedVulkan, $noticesDir) { if (-not (Test-Path -LiteralPath $p)) { throw "Missing: $p" } }
 
 # Expected members; same optional-licence rule as package-windows.ps1.
-$expected = [Collections.Generic.List[string]]@('BUILD.txt', 'libmpv-2.dll', 'panorama.exe')
+$expected = [Collections.Generic.List[string]]@('BUILD.txt', 'libmpv-2.dll', 'licenses/vulkan-loader/LICENSE', 'panorama.exe', 'vulkan-1.dll')
 foreach ($f in Get-ChildItem -File -Recurse $noticesDir) { $expected.Add('licenses/libmpv/' + [IO.Path]::GetRelativePath($noticesDir, $f.FullName).Replace('\', '/')) }
 if (Test-Path (Join-Path $appDir 'assets/fonts/OFL.txt')) { $expected.Add('licenses/OFL.txt') }
 if ((Test-Path (Join-Path $appDir 'assets/icons/LICENSE')) -or (Test-Path (Join-Path $appDir 'assets/tabler/LICENSE'))) { $expected.Add('licenses/tabler-icons-LICENSE') }
@@ -51,9 +53,14 @@ try {
         [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
     } finally { $za.Dispose() }
 
-    foreach ($n in 'panorama.exe', 'libmpv-2.dll') { Assert (Test-Pe64 ([IO.File]::ReadAllBytes((Join-Path $extract $n)))) "$n is not a PE x64 image" }
+    foreach ($n in 'panorama.exe', 'libmpv-2.dll', 'vulkan-1.dll') {
+        $bytes = [IO.File]::ReadAllBytes((Join-Path $extract $n))
+        Assert (Test-Pe64 $bytes) "$n is not a PE x64 image"
+        Assert (-not ([Text.Encoding]::ASCII.GetString($bytes) -match '(?i)vcruntime140')) "$n needs VCRUNTIME140.dll"
+    }
     Assert ((Get-FileHash -Algorithm SHA256 (Join-Path $extract 'libmpv-2.dll')).Hash -eq (Get-FileHash -Algorithm SHA256 $stagedDll).Hash) 'libmpv-2.dll differs from the staged file'
-    Write-Host "OK: $($names.Count) members, PE x64, libmpv sha256 matches stage, zip sha256 matches"
+    Assert ((Get-FileHash -Algorithm SHA256 (Join-Path $extract 'vulkan-1.dll')).Hash -eq (Get-FileHash -Algorithm SHA256 $stagedVulkan).Hash) 'vulkan-1.dll differs from the staged file'
+    Write-Host "OK: $($names.Count) members, PE x64, no VC++ runtime needed, libmpv and Vulkan loader match the stage, zip sha256 matches"
     $names | ForEach-Object { Write-Host "  $_" }
 
     # The release exe is a GUI-subsystem app, so --help output is not capturable; detect the flag in the binary.

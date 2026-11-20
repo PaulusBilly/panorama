@@ -8,7 +8,7 @@ Install rustup. `rust-toolchain.toml` selects Rust 1.99.0 with rustfmt and Clipp
 
 **macOS arm64.** Install Xcode Command Line Tools, Python 3.12 or later, and `cmake`, `ninja`, `nasm`, and `pkg-config` from Homebrew. `python3 scripts/build-macos-libmpv.py` verifies the pinned source archives in `libmpv/macos.json`, applies the patches in `libmpv/patches/`, and builds mpv and its codec dependencies under `.cache/panorama/macos-libmpv/`. The first build needs network access and takes a while; later builds reuse the cache. `scripts/stage-macos-libmpv.sh` then stages it in `target/libmpv`.
 
-**Windows x64.** Install the MSVC Build Tools ("Desktop development with C++" and a Windows SDK), PowerShell 7, and 7-Zip. `pwsh scripts/stage-windows-libmpv.ps1` downloads the archive pinned in `libmpv/windows.json`, verifies its SHA-256, and stages it under `.cache/panorama/windows-libmpv/current/`. Do not substitute a different DLL without updating and validating its manifest.
+**Windows x64.** Install the MSVC Build Tools ("Desktop development with C++" and a Windows SDK), PowerShell 7, and 7-Zip 23 or later. `pwsh scripts/stage-windows-libmpv.ps1` downloads the libmpv archive and Vulkan loader pinned in `libmpv/windows.json`, verifies their SHA-256s, and stages them under `.cache/panorama/windows-libmpv/current/`. Do not substitute a different DLL without updating and validating its manifest.
 
 ## Required checks
 

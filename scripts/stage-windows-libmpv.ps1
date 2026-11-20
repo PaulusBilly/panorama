@@ -1,6 +1,4 @@
 #requires -Version 7
-# Downloads the pinned libmpv archive from libmpv/windows.json, verifies it, and stages
-# its headers and DLL in .cache/panorama/windows-libmpv/current/. Needs 7-Zip (7z.exe).
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -78,4 +76,40 @@ Remove-Item -Recurse -Force $current -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $current 'include/mpv') | Out-Null
 foreach ($h in $manifest.files.headers) { Copy-Item (Join-Path $extracted $h) (Join-Path $current $h) }
 foreach ($r in $manifest.files.runtime) { Copy-Item (Join-Path $extracted $r) (Join-Path $current (Split-Path -Leaf $r)) }
-Write-Host "Staged libmpv in $current"
+# libmpv links vulkan-1.dll, which Windows only has when a GPU driver installed it.
+$vk = $manifest.vulkanLoader
+$vkUrl = [Uri]$vk.url
+if ($vkUrl.Scheme -ne 'https') { throw 'The Vulkan loader URL must be HTTPS' }
+$vkHash = $vk.sha256.ToLowerInvariant()
+if ($vkHash -notmatch '^[a-f0-9]{64}$') { throw 'Invalid Vulkan loader SHA-256' }
+Assert-SafePath $vk.runtime 'Vulkan loader'
+Assert-SafePath $vk.license 'Vulkan loader licence'
+$vkRoot = Join-Path $cache "vulkan-$vkHash"
+$vkArchive = Join-Path $vkRoot 'vulkan-loader.pkg.tar.zst'
+$vkExtracted = Join-Path $vkRoot 'extracted'
+New-Item -ItemType Directory -Force $vkRoot | Out-Null
+if (-not (Test-Path -LiteralPath $vkArchive)) {
+    Invoke-WebRequest -Uri $vkUrl -OutFile "$vkArchive.download"
+    Move-Item -Force "$vkArchive.download" $vkArchive
+}
+if ((Get-FileHash -Algorithm SHA256 $vkArchive).Hash.ToLowerInvariant() -ne $vkHash) { throw 'Vulkan loader SHA-256 mismatch' }
+$vkDll = Join-Path $vkExtracted $vk.runtime
+$vkLicense = Join-Path $vkExtracted $vk.license
+if (-not ((Test-Path -LiteralPath $vkDll) -and (Test-Path -LiteralPath $vkLicense))) {
+    Remove-Item -Recurse -Force $vkExtracted -ErrorAction SilentlyContinue
+    & $sevenZip x -y "-o$vkRoot" $vkArchive | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "7z could not decompress the Vulkan loader ($LASTEXITCODE); 7-Zip 23 or later reads .zst" }
+    $tar = Join-Path $vkRoot ([IO.Path]::GetFileNameWithoutExtension($vkArchive))
+    & $sevenZip x -y "-o$vkExtracted" $tar | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "7z extract failed for the Vulkan loader ($LASTEXITCODE)" }
+    Remove-Item -Force $tar
+}
+foreach ($p in $vkDll, $vkLicense) { if (-not (Test-Path -LiteralPath $p)) { throw "Missing Vulkan loader file: $p" } }
+$b = [IO.File]::ReadAllBytes($vkDll)
+$pe = if ($b.Length -ge 64 -and $b[0] -eq 0x4d -and $b[1] -eq 0x5a) { [BitConverter]::ToUInt32($b, 0x3c) } else { 0 }
+if ($pe -lt 0x40 -or $pe + 6 -gt $b.Length -or [BitConverter]::ToUInt32($b, $pe) -ne 0x4550 -or [BitConverter]::ToUInt16($b, $pe + 4) -ne 0x8664) {
+    throw 'vulkan-1.dll is not an x64 Windows DLL'
+}
+Copy-Item $vkDll (Join-Path $current 'vulkan-1.dll')
+Copy-Item $vkLicense (Join-Path $current 'vulkan-loader-LICENSE')
+Write-Host "Staged libmpv and the Vulkan loader in $current"
