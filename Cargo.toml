@@ -43,6 +43,9 @@ cap-std = "=4.0.3"
 cap-primitives = "=4.0.3"
 same-file = "=1.0.6"
 anyhow = "=1.0.104"
+# Watch party transport: QUIC with hole punching and the free n0 relays as fallback.
+iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring", "portmapper"] }
+iroh-tickets = "=1.0.0"
 gpui = { package = "gpui-pre", version = "=0.3.9" }
 gpui-component = "=0.7.3"
 # font-kit: without it macOS falls back to a no-op text system and renders no text.

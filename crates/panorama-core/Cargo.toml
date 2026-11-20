@@ -32,6 +32,8 @@ cap-std.workspace = true
 cap-primitives.workspace = true
 same-file.workspace = true
 anyhow.workspace = true
+iroh.workspace = true
+iroh-tickets.workspace = true
 
 [dev-dependencies]
 tiny_http.workspace = true
