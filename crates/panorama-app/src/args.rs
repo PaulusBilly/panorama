@@ -2,6 +2,9 @@
 use crate::router::Route;
 use std::{ffi::OsString, path::PathBuf};
 
+/// What the system passes when someone opens an invite link.
+const INVITE_LINK: &str = "panorama://party/";
+
 /// One invocation's startup options.
 #[derive(Clone)]
 pub struct Args {
@@ -74,7 +77,7 @@ pub struct Args {
     pub data_dir: Option<PathBuf>,
     /// Debug: host a party; whatever the player opens is what it watches.
     pub party_host: bool,
-    /// Debug: join this party link at startup (never logged).
+    /// Join this party link at startup, from `--party-join` or an opened invite link (never logged).
     pub party_join: Option<String>,
     /// Debug: the name to show in the party, for this run only.
     pub party_name: Option<String>,
@@ -135,6 +138,7 @@ impl Args {
             party_preview: None,
         };
         let mut screenshot_options = false;
+        let mut opened_link = false;
         while let Some(arg) = args.next() {
             match arg
                 .to_str()
@@ -351,6 +355,12 @@ impl Args {
                     }
                     result.scroll.push(delta);
                 }
+                link if link.starts_with(INVITE_LINK) && !opened_link => {
+                    opened_link = true;
+                    if panorama_core::party::transport::parse_invite(link).is_ok() {
+                        result.party_join = Some(link.to_owned());
+                    }
+                }
                 _ => return Err("Unknown argument".into()),
             }
         }
@@ -452,6 +462,19 @@ mod tests {
         assert!(parse(&["--party-invite-file", "/tmp/invite"]).is_err());
         assert!(parse(&["--party-play", "home"]).is_err());
         assert!(parse(&["--party-name", " "]).is_err());
+    }
+    #[test]
+    fn an_opened_invite_link_joins_and_a_broken_one_still_opens() {
+        let link = crate::party::handoff::SAMPLE_INVITE;
+        let args = parse(&[link]).unwrap();
+        assert_eq!(args.party_join.as_deref(), Some(link));
+        assert!(!format!("{args:?}").contains("endpoint"));
+        let args = parse(&["panorama://party/broken?s=00"]).unwrap();
+        assert_eq!(args.party_join, None);
+        assert_eq!(args.route, Route::Home);
+        assert!(parse(&[link, link]).is_err());
+        assert!(parse(&["panorama://room/abc"]).is_err());
+        assert!(parse(&["notes.txt"]).is_err());
     }
     #[test]
     fn data_dir_takes_a_path() {
