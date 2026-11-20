@@ -24,6 +24,8 @@ const CATCH_UP: f64 = 5.0;
 const HOST_DRIFT: f64 = 0.5;
 /// How long after the timeline last moved the host's reports are trusted to show the move.
 const SETTLE_MS: i64 = 1_500;
+/// A tick: however often members' reports move the roster, everyone hears it at most this often.
+const ROSTER_EVERY_MS: i64 = 250;
 const HOST_ID: u32 = 0;
 
 /// A connection, numbered by the transport.
@@ -107,6 +109,7 @@ pub struct HostSession {
     published: Option<(PlaybackState, bool)>,
     published_ms: i64,
     roster: Vec<MemberView>,
+    roster_ms: Option<i64>,
     ended: bool,
 }
 
@@ -247,6 +250,7 @@ impl HostSession {
             published: None,
             published_ms: 0,
             roster: Vec::new(),
+            roster_ms: None,
             ended: false,
         }
     }
@@ -570,7 +574,7 @@ impl HostSession {
     }
 
     /// Sends the party's state whenever it changes, and every 5 s as a refresh; and the roster
-    /// whenever it changes.
+    /// when someone joins or leaves, and when only reports moved it, at most once a tick.
     fn publish(&mut self, now: i64, out: &mut Vec<HostOutput>) {
         if let Some(showing) = &self.showing {
             let current = (showing.playback(), self.settings.anyone_controls);
@@ -597,8 +601,14 @@ impl HostSession {
         let roster = std::iter::once(self.host.view(true))
             .chain(self.joined().map(|member| member.view(false)))
             .collect::<Vec<_>>();
-        if roster != self.roster {
+        let ids = |roster: &[MemberView]| roster.iter().map(|m| m.member_id).collect::<Vec<_>>();
+        let due = ids(&roster) != ids(&self.roster)
+            || self
+                .roster_ms
+                .is_none_or(|at| now.saturating_sub(at) >= ROSTER_EVERY_MS);
+        if roster != self.roster && due {
             self.roster = roster.clone();
+            self.roster_ms = Some(now);
             self.broadcast(
                 Down::Roster {
                     members: roster.clone(),

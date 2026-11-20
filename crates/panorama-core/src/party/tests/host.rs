@@ -322,6 +322,7 @@ fn play_starts_after_20s_even_if_not_ready() {
     assert_ne!(playing(&tick(&mut host, 20_000), SAM), Some(true));
     let out = tick(&mut host, 20_001);
     assert_eq!(playing(&out, SAM), Some(true));
+    let out = tick(&mut host, 20_250);
     let sam = roster(&out).unwrap().into_iter().find(|m| m.name == "Sam");
     assert!(sam.unwrap().late);
 }
@@ -508,6 +509,7 @@ fn different_release_sends_notice_and_shows_in_roster() {
 #[test]
 fn member_request_ignored_when_host_only() {
     let mut host = party();
+    tick(&mut host, 500);
     let out = request(&mut host, 1_000, SAM, Action::Pause);
     assert!(states(&out, SAM).is_empty());
     assert_eq!(
@@ -719,4 +721,27 @@ fn a_member_named_like_the_host_gets_a_suffix() {
         }))
         .is_ok()
     );
+}
+
+#[test]
+fn a_flapping_member_moves_the_roster_at_most_once_a_tick() {
+    let mut host = party();
+    let mut rosters = 0;
+    for step in 0..20 {
+        let state = if step % 2 == 0 {
+            MemberState::Buffering
+        } else {
+            MemberState::Playing
+        };
+        let out = report(&mut host, 1_000 + step * 10, SAM, state);
+        rosters += sent_to(&out, SAM)
+            .iter()
+            .filter(|msg| matches!(msg, Down::Roster { .. }))
+            .count();
+    }
+    assert!(rosters <= 1, "{rosters} rosters in 200 ms");
+    let out = tick(&mut host, 1_260);
+    let sam = roster(&out).unwrap().into_iter().find(|m| m.name == "Sam");
+    assert_eq!(sam.unwrap().state, MemberState::Playing);
+    assert!(roster(&tick(&mut host, 1_520)).is_none());
 }
