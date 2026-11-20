@@ -11,8 +11,8 @@ pub mod panel;
 mod panel_motion;
 mod panel_view;
 mod panel_widgets;
-mod party_view;
 mod party;
+mod party_view;
 mod picker;
 pub mod pointer;
 mod prefs_actions;
@@ -393,6 +393,12 @@ impl Player {
     }
 
     fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(kind) = self.args.party_preview.clone() {
+            let view = party_view::preview(&kind);
+            self.state.update(cx, |state, _| {
+                state.party = Some(crate::party::Party::preview(view));
+            });
+        }
         if self.mounted {
             return;
         }

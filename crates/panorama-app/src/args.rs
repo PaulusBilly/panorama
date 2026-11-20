@@ -82,6 +82,8 @@ pub struct Args {
     pub party_invite_file: Option<PathBuf>,
     /// Debug: open this film (`film:<id>`, `series:<id>` or `anime:<id>`) and play it.
     pub party_play: Option<(panorama_core::addons::Kind, String)>,
+    /// Show a made-up party in the player for a capture: `host`, `member` or `ended`.
+    pub party_preview: Option<String>,
 }
 
 impl Args {
@@ -130,6 +132,7 @@ impl Args {
             party_name: None,
             party_invite_file: None,
             party_play: None,
+            party_preview: None,
         };
         let mut screenshot_options = false;
         while let Some(arg) = args.next() {
@@ -304,6 +307,14 @@ impl Args {
                     result.subtitle_prefs = Some(
                         crate::playback::subtitle_prefs::SubtitlePreferences::normalise(&json),
                     );
+                }
+                "--party-preview" => {
+                    let kind = args
+                        .next()
+                        .and_then(|value| value.to_str().map(str::to_owned))
+                        .filter(|value| matches!(value.as_str(), "host" | "member" | "ended"))
+                        .ok_or("--party-preview needs host, member or ended")?;
+                    result.party_preview = Some(kind);
                 }
                 "--open-panel" => {
                     use crate::routes::player::panel::PanelId;

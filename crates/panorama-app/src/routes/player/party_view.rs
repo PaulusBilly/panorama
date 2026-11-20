@@ -8,9 +8,7 @@ use crate::{
     party::{EndReason, Link, PartyView, Role, RosterRow},
     theme::{Theme, Typography, focus_ring},
 };
-use gpui::{
-    AnyElement, ClipboardItem, Div, SharedString, Stateful, Window, div, prelude::*, px,
-};
+use gpui::{AnyElement, ClipboardItem, Div, SharedString, Stateful, Window, div, prelude::*, px};
 use panorama_core::party::{
     ByeReason, HostSettings, MemberState, Notice, NoticeKind, transport::PathKind,
 };
@@ -67,7 +65,9 @@ impl Player {
         {
             let link = link.as_str().to_owned();
             self.party_ui.copied = true;
-            cx.write_to_clipboard(ClipboardItem::new_string(link));
+            if self.args.party_preview.is_none() {
+                cx.write_to_clipboard(ClipboardItem::new_string(link));
+            }
             toast = Some("Invite link copied. Send it to your friends.".into());
         }
         if !self.party_ui.ended && view.ended().is_some() {
@@ -160,8 +160,13 @@ impl Player {
             .flex()
             .flex_col()
             .pb(px(8.0));
-        let state = self.state.read(cx);
-        let Some(party) = &state.party else {
+        let view = self
+            .state
+            .read(cx)
+            .party
+            .as_ref()
+            .map(|party| party.view.clone());
+        let Some(view) = view else {
             return body
                 .child(
                     helper(
@@ -180,17 +185,19 @@ impl Player {
                     theme,
                     keyboard,
                     window,
-                    |player, cx| player.state.update(cx, |state, cx| state.start_party(None, cx)),
+                    |player, cx| {
+                        player
+                            .state
+                            .update(cx, |state, cx| state.start_party(None, cx))
+                    },
                     cx,
                 ))
                 .into_any_element();
         };
-        let view = &party.view;
         let host = view.is_host();
-        let mut body = body.child(helper(status_line(view).into()).pt(px(4.0)));
         if let Some(reason) = view.ended() {
             return body
-                .child(helper(ended_text(reason, host).into()))
+                .child(helper(ended_text(reason, host).into()).pt(px(4.0)))
                 .child(self.party_row(
                     "party-close",
                     slot::PARTY_EXIT,
@@ -205,15 +212,34 @@ impl Player {
                 ))
                 .into_any_element();
         }
+        let mut body = body.child(helper(status_line(&view).into()).pt(px(4.0)));
+        if let Role::Host { invite, .. } = &view.role {
+            body = body.child(self.party_row(
+                "party-copy",
+                slot::PARTY_PRIMARY,
+                if invite.is_some() {
+                    "Copy invite link"
+                } else {
+                    "Getting the invite link…"
+                },
+                Tone::Accent,
+                invite.is_none(),
+                theme,
+                keyboard,
+                window,
+                |player, cx| player.copy_invite(cx),
+                cx,
+            ));
+        }
         if !view.roster.is_empty() {
             body = body
                 .child(section("People"))
                 .children(view.roster.iter().map(|row| roster_row(row, theme)));
         }
-        if let Role::Host { invite, settings } = &view.role {
+        if let Role::Host { settings, .. } = &view.role {
             let settings = *settings;
             body = body
-                .child(section("Host"))
+                .child(section("Host controls"))
                 .child(self.checkbox(
                     "party-wait",
                     slot::PARTY_WAIT,
@@ -259,22 +285,6 @@ impl Player {
                 ))
                 .child(helper(
                     "Anyone can play, pause or seek. Otherwise only you can.".into(),
-                ))
-                .child(self.party_row(
-                    "party-copy",
-                    slot::PARTY_PRIMARY,
-                    if invite.is_some() {
-                        "Copy invite link"
-                    } else {
-                        "Getting the invite link…"
-                    },
-                    Tone::Accent,
-                    invite.is_none(),
-                    theme,
-                    keyboard,
-                    window,
-                    |player, cx| player.copy_invite(cx),
-                    cx,
                 ));
         }
         body.child(self.party_row(
@@ -298,14 +308,17 @@ impl Player {
     }
 
     fn copy_invite(&mut self, cx: &mut gpui::Context<Self>) {
-        let link = self.state.read(cx).party.as_ref().and_then(|party| {
-            match &party.view.role {
+        let link = self
+            .state
+            .read(cx)
+            .party
+            .as_ref()
+            .and_then(|party| match &party.view.role {
                 Role::Host {
                     invite: Some(link), ..
                 } => Some(link.as_str().to_owned()),
                 _ => None,
-            }
-        });
+            });
         if let Some(link) = link {
             cx.write_to_clipboard(ClipboardItem::new_string(link));
             self.party_toast_now("Invite link copied");
@@ -376,9 +389,7 @@ fn roster_row(row: &RosterRow, theme: Theme) -> Div {
                 .flex()
                 .flex_col()
                 .child(div().label().truncate().child(member.name.clone()))
-                .when(member.is_host, |name| {
-                    name.child(note("Host", theme, 0.55))
-                }),
+                .when(member.is_host, |name| name.child(note("Host", theme, 0.55))),
         )
         .child(
             div()
@@ -415,7 +426,7 @@ fn status_line(view: &PartyView) -> String {
     match view.link {
         Link::Starting if view.is_host() => "Getting an invite link ready…".into(),
         Link::Starting | Link::Connecting => "Connecting to the host…".into(),
-        Link::Ended(_) => String::new(),
+        Link::Ended(_) => "Party ended".into(),
         Link::Live => {
             let count = view.roster.len().max(1);
             let people = if count == 1 {
@@ -471,6 +482,83 @@ fn notice_text(notice: &Notice) -> String {
         (NoticeKind::DifferentRelease, _) => format!("{by} is on a different release"),
         (NoticeKind::DifferentLength, _) => format!("{by}'s copy is a different length"),
         (NoticeKind::Denied, _) => "Only the host can play, pause or seek".into(),
+    }
+}
+
+/// A made-up party for `--party-preview` captures: four people, one buffering and one on
+/// another release.
+pub(super) fn preview(kind: &str) -> PartyView {
+    use crate::party::{InviteLink, NoticeEntry};
+    use panorama_core::party::MemberView;
+    let person = |member_id, name: &str, state, release_matched, is_host, path| RosterRow {
+        member: MemberView {
+            member_id,
+            name: name.into(),
+            state,
+            late: false,
+            release_matched,
+            is_host,
+        },
+        path,
+    };
+    let host = kind == "host";
+    PartyView {
+        role: if host {
+            Role::Host {
+                invite: Some(InviteLink::preview()),
+                settings: HostSettings::default(),
+            }
+        } else {
+            Role::Member
+        },
+        link: if kind == "ended" {
+            Link::Ended(EndReason::Bye(ByeReason::HostLeft))
+        } else {
+            Link::Live
+        },
+        roster: vec![
+            person(
+                0,
+                "Billy",
+                MemberState::Playing,
+                true,
+                true,
+                Some(PathKind::Direct),
+            ),
+            person(
+                1,
+                "Alex",
+                MemberState::Playing,
+                true,
+                false,
+                Some(PathKind::Direct),
+            ),
+            person(
+                2,
+                "Sam",
+                MemberState::Buffering,
+                true,
+                false,
+                Some(PathKind::Relayed),
+            ),
+            person(
+                3,
+                "Rina",
+                MemberState::Playing,
+                false,
+                false,
+                Some(PathKind::Direct),
+            ),
+        ],
+        anyone_controls: false,
+        notices: vec![NoticeEntry {
+            notice: Notice {
+                kind: NoticeKind::Paused,
+                by: "Alex".into(),
+                at: Some(724.0),
+            },
+            at: Instant::now(),
+        }],
     }
 }
 

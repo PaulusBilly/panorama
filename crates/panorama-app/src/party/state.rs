@@ -32,6 +32,17 @@ pub struct Party {
 }
 
 impl Party {
+    /// A party with a fixed view and no network, for `--party-preview` captures.
+    pub fn preview(view: PartyView) -> Self {
+        let (inputs, _) = tokio::sync::mpsc::unbounded_channel();
+        Self {
+            view,
+            inputs,
+            media: None,
+            _events: Task::ready(()),
+        }
+    }
+
     pub fn media(&self) -> Option<&PartyMedia> {
         self.media.as_ref()
     }

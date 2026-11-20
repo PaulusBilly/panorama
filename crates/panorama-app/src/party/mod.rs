@@ -86,6 +86,11 @@ pub struct NoticeEntry {
 pub struct InviteLink(String);
 
 impl InviteLink {
+    /// A made-up link for `--party-preview` captures.
+    pub fn preview() -> Self {
+        Self("panorama://party/preview".into())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
