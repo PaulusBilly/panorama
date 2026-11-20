@@ -255,6 +255,59 @@ async fn controls_report_seek_and_preserve_audio_state() {
     assert_eq!((runner.model.volume, runner.model.muted), (100, true));
 }
 #[tokio::test]
+async fn set_speed_is_clamped() {
+    let (mut runner, backend, _progress) = setup();
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    for speed in [2.0, 0.5, 1.05] {
+        runner.control(Command::SetSpeed(speed)).await;
+    }
+    let log = lock(&backend.log).clone();
+    assert_eq!(
+        log.iter()
+            .filter(|line| line.starts_with("speed:"))
+            .collect::<Vec<_>>(),
+        ["speed:1.1", "speed:0.9", "speed:1.05"]
+    );
+}
+#[tokio::test]
+async fn set_speed_ignores_nan() {
+    let (mut runner, backend, _progress) = setup();
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    runner.control(Command::SetSpeed(f64::NAN)).await;
+    runner.control(Command::SetSpeed(f64::INFINITY)).await;
+    assert!(
+        !lock(&backend.log)
+            .iter()
+            .any(|line| line.starts_with("speed:"))
+    );
+}
+#[tokio::test]
+async fn speed_resets_on_new_source() {
+    let (mut runner, backend, _progress) = setup();
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    runner.control(Command::SetSpeed(1.05)).await;
+    runner.control(Command::Retry).await;
+    resolve(&mut runner).await;
+    let log = lock(&backend.log).clone();
+    let loads = log
+        .iter()
+        .rposition(|line| line.starts_with("load"))
+        .unwrap();
+    assert!(log[..loads].contains(&"speed:1.05".into()));
+    assert!(!log[loads..].iter().any(|line| line.starts_with("speed:")));
+    runner.control(Command::Stop).await;
+    assert!(runner.active.is_none());
+}
+#[tokio::test]
 async fn channel_host_bridge_runs_without_gpui() {
     let backend = Arc::new(FakeBackend::new(Some(FixtureState::Ready)));
     let mut host = PlaybackHost::with_backend(

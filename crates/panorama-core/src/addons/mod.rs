@@ -18,6 +18,7 @@ pub fn country_name(value: &str) -> Option<String> {
     sanitize::country(value)
 }
 
+pub(crate) use sanitize::valid_id;
 pub(crate) use transport::capture_metadata;
 
 use std::{

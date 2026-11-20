@@ -40,6 +40,7 @@ pub enum Icon {
     Person,
     Retry,
     Close,
+    Users,
 }
 impl Icon {
     pub fn path(self) -> &'static str {
@@ -56,6 +57,7 @@ impl Icon {
             Self::Person => "person.svg",
             Self::Retry => "refresh.svg",
             Self::Close => "x.svg",
+            Self::Users => "users.svg",
         }
     }
 }

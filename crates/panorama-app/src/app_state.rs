@@ -83,6 +83,10 @@ pub struct AppState {
     pub closing: bool,
     pub player: Option<crate::playback::shell::ShellPlayerState>,
     pub playback_host: Option<crate::playback::host::PlaybackHost>,
+    /// The watch party this window is in.
+    pub party: Option<crate::party::Party>,
+    /// A film to open by id once the account is ready.
+    pub pending_play: Option<crate::party::PendingPlay>,
     host: Arc<ServicesHost>,
     events: Option<Task<()>>,
     request: Option<Task<()>>,
@@ -120,6 +124,8 @@ impl AppState {
             playback: None,
             launch: None,
             playback_host: None,
+            party: None,
+            pending_play: None,
             player: None,
             closing: false,
             account: Account::SignedOut,

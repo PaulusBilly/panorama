@@ -96,10 +96,15 @@ impl Render for AppShell {
                 cx,
             )
         });
-        let menu = self
-            .menu
-            .visible(self.reduced_motion)
-            .then(|| self.menu.render(view, &account, window, cx));
+        let menu = self.menu.visible(self.reduced_motion).then(|| {
+            let party = self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .map(|party| party.view.clone());
+            self.menu.render(view, &account, party.as_ref(), window, cx)
+        });
         div()
             .id("panorama-shell")
             .relative()

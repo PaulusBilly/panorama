@@ -347,6 +347,14 @@ impl Player {
                 cx,
             ))
             .child(self.trigger(
+                PanelId::Party,
+                ("player-party", "Watch party", "users.svg", "users.svg"),
+                theme,
+                keyboard,
+                window,
+                cx,
+            ))
+            .child(self.trigger(
                 PanelId::Settings,
                 (
                     "player-settings",

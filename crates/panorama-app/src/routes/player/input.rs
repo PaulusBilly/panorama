@@ -417,7 +417,7 @@ impl Player {
             PanelId::Subtitles => Some(Rc::new(content::subtitles(
                 &self.ui.subs.view(&self.model.subtitles),
             ))),
-            PanelId::Settings => None,
+            PanelId::Settings | PanelId::Party => None,
         }
     }
 

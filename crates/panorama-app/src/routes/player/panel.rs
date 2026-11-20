@@ -11,11 +11,20 @@ pub enum PanelId {
     Sources,
     /// Playback settings and Discord sharing.
     Settings,
+    /// The watch party: who is watching, the host's switches, the invite.
+    Party,
 }
 
 impl PanelId {
+    /// Trigger order, left to right: the party sits just before the settings gear.
     fn order(self) -> i32 {
-        self as i32
+        match self {
+            Self::Subtitles => 0,
+            Self::Audio => 1,
+            Self::Sources => 2,
+            Self::Party => 3,
+            Self::Settings => 4,
+        }
     }
 }
 

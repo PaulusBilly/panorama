@@ -29,6 +29,8 @@ impl AssetSource for Assets {
             "clock-filled.svg" => Some(include_bytes!("../assets/icons/clock-filled.svg")),
             // Tabler Icons "award" (MIT), the mark for an award with no bundled logo.
             "award.svg" => Some(include_bytes!("../assets/icons/award.svg")),
+            // Tabler Icons "users" (MIT), the watch party.
+            "users.svg" => Some(include_bytes!("../assets/icons/users.svg")),
             "player-play-filled.svg" => {
                 Some(include_bytes!("../assets/icons/player-play-filled.svg"))
             }

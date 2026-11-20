@@ -1,6 +1,8 @@
 //! Play straight from Home: the player opens at once, and its loader covers the source and
 //! subtitle lookups the film page used to run before handing over.
-use super::selection::{PlaybackSelection, StartMode, SubtitleLookup, binge_source, first_source};
+use super::selection::{
+    LastSource, PlaybackSelection, SourceRef, StartMode, SubtitleLookup, binge_source, first_source,
+};
 use crate::{
     app_state::AppState,
     services::{Job, Services},
@@ -8,10 +10,47 @@ use crate::{
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use gpui::{Context, Task};
 use panorama_core::{
-    addons::{FilmDetails, Kind, StreamsEvent},
+    addons::{FilmDetails, Kind, StreamGroup, StreamsEvent},
+    party::PartyRelease,
     stremio::{Descriptor, ResumePoint},
 };
 use std::sync::Arc;
+
+/// Which source a launch starts with.
+#[derive(Clone, Debug, Default)]
+pub enum Pick {
+    /// The source this video last played from, else the best ranked.
+    #[default]
+    Ranked,
+    /// The best stream in this binge group, so an episode continues the last one's release.
+    Binge(String),
+    /// A watch party's release, found among this install's own streams.
+    Party(PartyRelease),
+}
+
+impl Pick {
+    /// The source to start with while addons are still answering; `None` holds out for more.
+    pub fn early(&self, groups: &[StreamGroup], last: Option<&LastSource>) -> Option<SourceRef> {
+        match (self, last) {
+            (Self::Binge(group), _) => binge_source(groups, group),
+            (Self::Party(release), _) => panorama_core::party::find(release, groups)
+                .filter(|&(.., exact)| exact)
+                .map(|(group, stream, _)| SourceRef { group, stream }),
+            (Self::Ranked, Some(last)) => last.find(groups),
+            (Self::Ranked, None) => first_source(groups),
+        }
+    }
+
+    /// The source to start with once every addon has answered.
+    pub fn last(&self, groups: &[StreamGroup], last: Option<&LastSource>) -> Option<SourceRef> {
+        let found = match self {
+            Self::Party(release) => panorama_core::party::find(release, groups)
+                .map(|(group, stream, _)| SourceRef { group, stream }),
+            Self::Ranked | Self::Binge(_) => last.and_then(|last| last.release(groups)),
+        };
+        found.or_else(|| first_source(groups))
+    }
+}
 
 /// A play started outside the film page, until the player closes.
 pub struct Launch {
@@ -56,7 +95,7 @@ impl AppState {
         film: FilmDetails,
         video_id: String,
         resume: Option<ResumePoint>,
-        binge_group: Option<String>,
+        pick: Pick,
         cx: &mut Context<Self>,
     ) {
         let Some(services) = self.services.clone() else {
@@ -113,11 +152,7 @@ impl AppState {
                         state.streams = Some((id.clone(), Arc::new(groups.clone())));
                         // Holding out for the release in progress, or for the source this video
                         // last played from; without either, the best so far starts at once.
-                        let source = match (binge_group.as_deref(), &last) {
-                            (Some(group), _) => binge_source(&groups, group),
-                            (None, Some(last)) => last.find(&groups),
-                            (None, None) => first_source(&groups),
-                        };
+                        let source = pick.early(&groups, last.as_ref());
                         latest = groups.clone();
                         if let Some(source) = source
                             && let Some(film) = film.take()
@@ -140,10 +175,7 @@ impl AppState {
                     }
                 }
                 let _ = state.update(cx, |state, cx| {
-                    let fallback = last
-                        .as_ref()
-                        .and_then(|last| last.release(&latest))
-                        .or_else(|| first_source(&latest));
+                    let fallback = pick.last(&latest, last.as_ref());
                     if let Some(source) = fallback
                         && let Some(film) = film.take()
                     {

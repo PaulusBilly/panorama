@@ -417,6 +417,7 @@ pub const PROPERTIES: &[&str] = &[
     "audio-device",
     "audio-spdif",
     "mute",
+    "speed",
     "sub-visibility",
     "target-colorspace-hint",
     "target-prim",

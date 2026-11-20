@@ -16,7 +16,7 @@ pub struct Measures {
     /// The volume and seek hit areas.
     pub ranges: [Cell<Bounds<Pixels>>; 2],
     /// The natural size of each panel page, by panel order.
-    pub pages: [Cell<Option<Size<Pixels>>>; 4],
+    pub pages: [Cell<Option<Size<Pixels>>>; 5],
     /// The three select triggers of the settings panel, by `SelectId`.
     pub selects: [Cell<Option<Bounds<Pixels>>>; 3],
     /// The open select menu or colour popover.

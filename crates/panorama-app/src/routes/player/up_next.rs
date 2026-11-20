@@ -2,6 +2,7 @@
 use super::*;
 use crate::{
     button::Button,
+    playback::launch::Pick,
     playback::model::Status,
     theme::{Theme, Typography},
 };
@@ -54,7 +55,7 @@ impl UpNext {
 impl Player {
     /// Keep the card in step with the playhead; the countdown runs out into the next episode.
     pub(super) fn advance_up_next(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.next.is_none() {
+        if self.next.is_none() || !self.up_next_allowed(cx) {
             return;
         }
         let now = Instant::now();
@@ -77,6 +78,9 @@ impl Player {
     }
 
     pub(super) fn play_next(&mut self, cx: &mut Context<Self>) {
+        if !self.up_next_allowed(cx) {
+            return;
+        }
         let Some(next) = self.next.take() else {
             return;
         };
@@ -86,14 +90,25 @@ impl Player {
         let group = selection
             .selected()
             .and_then(|source| source.stream.behavior_hints.binge_group.clone());
+        self.restart(cx);
+        self.state.update(cx, |state, cx| {
+            state.launch(
+                selection.film,
+                next.id,
+                None,
+                group.map_or_else(Default::default, Pick::Binge),
+                cx,
+            )
+        });
+    }
+
+    /// Close what plays so the next launch's selection mounts in this same player.
+    pub fn restart(&mut self, cx: &mut Context<Self>) {
         self.unmount(cx);
         self.up_next = UpNext::Hidden;
         self.late_subtitles = None;
         self.subtitle_queue.clear();
         self.subtitle_wait = None;
-        self.state.update(cx, |state, cx| {
-            state.launch(selection.film, next.id, None, group, cx)
-        });
         self.model.apply(HostEvent::Resolving);
         cx.notify();
     }
@@ -104,7 +119,8 @@ impl Player {
     }
 
     pub(super) fn up_next_card(&self, theme: Theme, cx: &mut Context<Self>) -> Option<Div> {
-        let shown = matches!(self.up_next, UpNext::Offered | UpNext::Counting(_));
+        let shown = matches!(self.up_next, UpNext::Offered | UpNext::Counting(_))
+            && self.up_next_allowed(cx);
         let next = self.next.as_ref().filter(|_| shown)?;
         let heading = match self.up_next.seconds_left(Instant::now()) {
             Some(seconds) => format!("Next episode in {seconds}"),

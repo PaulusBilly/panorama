@@ -131,6 +131,12 @@ impl Player {
                 self.settings_body(theme, keyboard, window, cx),
                 None,
             ),
+            PanelId::Party => (
+                "Watch party",
+                super::content::PANEL_WIDTH.min(window_width - 16.0),
+                self.party_body(theme, keyboard, window, cx),
+                None,
+            ),
             _ => {
                 let content = self.panel_content(id)?;
                 let width = content.width.min(window_width - 16.0);
@@ -149,7 +155,7 @@ impl Player {
             }
         };
         // Audio and Sources only: Settings and Subtitles lay out their own scrolling bodies.
-        let fade = !matches!(id, PanelId::Settings | PanelId::Subtitles)
+        let fade = !matches!(id, PanelId::Settings | PanelId::Subtitles | PanelId::Party)
             && more_below(&self.scrolls[id as usize]);
         let (x, opacity) = slide.map_or((0.0, 1.0), |(x, opacity)| (x * width, opacity));
         let max_height = 448.0f32.min(window_height - 160.0);

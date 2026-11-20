@@ -28,6 +28,7 @@ impl Render for Player {
             return div();
         }
         self.reduced = reduced;
+        self.sync_party(cx);
         self.ui_settled = self.debug_ui_settled(Instant::now());
         self.mount(window, cx);
         self.advance_up_next(window, cx);
@@ -77,6 +78,7 @@ impl Render for Player {
             || self.panel_motion.moving(now, reduced)
             || self.tab_motion.moving(now, reduced)
             || self.flash_moving(now)
+            || self.party_toast_moving(now)
         {
             cx.on_next_frame(window, |_, _, cx| cx.notify());
             window.request_animation_frame();
@@ -159,7 +161,10 @@ impl Render for Player {
                     .when_some(self.pause_flash(theme, reduced, now), |root, flash| {
                         root.child(flash)
                     })
-                    .when_some(notice, |root, notice| root.child(notice));
+                    .when_some(notice, |root, notice| root.child(notice))
+                    .when_some(self.party_toast(theme, reduced, now), |root, toast| {
+                        root.child(toast)
+                    });
                 let root = if shown.top || fade > 0.001 {
                     root.child(self.top_bar(theme, keyboard, fade, window, cx))
                 } else {

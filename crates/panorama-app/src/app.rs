@@ -68,6 +68,8 @@ pub struct AppShell {
     capture_scheduled: bool,
     player_transparent: bool,
     outcome: Sender<Result<(), String>>,
+    _party: gpui::Subscription,
+    invite_written: bool,
 }
 
 impl AppShell {
@@ -89,6 +91,9 @@ impl AppShell {
             }
         });
         let state_observer = cx.observe(&state, |_, _, cx| cx.notify());
+        let party_observer = cx.observe_in(&state, window, |shell, _, window, cx| {
+            shell.follow_party(window, cx);
+        });
         let theme = Theme::default();
         let mut shell = Self {
             theme,
@@ -114,6 +119,8 @@ impl AppShell {
             capture_scheduled: false,
             player_transparent: false,
             outcome,
+            _party: party_observer,
+            invite_written: false,
         };
         let close_state = shell.state.clone();
         window.on_window_should_close(cx, move |window, cx| {
@@ -136,6 +143,20 @@ impl AppShell {
         if args.open_sign_in {
             shell.open_login(window, cx);
         }
+        shell.state.update(cx, |state, cx| {
+            if args.party_host {
+                state.start_party(args.party_name.clone(), cx);
+            }
+            if let Some(invite) = &args.party_join
+                && let Err(error) = state.join_party(invite, args.party_name.clone(), cx)
+            {
+                crate::debug::log(format!("party join refused: {error}"));
+            }
+            if let Some((kind, id)) = args.party_play.clone() {
+                state.play_by_id(kind, id.clone(), id, Default::default());
+                cx.notify();
+            }
+        });
         if args.play_hero && args.fixtures {
             cx.defer_in(window, |shell, window, cx| {
                 let Some(film) = crate::fixtures::films().into_iter().next() else {
@@ -150,11 +171,82 @@ impl AppShell {
                 let id = film.id.clone();
                 let video_id = resume.video_id.clone().unwrap_or_else(|| id.clone());
                 shell.state.update(cx, |state, cx| {
-                    state.launch(film, video_id, Some(resume), None, cx)
+                    state.launch(film, video_id, Some(resume), Default::default(), cx)
                 });
                 shell.navigate(crate::router::Route::Player { id }, window, cx);
             });
         }
         shell
+    }
+}
+
+impl AppShell {
+    /// Opens what the party (or `--party-play`) asks for once its details are in, and hands a
+    /// debug run the host's invite.
+    fn follow_party(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.invite_written
+            && let Some(path) = self.args.party_invite_file.clone()
+            && let Some(invite) = self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .and_then(|party| match &party.view.role {
+                    crate::party::Role::Host { invite, .. } => invite.clone(),
+                    crate::party::Role::Member => None,
+                })
+        {
+            self.invite_written = write_private(&path, invite.as_str()).is_ok();
+        }
+        let Some((film, video_id, pick)) =
+            self.state.update(cx, |state, cx| state.take_ready_play(cx))
+        else {
+            return;
+        };
+        let id = film.id.clone();
+        if *self.history.current() == (Route::Player { id: id.clone() })
+            && let Some(player) = self.mounted.as_ref().and_then(|mounted| {
+                mounted
+                    .view
+                    .clone()
+                    .downcast::<crate::routes::player::Player>()
+                    .ok()
+            })
+        {
+            player.update(cx, |player, cx| player.restart(cx));
+        }
+        crate::party::trace(|| format!("open film={id}"));
+        self.state
+            .update(cx, |state, cx| state.launch(film, video_id, None, pick, cx));
+        self.navigate(Route::Player { id }, window, cx);
+    }
+}
+
+/// Writes a file only its owner can read: it holds a party secret.
+fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    file.write_all(contents.as_bytes())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    #[test]
+    fn the_invite_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("panorama-invite-{}", std::process::id()));
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        super::write_private(&path, "invite").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "invite");
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(mode, 0o600);
     }
 }

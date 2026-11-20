@@ -88,6 +88,7 @@ impl Playback for NativePlayback {
             Command::SeekRelative(seconds) => player.seek(*seconds, SeekMode::Relative),
             Command::SetVolume(volume) => player.set_volume(f64::from((*volume).min(100))),
             Command::SetMuted(muted) => player.set_property("mute", *muted),
+            Command::SetSpeed(speed) => player.set_property("speed", *speed),
             Command::SelectAudio(id) => player.set_audio_track(Some(*id)),
             Command::SelectSubtitle(id) => player.set_subtitle_track(*id),
             Command::Subtitles(setup) => player

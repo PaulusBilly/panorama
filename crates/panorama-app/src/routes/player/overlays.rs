@@ -304,7 +304,7 @@ impl Player {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
-        let first = if ended && self.next.is_some() {
+        let first = if ended && self.next.is_some() && self.up_next_allowed(cx) {
             self.text_button(
                 ("Next episode", true, &self.focus.retry),
                 theme,

@@ -18,6 +18,10 @@ pub(super) mod slot {
     pub const SELECTS: usize = 39;
     pub const PASSTHROUGH: usize = 42;
     pub const DISCORD: usize = 43;
+    pub const PARTY_PRIMARY: usize = 44;
+    pub const PARTY_WAIT: usize = 45;
+    pub const PARTY_CONTROL: usize = 46;
+    pub const PARTY_EXIT: usize = 47;
     pub const COUNT: usize = 48;
 }
 
@@ -338,7 +342,7 @@ impl Player {
 }
 
 /// The shared shape of a settings row, matching the option rows of the other panels.
-fn setting_row(id: impl Into<gpui::ElementId>, theme: Theme) -> Stateful<Div> {
+pub(super) fn setting_row(id: impl Into<gpui::ElementId>, theme: Theme) -> Stateful<Div> {
     div()
         .id(id)
         .relative()
