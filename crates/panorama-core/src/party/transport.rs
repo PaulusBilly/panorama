@@ -326,10 +326,14 @@ impl PartyConn {
     }
 }
 
-impl PartySender {
+/// Reads a connection's path while its sender is busy elsewhere.
+#[derive(Clone)]
+pub struct PartyPath(Connection);
+
+impl PartyPath {
     /// The path iroh currently sends on, or `None` while none is selected.
-    pub fn path(&self) -> Option<PathStatus> {
-        let paths = self.conn.paths();
+    pub fn get(&self) -> Option<PathStatus> {
+        let paths = self.0.paths();
         let path = paths.iter().find(|path| path.is_selected())?;
         let kind = if path.is_relay() {
             PathKind::Relayed
@@ -342,6 +346,16 @@ impl PartySender {
             kind,
             rtt: path.rtt(),
         })
+    }
+}
+
+impl PartySender {
+    pub fn path(&self) -> Option<PathStatus> {
+        self.path_handle().get()
+    }
+
+    pub fn path_handle(&self) -> PartyPath {
+        PartyPath(self.conn.clone())
     }
 
     pub async fn send(&mut self, line: &str) -> Result<(), TransportError> {
