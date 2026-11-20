@@ -28,7 +28,11 @@ fn main() -> ExitCode {
         }
         Err(StartupError::Locked) => return ExitCode::FAILURE,
     };
-    let host = ServicesHost::new(runtime.handle().clone(), args.fixtures);
+    let host = ServicesHost::new(
+        runtime.handle().clone(),
+        args.fixtures,
+        args.data_dir.clone(),
+    );
     let initial = runtime.block_on(host.start());
     let locked = matches!(initial, Err(StartupError::Locked));
     let screenshot = args.screenshot.clone();

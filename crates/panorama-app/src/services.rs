@@ -41,6 +41,7 @@ pub struct ServicesHost {
     /// Executor for every core operation.
     pub runtime: Handle,
     fixtures: bool,
+    data_dir: Option<std::path::PathBuf>,
     store: Mutex<Option<Arc<Store>>>,
 }
 
@@ -103,10 +104,11 @@ impl Drop for FixtureFile {
 
 impl ServicesHost {
     /// Construct a retryable host without touching disk.
-    pub fn new(runtime: Handle, fixtures: bool) -> Arc<Self> {
+    pub fn new(runtime: Handle, fixtures: bool, data_dir: Option<std::path::PathBuf>) -> Arc<Self> {
         Arc::new(Self {
             runtime,
             fixtures,
+            data_dir,
             store: Mutex::new(None),
         })
     }
@@ -117,9 +119,11 @@ impl ServicesHost {
             let fixture_file = FixtureFile::unique();
             return Ok(Arc::new(Services {
                 runtime: self.runtime.clone(),
-                data_dir: store::default_path()
-                    .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
-                    .unwrap_or_default(),
+                data_dir: self.data_dir.clone().unwrap_or_else(|| {
+                    store::default_path()
+                        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+                        .unwrap_or_default()
+                }),
                 // A presence with no IPC paths: the toggle works, nothing connects, and the
                 // opt-in lands in a temporary file instead of the user's settings.
                 discord: Some(panorama_core::discord::DiscordPresence::new(
@@ -141,7 +145,11 @@ impl ServicesHost {
                 clips: tokio::sync::OnceCell::new(),
             }));
         }
-        let path = store::default_path().ok_or_else(|| {
+        let path = match &self.data_dir {
+            Some(dir) => Some(dir.join("panorama.db")),
+            None => store::default_path(),
+        }
+        .ok_or_else(|| {
             StartupError::Failed("Could not locate Panorama's storage directory.".into())
         })?;
         let mut slot = self.store.lock().await;
