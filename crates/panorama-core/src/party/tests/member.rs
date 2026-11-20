@@ -333,3 +333,14 @@ fn bye_host_left_emits_ended() {
     );
     assert!(member.handle(4_200, MemberInput::Tick).is_empty());
 }
+
+#[test]
+fn a_reopened_player_gets_the_timeline_again() {
+    let mut member = watching();
+    assert!(player_commands(&member.handle(2_100, MemberInput::Tick)).is_empty());
+    let out = member.handle(3_000, MemberInput::Reopened);
+    assert_eq!(
+        player_commands(&out),
+        vec![MemberOutput::Seek(103.0), MemberOutput::SetPaused(false)]
+    );
+}
