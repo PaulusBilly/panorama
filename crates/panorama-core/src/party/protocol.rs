@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, ops::RangeInclusive};
 
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +6,7 @@ use super::{MAX_LINE, MAX_MEMBERS, release::PartyRelease, transport::PartySecret
 use crate::addons::{Kind, valid_id};
 
 pub(super) const MAX_POSITION: f64 = 86_400.0;
-const MAX_NAME: usize = 32;
+pub(super) const MAX_NAME: usize = 32;
 const MAX_TITLE: usize = 200;
 const MAX_LABEL: usize = 5000;
 const MAX_BINGE_GROUP: usize = 200;
@@ -300,8 +300,39 @@ fn check(ok: bool, field: &'static str) -> Result<(), ProtocolError> {
 fn name_of(name: &str) -> Result<String, ProtocolError> {
     let name = name.trim();
     check((1..=MAX_NAME).contains(&name.chars().count()), "name")?;
-    check(!name.chars().any(char::is_control), "name")?;
+    check(!name.chars().any(is_hidden_char), "name")?;
     Ok(name.to_owned())
+}
+
+/// Unicode's format characters (category Cf): they draw nothing, yet reorder or hide the text
+/// around them, so a name could pose as another.
+const FORMAT: [RangeInclusive<char>; 21] = [
+    '\u{00AD}'..='\u{00AD}',
+    '\u{0600}'..='\u{0605}',
+    '\u{061C}'..='\u{061C}',
+    '\u{06DD}'..='\u{06DD}',
+    '\u{070F}'..='\u{070F}',
+    '\u{0890}'..='\u{0891}',
+    '\u{08E2}'..='\u{08E2}',
+    '\u{180E}'..='\u{180E}',
+    '\u{200B}'..='\u{200F}',
+    '\u{202A}'..='\u{202E}',
+    '\u{2060}'..='\u{2064}',
+    '\u{2066}'..='\u{206F}',
+    '\u{FEFF}'..='\u{FEFF}',
+    '\u{FFF9}'..='\u{FFFB}',
+    '\u{110BD}'..='\u{110BD}',
+    '\u{110CD}'..='\u{110CD}',
+    '\u{13430}'..='\u{1343F}',
+    '\u{1BCA0}'..='\u{1BCA3}',
+    '\u{1D173}'..='\u{1D17A}',
+    '\u{E0001}'..='\u{E0001}',
+    '\u{E0020}'..='\u{E007F}',
+];
+
+/// Whether a display name may not hold `c`: a control or format character.
+pub fn is_hidden_char(c: char) -> bool {
+    c.is_control() || FORMAT.iter().any(|range| range.contains(&c))
 }
 
 fn is_position(value: f64) -> bool {

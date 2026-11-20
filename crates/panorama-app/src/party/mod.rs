@@ -12,6 +12,7 @@ use panorama_core::{
     addons::{StreamGroup, StreamSource},
     party::{
         Action, ByeReason, HostSettings, MemberState, MemberView, Notice, PartyRelease,
+        is_hidden_char,
         transport::{PathKind, TransportError},
     },
 };
@@ -210,11 +211,12 @@ pub fn up_next_allowed(party: Option<&PartyView>) -> bool {
     party.is_none_or(|view| view.is_host() || view.ended().is_some())
 }
 
-/// A display name the protocol accepts: trimmed, no control characters, at most 32 characters.
+/// A display name the protocol accepts: trimmed, no control or format characters, at most 32
+/// characters.
 pub fn display_name(raw: &str) -> Option<String> {
     let name = raw
         .chars()
-        .filter(|c| !c.is_control())
+        .filter(|c| !is_hidden_char(*c))
         .collect::<String>()
         .trim()
         .chars()

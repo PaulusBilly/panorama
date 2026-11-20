@@ -215,6 +215,10 @@ fn display_names_fit_the_protocol() {
     assert_eq!(display_name(" \t "), None);
     assert_eq!(display_name(&"x".repeat(40)).map(|n| n.len()), Some(32));
     assert_eq!(display_name("a\u{7}b").as_deref(), Some("ab"));
+    assert_eq!(
+        display_name("Bi\u{202E}ll\u{200B}y").as_deref(),
+        Some("Billy")
+    );
 }
 
 #[test]

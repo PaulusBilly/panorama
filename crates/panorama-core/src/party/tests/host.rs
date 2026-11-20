@@ -692,3 +692,31 @@ fn the_timeline_stops_at_the_end_of_the_media() {
     let out = host.handle(20_000_000, HostInput::Local(Action::Pause));
     assert_eq!(states(&out, SAM)[0].1.anchor_position, LENGTH);
 }
+
+#[test]
+fn a_member_named_like_the_host_gets_a_suffix() {
+    let mut host = host();
+    let out = join(&mut host, 0, SAM, "ALEX");
+    assert_eq!(sent_to(&out, SAM)[0], Down::Welcome { member_id: 1 });
+    let names = roster(&out)
+        .unwrap()
+        .into_iter()
+        .map(|member| member.name)
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Alex", "ALEX (2)"]);
+    assert_eq!(notices(&out)[0].by, "ALEX (2)");
+    let out = join(&mut host, 300, KIM, "alex");
+    assert_eq!(roster(&out).unwrap()[2].name, "alex (3)");
+
+    let long = "x".repeat(32);
+    let mut host = HostSession::new(long.clone(), secret(), HostSettings::default());
+    let out = join(&mut host, 0, SAM, &long);
+    let sam = &roster(&out).unwrap()[1].name;
+    assert_eq!(*sam, format!("{} (2)", "x".repeat(28)));
+    assert!(
+        decode_down(&encode(&Down::Roster {
+            members: roster(&out).unwrap()
+        }))
+        .is_ok()
+    );
+}

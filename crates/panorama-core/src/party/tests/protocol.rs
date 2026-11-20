@@ -224,3 +224,18 @@ fn rejects_times_outside_a_safe_range() {
     });
     assert_eq!(decode_up(&ping), Err(ProtocolError::Invalid("time")));
 }
+
+#[test]
+fn names_refuse_invisible_format_characters() {
+    let hello = |name: &str| {
+        decode_up(&encode(&Up::Hello {
+            name: name.into(),
+            version: PROTOCOL_VERSION,
+            secret: secret(),
+        }))
+    };
+    for name in ["\u{202E}xelA", "Al\u{200B}ex", "\u{2066}Sam", "Sam\u{FEFF}"] {
+        assert_eq!(hello(name), Err(ProtocolError::Invalid("name")), "{name:?}");
+    }
+    assert!(hello("Zoë 🍿").is_ok());
+}

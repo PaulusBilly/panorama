@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use super::{
     MAX_MEMBERS, PROTOCOL_VERSION,
     protocol::{
-        Action, ByeReason, Down, MAX_POSITION, MemberState, MemberView, Notice, NoticeKind,
-        PartyMedia, PlaybackState, Up,
+        Action, ByeReason, Down, MAX_NAME, MAX_POSITION, MemberState, MemberView, Notice,
+        NoticeKind, PartyMedia, PlaybackState, Up,
     },
     transport::PartySecret,
 };
@@ -368,6 +368,7 @@ impl HostSession {
             out.push(HostOutput::Drop { conn });
             return;
         }
+        let name = self.unique_name(name);
         let member_id = self.next_member;
         self.next_member += 1;
         self.conns.insert(
@@ -394,6 +395,30 @@ impl HostSession {
             }
         }
         self.notify(NoticeKind::Joined, name, None, out);
+    }
+
+    /// `name`, or when someone in the party already goes by it, whatever the case, `name (n)`.
+    fn unique_name(&self, name: String) -> String {
+        let taken = |candidate: &str| {
+            let candidate = candidate.to_lowercase();
+            std::iter::once(&self.host)
+                .chain(self.joined())
+                .any(|p| p.name.to_lowercase() == candidate)
+        };
+        if !taken(&name) {
+            return name;
+        }
+        (2..=MAX_MEMBERS + 1)
+            .map(|n| {
+                let suffix = format!(" ({n})");
+                let base = name
+                    .chars()
+                    .take(MAX_NAME - suffix.len())
+                    .collect::<String>();
+                format!("{}{suffix}", base.trim_end())
+            })
+            .find(|candidate| !taken(candidate))
+            .unwrap_or(name)
     }
 
     fn disconnect(&mut self, conn: ConnId, out: &mut Vec<HostOutput>) {
