@@ -11,6 +11,7 @@ pub mod panel;
 mod panel_motion;
 mod panel_view;
 mod panel_widgets;
+mod party_view;
 mod picker;
 pub mod pointer;
 mod prefs_actions;
@@ -99,12 +100,13 @@ pub struct Player {
     keyboard_active: bool,
     /// The centre play/pause mark: whether it shows play, and when the toggle happened.
     flash: Option<(bool, Instant)>,
+    party_ui: party_view::PartyUi,
     pointer: pointer::Hider,
     reduced: bool,
     panels: Panels,
     panel_motion: PanelMotion,
-    /// One per panel, then the Subtitles page under its tabs.
-    scrolls: [ScrollHandle; 5],
+    /// One per panel up to Settings, the Subtitles page under its tabs, then the party page.
+    scrolls: [ScrollHandle; 6],
     /// The Subtitles tab indicator, in tabs from the first.
     tab_motion: Tween,
     ui: prefs_ui::PrefsUi,
@@ -219,6 +221,7 @@ impl Player {
             chrome_wake: None,
             keyboard_active: false,
             flash: None,
+            party_ui: Default::default(),
             pointer: pointer::Hider::default(),
             reduced: true,
             panels: Panels::default(),

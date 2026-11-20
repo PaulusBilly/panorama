@@ -20,10 +20,11 @@ pub enum Control {
     Sources,
     Settings,
     Play,
+    Party,
 }
 
 impl Control {
-    pub const COUNT: usize = 8;
+    pub const COUNT: usize = 9;
     /// The trigger of a panel.
     pub fn trigger(panel: PanelId) -> Self {
         match panel {
@@ -31,6 +32,7 @@ impl Control {
             PanelId::Audio => Self::Audio,
             PanelId::Sources => Self::Sources,
             PanelId::Settings => Self::Settings,
+            PanelId::Party => Self::Party,
         }
     }
 }

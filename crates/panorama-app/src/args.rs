@@ -266,9 +266,10 @@ impl Args {
                             Some("sources") => PanelId::Sources,
                             Some("subtitles") => PanelId::Subtitles,
                             Some("settings") => PanelId::Settings,
+                            Some("party") => PanelId::Party,
                             _ => {
                                 return Err(
-                                    "--open-panel needs audio, sources, subtitles or settings"
+                                    "--open-panel needs audio, sources, subtitles, settings or party"
                                         .into(),
                                 );
                             }

@@ -52,6 +52,15 @@ impl Film {
                 .update(cx, |shell, cx| shell.navigate(route, window, cx));
         }
     }
+    /// Host a watch party and play the film for it. The invite link is copied once the
+    /// party can be reached.
+    fn watch_together(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected.is_some() && matches!(self.account, Account::SignedIn(_)) {
+            self.state
+                .update(cx, |state, cx| state.start_party(None, cx));
+        }
+        self.primary_action(window, cx);
+    }
     /// The resume point, when it belongs to what Play plays.
     fn resume_here(&self) -> Option<&panorama_core::stremio::ResumePoint> {
         self.resume
@@ -128,6 +137,11 @@ impl Film {
         .focus(&self.watchlist, view.keyboard)
         .tab_stop(view.active)
         .on_click(cx.listener(|film, _, window, cx| film.toggle_watchlist(window, cx)));
+        let together = Button::round("film-watch-together", Icon::Users, "Watch together")
+            .disabled(primary != Primary::Play)
+            .focus(&self.watch_together, view.keyboard)
+            .tab_stop(view.active)
+            .on_click(cx.listener(|film, _, window, cx| film.watch_together(window, cx)));
         div()
             .flex()
             .flex_wrap()
@@ -135,6 +149,7 @@ impl Film {
             .gap(px(12.0))
             .child(button)
             .child(watchlist)
+            .child(together)
             .child(crate::a11y::status("film-primary-status", label))
     }
     pub(super) fn back(&self, view: ViewSettings, cx: &mut Context<Self>) -> Button {
