@@ -2,9 +2,13 @@
 //! requests, the host decides the party's timeline and broadcasts it, and each member corrects
 //! its own player against that timeline. Sessions are sans-IO reducers driven with `now_ms`.
 
+mod clock;
+mod drift;
 mod protocol;
 mod release;
 
+pub use clock::ClockSync;
+pub use drift::{Correction, correct};
 pub use protocol::{
     Action, ByeReason, Down, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
     PlaybackState, ProtocolError, Up, decode_down, decode_up, encode,
