@@ -130,6 +130,19 @@ impl PartialEq for PartySecret {
 
 impl Eq for PartySecret {}
 
+impl serde::Serialize for PartySecret {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PartySecret {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let hex = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+        Self::from_hex(&hex).ok_or_else(|| serde::de::Error::custom("not a party secret"))
+    }
+}
+
 impl fmt::Debug for PartySecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("PartySecret(..)")

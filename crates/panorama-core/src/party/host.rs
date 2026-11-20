@@ -6,6 +6,7 @@ use super::{
         Action, ByeReason, Down, MAX_POSITION, MemberState, MemberView, Notice, NoticeKind,
         PartyMedia, PlaybackState, Up,
     },
+    transport::PartySecret,
 };
 
 const HELLO_TIMEOUT_MS: i64 = 10_000;
@@ -96,7 +97,7 @@ pub enum HostOutput {
 /// with what to send, whom to drop and what the host's own player and panel should show.
 #[derive(Debug)]
 pub struct HostSession {
-    secret: String,
+    secret: PartySecret,
     settings: HostSettings,
     host: Participant,
     conns: BTreeMap<ConnId, Conn>,
@@ -233,8 +234,8 @@ impl Showing {
 }
 
 impl HostSession {
-    /// `secret` is the party secret from the invite, 32 lowercase hex characters.
-    pub fn new(name: String, secret: String, settings: HostSettings) -> Self {
+    /// `secret` is the party secret from the invite.
+    pub fn new(name: String, secret: PartySecret, settings: HostSettings) -> Self {
         Self {
             secret,
             settings,
@@ -346,10 +347,10 @@ impl HostSession {
         conn: ConnId,
         name: String,
         version: u16,
-        secret: &str,
+        secret: &PartySecret,
         out: &mut Vec<HostOutput>,
     ) {
-        let refusal = if !same_secret(secret, &self.secret) {
+        let refusal = if *secret != self.secret {
             Some(ByeReason::BadSecret)
         } else if version != PROTOCOL_VERSION {
             Some(ByeReason::VersionMismatch)
@@ -640,14 +641,4 @@ fn within(position: f64, duration: Option<f64>) -> f64 {
     } else {
         0.0
     }
-}
-
-/// Takes the same time whichever byte differs, so a joiner can't guess the secret byte by byte.
-fn same_secret(given: &str, expected: &str) -> bool {
-    given.len() == expected.len()
-        && given
-            .bytes()
-            .zip(expected.bytes())
-            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
-            == 0
 }

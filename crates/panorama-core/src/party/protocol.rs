@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::{MAX_LINE, MAX_MEMBERS, release::PartyRelease};
+use super::{MAX_LINE, MAX_MEMBERS, release::PartyRelease, transport::PartySecret};
 use crate::addons::{Kind, valid_id};
 
 pub(super) const MAX_POSITION: f64 = 86_400.0;
@@ -22,7 +22,7 @@ pub enum Up {
     Hello {
         name: String,
         version: u16,
-        secret: String,
+        secret: PartySecret,
     },
     Ping {
         id: u32,
@@ -210,14 +210,11 @@ impl Up {
                 name,
                 version,
                 secret,
-            } => {
-                check(is_hex(&secret, 32), "secret")?;
-                Self::Hello {
-                    name: name_of(&name)?,
-                    version,
-                    secret,
-                }
-            }
+            } => Self::Hello {
+                name: name_of(&name)?,
+                version,
+                secret,
+            },
             Self::Report {
                 position, duration, ..
             } => {

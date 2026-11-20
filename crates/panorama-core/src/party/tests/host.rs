@@ -1,11 +1,12 @@
 use super::*;
+use crate::party::transport::PartySecret;
 
 const SAM: ConnId = ConnId(1);
 const KIM: ConnId = ConnId(2);
 const LENGTH: f64 = 7_200.0;
 
 fn host() -> HostSession {
-    HostSession::new("Alex".into(), SECRET.into(), HostSettings::default())
+    HostSession::new("Alex".into(), secret(), HostSettings::default())
 }
 
 fn hello(host: &mut HostSession, now: i64, conn: ConnId, secret: &str) -> Vec<HostOutput> {
@@ -17,7 +18,7 @@ fn hello(host: &mut HostSession, now: i64, conn: ConnId, secret: &str) -> Vec<Ho
             msg: Up::Hello {
                 name: format!("M{}", conn.0),
                 version: PROTOCOL_VERSION,
-                secret: secret.into(),
+                secret: PartySecret::from_hex(secret).unwrap(),
             },
         },
     )
@@ -32,7 +33,7 @@ fn join(host: &mut HostSession, now: i64, conn: ConnId, name: &str) -> Vec<HostO
             msg: Up::Hello {
                 name: name.into(),
                 version: PROTOCOL_VERSION,
-                secret: SECRET.into(),
+                secret: secret(),
             },
         },
     )
@@ -195,7 +196,7 @@ fn version_mismatch_gets_bye() {
             msg: Up::Hello {
                 name: "Sam".into(),
                 version: PROTOCOL_VERSION + 1,
-                secret: SECRET.into(),
+                secret: secret(),
             },
         },
     );

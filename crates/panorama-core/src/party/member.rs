@@ -5,6 +5,7 @@ use super::{
     protocol::{
         Action, ByeReason, Down, MemberState, MemberView, Notice, PartyMedia, PlaybackState, Up,
     },
+    transport::PartySecret,
 };
 
 const FAST_PING_MS: i64 = 2_000;
@@ -65,7 +66,7 @@ pub enum MemberOutput {
 #[derive(Debug)]
 pub struct MemberSession {
     name: String,
-    secret: String,
+    secret: PartySecret,
     link: Link,
     clock: ClockSync,
     pings: Pings,
@@ -111,7 +112,7 @@ struct Reported {
 
 impl MemberSession {
     /// `secret` comes from the invite.
-    pub fn new(name: String, secret: String) -> Self {
+    pub fn new(name: String, secret: PartySecret) -> Self {
         Self {
             name,
             secret,

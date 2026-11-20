@@ -10,6 +10,10 @@ mod release;
 
 const SECRET: &str = "0123456789abcdef0123456789abcdef";
 
+fn secret() -> transport::PartySecret {
+    transport::PartySecret::from_hex(SECRET).unwrap()
+}
+
 fn media() -> PartyMedia {
     PartyMedia {
         film_id: "tt0111161".into(),
@@ -25,5 +29,23 @@ fn media() -> PartyMedia {
             label: "Torrentio\nThe.Film.1080p.WEB-DL".into(),
             binge_group: Some("torrentio|1080p".into()),
         },
+    }
+}
+
+#[test]
+fn the_secret_never_prints() {
+    let host = HostSession::new("Alex".into(), secret(), HostSettings::default());
+    let member = MemberSession::new("Sam".into(), secret());
+    let hello = Up::Hello {
+        name: "Sam".into(),
+        version: PROTOCOL_VERSION,
+        secret: secret(),
+    };
+    for printed in [
+        format!("{host:?}"),
+        format!("{member:?}"),
+        format!("{hello:?}"),
+    ] {
+        assert!(!printed.contains(SECRET), "{printed}");
     }
 }

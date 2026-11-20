@@ -5,7 +5,7 @@ fn ups() -> Vec<Up> {
         Up::Hello {
             name: "Sam".into(),
             version: PROTOCOL_VERSION,
-            secret: SECRET.into(),
+            secret: secret(),
         },
         Up::Ping {
             id: 7,
@@ -138,7 +138,7 @@ fn trims_and_caps_name() {
 fn secret_must_be_32_lowercase_hex() {
     for secret in ["0123", &SECRET.to_uppercase(), &format!("{SECRET}0")] {
         let line = format!(r#"{{"t":"hello","name":"Sam","version":1,"secret":"{secret}"}}"#);
-        assert_eq!(decode_up(&line), Err(ProtocolError::Invalid("secret")));
+        assert_eq!(decode_up(&line), Err(ProtocolError::Malformed));
     }
 }
 

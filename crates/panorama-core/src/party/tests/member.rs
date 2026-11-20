@@ -1,7 +1,7 @@
 use super::*;
 
 fn member() -> MemberSession {
-    MemberSession::new("Sam".into(), SECRET.into())
+    MemberSession::new("Sam".into(), secret())
 }
 
 /// Joined at 0, with a clock that agrees with the host's.
@@ -85,7 +85,7 @@ fn hello_then_pings_on_start() {
             MemberOutput::Send(Up::Hello {
                 name: "Sam".into(),
                 version: PROTOCOL_VERSION,
-                secret: SECRET.into(),
+                secret: secret(),
             }),
             MemberOutput::Send(Up::Ping { id: 0, sent_ms: 0 }),
         ]

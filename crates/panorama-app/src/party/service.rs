@@ -261,7 +261,7 @@ impl Host {
         view.link = Link::Live;
         trace(|| "host live".into());
         let mut host = Host {
-            session: HostSession::new(name, secret.to_hex(), settings),
+            session: HostSession::new(name, secret, settings),
             view,
             events,
             peers: BTreeMap::new(),
@@ -460,7 +460,7 @@ async fn run_member(
 ) {
     let mut view = PartyView::new(Role::Member, Link::Starting);
     events.view(&view);
-    let secret = invite.secret.to_hex();
+    let secret = invite.secret.clone();
     let connected = async {
         let endpoint = bind(store.as_deref()).await?;
         view.link = Link::Connecting;
