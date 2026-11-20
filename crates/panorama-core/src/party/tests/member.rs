@@ -344,3 +344,36 @@ fn a_reopened_player_gets_the_timeline_again() {
         vec![MemberOutput::Seek(103.0), MemberOutput::SetPaused(false)]
     );
 }
+
+fn load(revision: u64, title: &str) -> MemberInput {
+    let mut media = media();
+    media.title = title.into();
+    MemberInput::Down(Down::Load { media, revision })
+}
+
+fn loads(out: &[MemberOutput]) -> Vec<String> {
+    out.iter()
+        .filter_map(|o| match o {
+            MemberOutput::Load(media) => Some(media.title.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_repeated_load_opens_nothing() {
+    let mut member = joined();
+    assert_eq!(loads(&member.handle(100, load(1, "A"))), ["A"]);
+    assert!(loads(&member.handle(5_000, load(1, "A"))).is_empty());
+}
+
+#[test]
+fn loads_open_at_most_every_two_seconds_and_the_latest_wins() {
+    let mut member = joined();
+    assert_eq!(loads(&member.handle(100, load(1, "A"))), ["A"]);
+    assert!(loads(&member.handle(500, load(2, "B"))).is_empty());
+    assert!(loads(&member.handle(900, load(3, "C"))).is_empty());
+    assert!(loads(&member.handle(2_000, MemberInput::Tick)).is_empty());
+    assert_eq!(loads(&member.handle(2_100, MemberInput::Tick)), ["C"]);
+    assert!(loads(&member.handle(9_000, MemberInput::Tick)).is_empty());
+}
