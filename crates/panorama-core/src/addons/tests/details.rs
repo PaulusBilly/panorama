@@ -220,7 +220,10 @@ async fn streams_never_ask_stremio_local_files() {
         panic!("expected one groups event, got {events:?}");
     };
     assert_eq!(
-        groups.iter().map(|group| group.name.as_str()).collect::<Vec<_>>(),
+        groups
+            .iter()
+            .map(|group| group.name.as_str())
+            .collect::<Vec<_>>(),
         ["ready.test"]
     );
     assert_eq!(fake.hosts(), ["ready.test"]);
