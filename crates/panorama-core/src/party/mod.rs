@@ -8,6 +8,7 @@ mod host;
 mod member;
 mod protocol;
 mod release;
+pub mod transport;
 
 pub use clock::ClockSync;
 pub use drift::{Correction, correct};
