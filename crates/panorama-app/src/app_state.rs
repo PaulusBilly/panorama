@@ -105,7 +105,7 @@ impl AppState {
     ) -> Self {
         let (services, runtime_error) = match initial {
             Ok(services) => (Some(services), None),
-            Err(StartupError::Locked) => (None, Some("Panorama is already running.".into())),
+            Err(StartupError::Locked) => (None, Some("Panorama is already open.".into())),
             Err(StartupError::Failed(message)) => (None, Some(message)),
         };
         let fixtures = services
@@ -512,7 +512,7 @@ impl AppState {
                             state.load(false, cx);
                         }
                         Err(StartupError::Locked) => {
-                            state.runtime_error = Some("Panorama is already running.".into())
+                            state.runtime_error = Some("Panorama is already open.".into())
                         }
                         Err(StartupError::Failed(message)) => state.runtime_error = Some(message),
                     }
