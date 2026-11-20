@@ -18,7 +18,12 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$repo/target/release/panorama" "$app/Contents/MacOS/panorama"
 cp "$icon" "$app/Contents/Resources/panorama.icns"
 
-"$repo/scripts/stage-macos-libmpv.sh" "$app/Contents/Frameworks" "$app/Contents/Resources/licenses/libmpv"
+licenses="$app/Contents/Resources/licenses"
+"$repo/scripts/stage-macos-libmpv.sh" "$app/Contents/Frameworks" "$licenses/libmpv"
+cp "$repo/LICENSE" "$licenses/LICENSE"
+cp "$repo/libmpv/macos-SOURCE.md" "$licenses/SOURCE.md"
+cp "$repo/crates/panorama-app/assets/fonts/OFL.txt" "$licenses/OFL.txt"
+cp "$repo/crates/panorama-app/assets/icons/LICENSE" "$licenses/tabler-icons-LICENSE"
 
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

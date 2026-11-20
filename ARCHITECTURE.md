@@ -1058,7 +1058,7 @@ pwsh scripts/verify-windows-package.ps1
 
 `package-windows.ps1` builds `panorama-app` in release mode with `--locked`, reuses the staged libmpv and Vulkan loader from `.cache/panorama/windows-libmpv/` (running `scripts/stage-windows-libmpv.ps1`, which needs 7-Zip 23 or later, only if they are missing), and writes `target/package/panorama-<version>-windows-x64.zip` plus a `.sha256` file. `pwsh scripts/package-windows-installer.ps1` wraps the same folder in an Inno Setup installer; the zip alone is enough to run Panorama.
 
-The zip contains `panorama.exe`, `libmpv-2.dll`, `vulkan-1.dll`, `BUILD.txt` (git commit, cargo version, libmpv and Vulkan loader sha256s) and `licenses/` (libmpv notices, the Vulkan loader's Apache-2.0 licence, plus `OFL.txt`, the Tabler icons licence and the repository `LICENSE` once those files exist in the repository; the script warns when one is absent).
+The zip contains `panorama.exe`, `libmpv-2.dll`, `vulkan-1.dll`, `BUILD.txt` (git commit, cargo version, libmpv and Vulkan loader sha256s) and `licenses/` (the repository's GPLv3 `LICENSE`, `libmpv/` with the libmpv licence summary, source note and third-party licence texts from `libmpv/windows-licenses/`, the Vulkan loader's Apache-2.0 licence, `OFL.txt` and the Tabler icons licence).
 
 Two runtime dependencies are shipped or removed so a friend's PC needs nothing installed:
 

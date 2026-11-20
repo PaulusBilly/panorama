@@ -32,18 +32,10 @@ if (-not (Test-Stage $stageDir)) {
 foreach ($f in $stageFiles) { Need (Join-Path $stageDir $f) "staged $f" | Out-Null }
 $stagedDll = Join-Path $stageDir 'libmpv-2.dll'
 
-# OFL.txt and the repository LICENSE do not exist on every base branch yet: they are packaged when
-# present and a loud warning is printed when not. verify-windows-package.ps1 applies the same rule.
-$licenseFiles = [ordered]@{}
-foreach ($c in @(
-        @('OFL.txt', (Join-Path $appDir 'assets/fonts/OFL.txt')),
-        @('tabler-icons-LICENSE', (Join-Path $appDir 'assets/icons/LICENSE')),
-        @('tabler-icons-LICENSE', (Join-Path $appDir 'assets/tabler/LICENSE')),
-        @('LICENSE', (Join-Path $repo 'LICENSE')))) {
-    if (Test-Path -LiteralPath $c[1]) { $licenseFiles[$c[0]] = $c[1] }
-}
-foreach ($n in 'OFL.txt', 'LICENSE') {
-    if (-not $licenseFiles.Contains($n)) { Write-Warning "$n not found in the repository; it is NOT in this package." }
+$licenseFiles = [ordered]@{
+    'LICENSE'              = Need (Join-Path $repo 'LICENSE') 'repository LICENSE'
+    'OFL.txt'              = Need (Join-Path $appDir 'assets/fonts/OFL.txt') 'Aspekta OFL.txt'
+    'tabler-icons-LICENSE' = Need (Join-Path $appDir 'assets/icons/LICENSE') 'Tabler icons LICENSE'
 }
 
 $version = (Select-String -Path (Join-Path $appDir 'Cargo.toml') -Pattern '^\s*version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value

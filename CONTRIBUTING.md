@@ -31,7 +31,7 @@ pwsh scripts/package-windows.ps1         # target/package/panorama-<version>-win
 pwsh scripts/verify-windows-package.ps1
 ```
 
-Run each on its own OS. The Windows libmpv licence review is still open (`libmpv/windows-licenses/README.md`); do not share a Windows build outside testing until it is settled. Ad-hoc signing is not notarization.
+Run each on its own OS. Each package carries Panorama's GPLv3 licence and the libmpv licences and source note (`libmpv/windows-licenses/`, `libmpv/macos-SOURCE.md`). When the pinned libmpv changes, update those notes and mirror the new archive and its source as a release asset, because upstream builds are not kept. Ad-hoc signing is not notarization.
 
 ## Packaged validation
 

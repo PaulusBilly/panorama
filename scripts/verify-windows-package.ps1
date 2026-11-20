@@ -19,12 +19,8 @@ $stagedDll = Join-Path $stageDir 'libmpv-2.dll'
 $stagedVulkan = Join-Path $stageDir 'vulkan-1.dll'
 foreach ($p in $zip, "$zip.sha256", $stagedDll, $stagedVulkan, $noticesDir) { if (-not (Test-Path -LiteralPath $p)) { throw "Missing: $p" } }
 
-# Expected members; same optional-licence rule as package-windows.ps1.
-$expected = [Collections.Generic.List[string]]@('BUILD.txt', 'libmpv-2.dll', 'licenses/vulkan-loader/LICENSE', 'panorama.exe', 'vulkan-1.dll')
+$expected = [Collections.Generic.List[string]]@('BUILD.txt', 'libmpv-2.dll', 'licenses/LICENSE', 'licenses/OFL.txt', 'licenses/tabler-icons-LICENSE', 'licenses/vulkan-loader/LICENSE', 'panorama.exe', 'vulkan-1.dll')
 foreach ($f in Get-ChildItem -File -Recurse $noticesDir) { $expected.Add('licenses/libmpv/' + [IO.Path]::GetRelativePath($noticesDir, $f.FullName).Replace('\', '/')) }
-if (Test-Path (Join-Path $appDir 'assets/fonts/OFL.txt')) { $expected.Add('licenses/OFL.txt') }
-if ((Test-Path (Join-Path $appDir 'assets/icons/LICENSE')) -or (Test-Path (Join-Path $appDir 'assets/tabler/LICENSE'))) { $expected.Add('licenses/tabler-icons-LICENSE') }
-if (Test-Path (Join-Path $repo 'LICENSE')) { $expected.Add('licenses/LICENSE') }
 
 function Assert([bool]$ok, [string]$msg) { if (-not $ok) { throw "FAIL: $msg" } }
 function Test-Pe64([byte[]]$b) {
