@@ -46,6 +46,39 @@ async fn loopback_exchanges_lines_both_ways() {
 }
 
 #[tokio::test]
+async fn split_halves_read_and_write_together() {
+    let (_host, _member, at_host, mut at_member) = pair(Network::Loopback).await;
+    let (mut writer, mut reader) = at_host.split();
+    assert!(reader.recv().await.unwrap().is_some());
+    writer.send("one").await.unwrap();
+    assert_eq!(at_member.recv().await.unwrap().as_deref(), Some("one"));
+    at_member.send("two").await.unwrap();
+    assert_eq!(reader.recv().await.unwrap().as_deref(), Some("two"));
+    assert!(writer.path().is_some());
+}
+
+#[test]
+fn an_internet_invite_names_only_the_relay() {
+    let relay: iroh::RelayUrl = "https://euc1-1.relay.n0.iroh-canary.iroh.link./"
+        .parse()
+        .unwrap();
+    let addr = EndpointAddr::new(SecretKey::generate().public())
+        .with_relay_url(relay.clone())
+        .with_ip_addr("192.168.1.20:51234".parse().unwrap())
+        .with_ip_addr("[2001:db8::1]:51234".parse().unwrap())
+        .with_ip_addr("203.0.113.9:40000".parse().unwrap());
+    let secret = PartySecret::generate().unwrap();
+    let invite = invite_for(addr.clone(), Network::Internet, &secret);
+    assert!(invite.len() < 200, "{} chars", invite.len());
+    let parsed = parse_invite(&invite).unwrap();
+    assert_eq!(parsed.addr.id, addr.id);
+    assert_eq!(parsed.addr.ip_addrs().count(), 0);
+    assert_eq!(parsed.addr.relay_urls().collect::<Vec<_>>(), vec![&relay]);
+    let local = invite_for(addr, Network::Loopback, &secret);
+    assert_eq!(parse_invite(&local).unwrap().addr.ip_addrs().count(), 3);
+}
+
+#[tokio::test]
 async fn bind_keeps_the_persisted_identity() {
     let (first, key) = PartyEndpoint::bind_on(None, Network::Loopback)
         .await
@@ -74,7 +107,7 @@ async fn recv_errors_on_line_over_64k() {
     );
     let mut oversized = vec![b'a'; MAX_LINE + 1];
     oversized.push(b'\n');
-    at_member.send.write_all(&oversized).await.unwrap();
+    at_member.send.send.write_all(&oversized).await.unwrap();
     assert_eq!(at_host.recv().await, Err(TransportError::LineTooLong));
 }
 

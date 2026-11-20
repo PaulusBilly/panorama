@@ -157,6 +157,25 @@ pub fn parse_invite(invite: &str) -> Result<Invite, InviteError> {
     })
 }
 
+/// The relay alone is enough to dial: iroh trades direct addresses over it for hole punching, so
+/// the link stays short. Loopback has no relay, so it keeps its addresses.
+fn invite_for(addr: EndpointAddr, network: Network, secret: &PartySecret) -> String {
+    let addr = match network {
+        Network::Loopback => addr,
+        Network::Internet | Network::RelayOnly => {
+            let relays = addr.relay_urls().cloned().collect::<Vec<_>>();
+            relays
+                .into_iter()
+                .fold(EndpointAddr::new(addr.id), EndpointAddr::with_relay_url)
+        }
+    };
+    format!(
+        "{INVITE_PREFIX}{}?s={}",
+        EndpointTicket::new(addr),
+        secret.to_hex()
+    )
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathKind {
     Direct,
@@ -219,8 +238,7 @@ impl PartyEndpoint {
                 .await
                 .map_err(|_| TransportError::Offline)?;
         }
-        let ticket = EndpointTicket::new(self.endpoint.addr());
-        Ok(format!("{INVITE_PREFIX}{ticket}?s={}", secret.to_hex()))
+        Ok(invite_for(self.endpoint.addr(), self.network, secret))
     }
 
     /// `None` once the endpoint is closed.
@@ -261,27 +279,61 @@ impl PartyEndpoint {
 }
 
 pub struct PartyConn {
+    send: PartySender,
+    recv: PartyReceiver,
+}
+
+/// The writing half of a [`PartyConn`], which also reports the connection's path.
+pub struct PartySender {
     conn: Connection,
     send: SendStream,
+}
+
+/// The reading half of a [`PartyConn`].
+pub struct PartyReceiver {
     recv: BufReader<RecvStream>,
 }
 
 impl PartyConn {
     fn new(conn: Connection, send: SendStream, recv: RecvStream) -> Self {
         Self {
-            conn,
-            send,
-            recv: BufReader::new(recv),
+            send: PartySender { conn, send },
+            recv: PartyReceiver {
+                recv: BufReader::new(recv),
+            },
         }
     }
 
     pub fn remote_id(&self) -> String {
-        self.conn.remote_id().to_string()
+        self.send.conn.remote_id().to_string()
     }
 
-    /// The path iroh currently sends on, or `None` while none is selected.
     pub fn path(&self) -> Option<PathStatus> {
-        let paths = self.conn.paths();
+        self.send.path()
+    }
+
+    pub async fn send(&mut self, line: &str) -> Result<(), TransportError> {
+        self.send.send(line).await
+    }
+
+    pub async fn recv(&mut self) -> Result<Option<String>, TransportError> {
+        self.recv.recv().await
+    }
+
+    /// Halves that read and write at the same time.
+    pub fn split(self) -> (PartySender, PartyReceiver) {
+        (self.send, self.recv)
+    }
+}
+
+/// Reads a connection's path while its sender is busy elsewhere.
+#[derive(Clone)]
+pub struct PartyPath(Connection);
+
+impl PartyPath {
+    /// The path iroh currently sends on, or `None` while none is selected.
+    pub fn get(&self) -> Option<PathStatus> {
+        let paths = self.0.paths();
         let path = paths.iter().find(|path| path.is_selected())?;
         let kind = if path.is_relay() {
             PathKind::Relayed
@@ -294,6 +346,16 @@ impl PartyConn {
             kind,
             rtt: path.rtt(),
         })
+    }
+}
+
+impl PartySender {
+    pub fn path(&self) -> Option<PathStatus> {
+        self.path_handle().get()
+    }
+
+    pub fn path_handle(&self) -> PartyPath {
+        PartyPath(self.conn.clone())
     }
 
     pub async fn send(&mut self, line: &str) -> Result<(), TransportError> {
@@ -309,6 +371,17 @@ impl PartyConn {
             .map_err(|_| TransportError::Stream)
     }
 
+    /// Ends the stream and waits, at most `grace`, for the peer to close, so the last lines
+    /// arrive before the connection goes.
+    pub async fn finish(self, grace: Duration) {
+        let Self { conn, mut send } = self;
+        let _ = send.finish();
+        let _ = timeout(grace, conn.closed()).await;
+        conn.close(0u32.into(), b"bye");
+    }
+}
+
+impl PartyReceiver {
     /// One line without its newline, `None` at a clean end of stream. A line longer than
     /// [`MAX_LINE`] errors before more than `MAX_LINE` bytes are buffered.
     pub async fn recv(&mut self) -> Result<Option<String>, TransportError> {

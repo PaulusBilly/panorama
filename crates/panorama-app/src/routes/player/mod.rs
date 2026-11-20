@@ -12,6 +12,7 @@ mod panel_motion;
 mod panel_view;
 mod panel_widgets;
 mod party_view;
+mod party;
 mod picker;
 pub mod pointer;
 mod prefs_actions;
@@ -81,6 +82,7 @@ pub struct Player {
     /// The line under the title naming the episode playing.
     episode_line: Option<String>,
     up_next: up_next::UpNext,
+    party: party::PartyTap,
     surface_shown: bool,
     awake: crate::awake::Awake,
     focus: Focuses,
@@ -201,6 +203,7 @@ impl Player {
             next: None,
             episode_line: None,
             up_next: Default::default(),
+            party: Default::default(),
             surface_shown: false,
             awake: Default::default(),
             focus: Focuses::new(cx),
@@ -266,6 +269,9 @@ impl Player {
     }
 
     fn send(&self, command: Command, cx: &gpui::App) {
+        if self.route_through_party(&command, cx) {
+            return;
+        }
         if let Some(host) = &self.state.read(cx).playback_host {
             host.send(command);
         }
@@ -299,6 +305,10 @@ impl Player {
         );
         let link = match &event {
             HostEvent::Link(link) => Some(*link),
+            _ => None,
+        };
+        let changed = match &event {
+            HostEvent::SourceChanged(source) => Some(*source),
             _ => None,
         };
         if self.volume_drag && matches!(event, HostEvent::Volume(_)) {
@@ -349,6 +359,7 @@ impl Player {
                 self.model.rebuffers,
             );
         }
+        self.tap_party(changed, cx);
         self.sync_shell(cx);
         cx.notify();
     }
@@ -374,7 +385,7 @@ impl Player {
             return;
         };
         self.state.update(cx, |state, cx| {
-            state.launch(film, video_id, resume, None, cx)
+            state.launch(film, video_id, resume, Default::default(), cx)
         });
         self.mounted = false;
         self.model.apply(HostEvent::Resolving);

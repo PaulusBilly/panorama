@@ -32,6 +32,9 @@ pub enum MemberInput {
     },
     /// The member's own controls. They ask the host; the player moves when the host answers.
     Local(Action),
+    /// The player opened a new file and lost whatever it was told before; the party's
+    /// timeline applies again.
+    Reopened,
     Leave,
     /// About every 250 ms.
     Tick,
@@ -162,6 +165,11 @@ impl MemberSession {
                 moved = true;
             }
             MemberInput::Release { matched } => self.release_matched = matched,
+            MemberInput::Reopened => {
+                self.applied = None;
+                // A new file starts at normal speed.
+                self.speed = 1.0;
+            }
             MemberInput::Local(action) => {
                 if self.link == Link::Joined {
                     out.push(MemberOutput::Send(Up::Request { action }));
