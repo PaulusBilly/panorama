@@ -42,3 +42,17 @@ fn stale_samples_are_dropped_after_gap() {
     assert!(clock.note_local_time(10_001));
     assert_eq!(clock.offset_ms(), None);
 }
+
+#[test]
+fn extreme_times_do_not_overflow() {
+    let mut clock = ClockSync::new();
+    clock.record(i64::MIN, i64::MAX, 0);
+    clock.record(0, i64::MIN, i64::MAX);
+    let _ = clock.host_now(i64::MAX);
+    let playback = PlaybackState {
+        playing: true,
+        anchor_position: 0.0,
+        anchor_host_ms: i64::MIN,
+    };
+    assert!(playback.expected_at(i64::MAX).is_finite());
+}

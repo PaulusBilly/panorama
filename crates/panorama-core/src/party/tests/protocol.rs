@@ -190,3 +190,37 @@ fn roster_is_capped_at_party_size() {
         Err(ProtocolError::Invalid("roster"))
     );
 }
+
+#[test]
+fn rejects_times_outside_a_safe_range() {
+    let pong = |sent_ms: i64, host_ms: i64| {
+        decode_down(&encode(&Down::Pong {
+            id: 1,
+            sent_ms,
+            host_ms,
+        }))
+    };
+    let invalid = Err(ProtocolError::Invalid("time"));
+    assert_eq!(pong(0, i64::MAX), invalid);
+    assert_eq!(pong(i64::MIN, 0), invalid);
+    assert_eq!(pong(0, -1), invalid);
+    assert!(pong(0, 1 << 53).is_ok());
+    let state = |anchor_host_ms: i64| {
+        decode_down(&encode(&Down::State {
+            revision: 1,
+            playback: PlaybackState {
+                playing: true,
+                anchor_position: 0.0,
+                anchor_host_ms,
+            },
+            anyone_controls: false,
+        }))
+    };
+    assert_eq!(state(i64::MIN), invalid);
+    assert_eq!(state((1 << 53) + 1), invalid);
+    let ping = encode(&Up::Ping {
+        id: 1,
+        sent_ms: i64::MAX,
+    });
+    assert_eq!(decode_up(&ping), Err(ProtocolError::Invalid("time")));
+}

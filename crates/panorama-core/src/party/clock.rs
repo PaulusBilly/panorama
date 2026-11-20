@@ -24,7 +24,7 @@ impl ClockSync {
     }
 
     pub fn record(&mut self, sent_ms: i64, host_ms: i64, recv_ms: i64) {
-        let rtt_ms = recv_ms - sent_ms;
+        let rtt_ms = recv_ms.saturating_sub(sent_ms);
         if rtt_ms < 0 {
             return;
         }
@@ -33,7 +33,7 @@ impl ClockSync {
         }
         self.samples.push_back(Sample {
             rtt_ms,
-            offset_ms: ((host_ms - sent_ms) + (host_ms - recv_ms)) / 2,
+            offset_ms: midpoint(host_ms, sent_ms, recv_ms),
         });
     }
 
@@ -46,18 +46,30 @@ impl ClockSync {
     }
 
     pub fn host_now(&self, local_ms: i64) -> Option<i64> {
-        self.offset_ms().map(|offset| local_ms + offset)
+        self.offset_ms()
+            .map(|offset| local_ms.saturating_add(offset))
     }
 
     /// Returns whether the samples were dropped because of a gap since the last call.
     pub fn note_local_time(&mut self, local_ms: i64) -> bool {
         let stale = self
             .last_local_ms
-            .is_some_and(|last| local_ms - last > STALE_GAP_MS);
+            .is_some_and(|last| local_ms.saturating_sub(last) > STALE_GAP_MS);
         if stale {
             self.samples.clear();
         }
         self.last_local_ms = Some(local_ms);
         stale
     }
+}
+
+/// `((host - sent) + (host - recv)) / 2`, widened so no input overflows it.
+fn midpoint(host_ms: i64, sent_ms: i64, recv_ms: i64) -> i64 {
+    let (host, sent, recv) = (
+        i128::from(host_ms),
+        i128::from(sent_ms),
+        i128::from(recv_ms),
+    );
+    let offset = ((host - sent) + (host - recv)) / 2;
+    offset.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
 }

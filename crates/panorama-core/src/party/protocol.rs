@@ -10,6 +10,9 @@ const MAX_NAME: usize = 32;
 const MAX_TITLE: usize = 200;
 const MAX_LABEL: usize = 5000;
 const MAX_BINGE_GROUP: usize = 200;
+/// Milliseconds on a monotonic clock that started with the app: far more than any run lasts,
+/// and exact as an `f64`.
+const MAX_TIME_MS: i64 = 1 << 53;
 
 /// Member to host.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -98,7 +101,7 @@ pub struct PlaybackState {
 impl PlaybackState {
     pub fn expected_at(&self, host_ms: i64) -> f64 {
         if self.playing {
-            self.anchor_position + (host_ms - self.anchor_host_ms) as f64 / 1000.0
+            self.anchor_position + host_ms.saturating_sub(self.anchor_host_ms) as f64 / 1000.0
         } else {
             self.anchor_position
         }
@@ -228,7 +231,11 @@ impl Up {
                 check(is_position(to), "position")?;
                 self
             }
-            Self::Ping { .. } | Self::Request { .. } => self,
+            Self::Ping { sent_ms, .. } => {
+                check(is_time(sent_ms), "time")?;
+                self
+            }
+            Self::Request { .. } => self,
         })
     }
 }
@@ -238,8 +245,12 @@ impl Down {
         match &self {
             Self::Load { media, .. } => media.check()?,
             Self::State { playback, .. } => {
-                check(is_position(playback.anchor_position), "position")?
+                check(is_position(playback.anchor_position), "position")?;
+                check(is_time(playback.anchor_host_ms), "time")?;
             }
+            Self::Pong {
+                sent_ms, host_ms, ..
+            } => check(is_time(*sent_ms) && is_time(*host_ms), "time")?,
             Self::Roster { members } => {
                 check(members.len() <= MAX_MEMBERS, "roster")?;
                 for member in members {
@@ -250,7 +261,7 @@ impl Down {
                 check(name_of(&notice.by)? == notice.by, "name")?;
                 check(notice.at.is_none_or(is_position), "position")?;
             }
-            Self::Welcome { .. } | Self::Pong { .. } | Self::Bye { .. } => {}
+            Self::Welcome { .. } | Self::Bye { .. } => {}
         }
         Ok(self)
     }
@@ -298,6 +309,10 @@ fn name_of(name: &str) -> Result<String, ProtocolError> {
 
 fn is_position(value: f64) -> bool {
     value.is_finite() && (0.0..=MAX_POSITION).contains(&value)
+}
+
+fn is_time(ms: i64) -> bool {
+    (0..=MAX_TIME_MS).contains(&ms)
 }
 
 fn is_hex(value: &str, len: usize) -> bool {
