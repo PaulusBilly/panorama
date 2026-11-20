@@ -275,14 +275,10 @@ impl Services {
             let library = services
                 .clips
                 .get_or_init(|| async {
-                    tokio::task::spawn_blocking(|| {
-                        let directory =
-                            std::env::var_os("PANORAMA_LIBMPV_DIR").map(std::path::PathBuf::from);
-                        panorama_mpv::Mpv::load_library(directory.as_deref()).ok()
-                    })
-                    .await
-                    .ok()
-                    .flatten()
+                    tokio::task::spawn_blocking(|| crate::playback::runtime::load().ok())
+                        .await
+                        .ok()
+                        .flatten()
                 })
                 .await
                 .clone()?;

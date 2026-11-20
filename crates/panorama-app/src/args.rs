@@ -87,6 +87,8 @@ pub struct Args {
     pub party_play: Option<(panorama_core::addons::Kind, String)>,
     /// Show a made-up party in the player for a capture: `host`, `member` or `ended`.
     pub party_preview: Option<String>,
+    /// Show this playback problem as if the startup check had found it.
+    pub runtime_problem: Option<crate::playback::runtime::RuntimeProblem>,
 }
 
 impl Args {
@@ -136,6 +138,7 @@ impl Args {
             party_invite_file: None,
             party_play: None,
             party_preview: None,
+            runtime_problem: None,
         };
         let mut screenshot_options = false;
         let mut opened_link = false;
@@ -320,6 +323,15 @@ impl Args {
                         .ok_or("--party-preview needs host, member or ended")?;
                     result.party_preview = Some(kind);
                 }
+                "--runtime-problem" => {
+                    result.runtime_problem = Some(
+                        args.next()
+                            .as_deref()
+                            .and_then(|value| value.to_str())
+                            .and_then(crate::playback::runtime::RuntimeProblem::parse)
+                            .ok_or("--runtime-problem needs missing, zip, blocked or version")?,
+                    );
+                }
                 "--open-panel" => {
                     use crate::routes::player::panel::PanelId;
                     result.open_panel = Some(
@@ -475,6 +487,21 @@ mod tests {
         assert!(parse(&[link, link]).is_err());
         assert!(parse(&["panorama://room/abc"]).is_err());
         assert!(parse(&["notes.txt"]).is_err());
+    }
+    #[test]
+    fn every_runtime_problem_can_be_forced() {
+        use crate::playback::runtime::RuntimeProblem;
+        for (value, problem) in [
+            ("missing", RuntimeProblem::Missing),
+            ("zip", RuntimeProblem::RunningFromZip),
+            ("blocked", RuntimeProblem::Blocked),
+            ("version", RuntimeProblem::WrongVersion),
+        ] {
+            let args = parse(&["--runtime-problem", value]).unwrap();
+            assert_eq!(args.runtime_problem, Some(problem));
+        }
+        assert!(parse(&["--runtime-problem", "gone"]).is_err());
+        assert!(parse(&["--runtime-problem"]).is_err());
     }
     #[test]
     fn data_dir_takes_a_path() {

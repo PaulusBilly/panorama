@@ -152,6 +152,12 @@ impl AppShell {
                 cx.notify();
             });
         }
+        if let Some(problem) = args.runtime_problem {
+            shell.state.update(cx, |state, cx| {
+                state.runtime_problem = Some(problem);
+                cx.notify();
+            });
+        }
         if args.open_account_menu {
             shell.menu.set_open(true);
         }

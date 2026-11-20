@@ -155,6 +155,7 @@ impl Render for Home {
         let first = self.first_viewport(view, window, cx);
         let state = self.state.read(cx);
         let runtime_error = state.runtime_error.clone();
+        let runtime_problem = state.runtime_problem;
         let error = state.catalog_error.clone();
         let empty = state.catalog.is_some() && self.grid.films.is_empty();
         let more = state.catalog.as_ref().is_some_and(|p| p.has_more);
@@ -165,6 +166,9 @@ impl Render for Home {
             .pb(px(112.0));
         if self.switcher_visible(cx) {
             section = section.child(self.catalog_row(view, window, cx));
+        }
+        if let Some(problem) = runtime_problem {
+            section = section.child(crate::alert_row::notice(problem.message(), view.theme));
         }
         if let Some(message) = runtime_error {
             section = section.child(self.alert(message, "Reload Panorama", view));
