@@ -132,7 +132,6 @@ struct Showing {
     anchor_host_ms: i64,
 }
 
-/// What `Down::State` carries besides its revision.
 #[derive(Clone, Debug, PartialEq)]
 struct Published {
     playback: PlaybackState,
@@ -144,7 +143,7 @@ struct Published {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Phase {
-    /// Before the host starts: everyone opens the media paused and nothing plays.
+    /// Nothing plays, however ready everyone is, until the host's `Start`.
     Lobby,
     /// Everyone opens the media paused; the party starts once all are ready.
     WaitingForReady {
@@ -232,6 +231,19 @@ impl Participant {
             late: self.late,
             release_matched: self.release_matched,
             is_host,
+        }
+    }
+}
+
+impl Published {
+    fn state(self, revision: u64) -> Down {
+        Down::State {
+            revision,
+            playback: self.playback,
+            anyone_controls: self.anyone_controls,
+            lobby: self.lobby,
+            waiting_for: self.waiting_for,
+            tracks: self.tracks,
         }
     }
 }
@@ -437,7 +449,7 @@ impl HostSession {
                     media: showing.media.clone(),
                     revision: self.revision,
                 },
-                self.state(showing),
+                self.published_of(showing).state(self.revision),
             ] {
                 out.push(HostOutput::Send { conn, msg });
             }
@@ -627,13 +639,7 @@ impl HostSession {
     /// when someone joins or leaves, and when only reports moved it, at most once a tick.
     fn publish(&mut self, now: i64, out: &mut Vec<HostOutput>) {
         if let Some(showing) = &self.showing {
-            let current = Published {
-                playback: showing.playback(),
-                anyone_controls: self.settings.anyone_controls,
-                lobby: showing.phase == Phase::Lobby,
-                waiting_for: showing.waiting_for(),
-                tracks: self.tracks.clone(),
-            };
+            let current = self.published_of(showing);
             let changed = self.published.as_ref() != Some(&current);
             if changed {
                 self.revision += 1;
@@ -642,11 +648,11 @@ impl HostSession {
                 {
                     out.push(HostOutput::Apply(current.playback));
                 }
-                self.published = Some(current);
+                self.published = Some(current.clone());
             }
             if changed || now - self.published_ms >= REFRESH_MS {
                 self.published_ms = now;
-                self.broadcast(self.state(showing), out);
+                self.broadcast(current.state(self.revision), out);
             }
         }
         let roster = std::iter::once(self.host.view(true))
@@ -670,9 +676,8 @@ impl HostSession {
         }
     }
 
-    fn state(&self, showing: &Showing) -> Down {
-        Down::State {
-            revision: self.revision,
+    fn published_of(&self, showing: &Showing) -> Published {
+        Published {
             playback: showing.playback(),
             anyone_controls: self.settings.anyone_controls,
             lobby: showing.phase == Phase::Lobby,
