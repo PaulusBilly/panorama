@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    party::follow::{Follow, choice_of, follow},
+    party::follow::{Follow, Followed, choice_of, follow},
     playback::{
         launch::Pick,
         model::{PlaybackError, SourceRef, Stage, Track},
@@ -346,13 +346,53 @@ fn a_friend_with_sync_off_keeps_their_subtitle() {
 
 #[test]
 fn sync_settings_survive_a_restart() {
+    let store = panorama_core::store::Store::open_in_memory().expect("store");
+    assert_eq!(PartySync::load(Some(&store)), PartySync::default());
     let sync = PartySync {
         subtitles: false,
         audio: true,
     };
-    assert_eq!(PartySync::from_bytes(&sync.to_bytes()), sync);
-    assert_eq!(PartySync::from_bytes(b"junk"), PartySync::default());
-    assert!(PartySync::default().subtitles && PartySync::default().audio);
+    sync.save(Some(&store));
+    assert_eq!(PartySync::load(Some(&store)), sync);
+    assert_eq!(PartySync::load(None), PartySync::default());
+}
+
+#[test]
+fn an_unmatched_subtitle_does_not_revert_the_friends_audio() {
+    let audio = |id, lang: &str, selected| track(id, lang, lang, false, selected);
+    let host_subs = [track(2, "ind", "Indonesian", false, true)];
+    let choice = choice_of(&[audio(1, "eng", true)], &host_subs).unwrap();
+    let friend_subs = [track(5, "fra", "French", false, true)];
+
+    let mut followed = Followed::new(choice, PartySync::default());
+    let friend_audio = [audio(7, "jpn", true), audio(8, "eng", false)];
+    let first = followed.step(&friend_audio, &friend_subs);
+    assert_eq!(first.audio, Some(8));
+    assert_eq!(first.subtitle, None, "no Indonesian here: keep their own");
+
+    let chose_japanese = [audio(7, "jpn", true), audio(8, "eng", false)];
+    for _ in 0..3 {
+        assert_eq!(
+            followed.step(&chose_japanese, &friend_subs),
+            Follow::default(),
+            "the unmatched subtitle must not pull the audio back"
+        );
+    }
+}
+
+#[test]
+fn a_subtitle_that_turns_up_later_is_followed_once() {
+    let host_subs = [track(2, "eng", "OpenSubtitles", true, true)];
+    let choice = choice_of(&[], &host_subs).unwrap();
+    let mut followed = Followed::new(choice, PartySync::default());
+    let early = [track(1, "fra", "French", false, true)];
+    assert_eq!(followed.step(&[], &early), Follow::default());
+    let late = [
+        track(1, "fra", "French", false, true),
+        track(6, "eng", "OpenSubtitles", true, false),
+    ];
+    assert_eq!(followed.step(&[], &late).subtitle, Some(Some(6)));
+    assert_eq!(followed.step(&[], &early), Follow::default());
 }
 
 fn hosts_release(torrent: Option<TorrentRef>) -> PartyRelease {

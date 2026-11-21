@@ -3,7 +3,10 @@
 //! seek through the party.
 use super::*;
 use crate::{
-    party::{PartySync, follow, member_state, release_matches, user_action},
+    party::{
+        follow::{self, Followed},
+        member_state, release_matches, user_action,
+    },
     playback::model::Status,
 };
 use panorama_core::{
@@ -24,13 +27,6 @@ pub(super) struct PartyTap {
     announced: Option<TrackChoice>,
     /// Member: the host's choice being followed.
     pub(super) followed: Option<Followed>,
-}
-
-/// A host choice under one sync setting, until every kind it asks for has found a match here.
-pub(super) struct Followed {
-    choice: TrackChoice,
-    sync: PartySync,
-    settled: bool,
 }
 
 impl Player {
@@ -114,35 +110,16 @@ impl Player {
         if !self.ui.loaded {
             return;
         }
-        let followed = self
-            .party
-            .followed
-            .take()
-            .filter(|followed| followed.choice == choice && followed.sync == sync);
-        let mut followed = followed.unwrap_or(Followed {
-            choice,
-            sync,
-            settled: false,
-        });
-        if !followed.settled {
-            let plan = follow::follow(
-                sync,
-                &followed.choice,
-                &self.model.audio,
-                &self.model.subtitles,
-            );
-            if let Some(id) = plan.audio {
-                self.choose_audio(id, cx);
-            }
-            if let Some(id) = plan.subtitle {
-                self.follow_subtitle(id, cx);
-            }
-            followed.settled = follow::settled(
-                sync,
-                &followed.choice,
-                &self.model.audio,
-                &self.model.subtitles,
-            );
+        let mut followed = match self.party.followed.take() {
+            Some(followed) if followed.is(&choice, sync) => followed,
+            _ => Followed::new(choice, sync),
+        };
+        let plan = followed.step(&self.model.audio, &self.model.subtitles);
+        if let Some(id) = plan.audio {
+            self.choose_audio(id, cx);
+        }
+        if let Some(id) = plan.subtitle {
+            self.follow_subtitle(id, cx);
         }
         self.party.followed = Some(followed);
     }
