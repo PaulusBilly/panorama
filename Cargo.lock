@@ -6506,6 +6506,7 @@ dependencies = [
 name = "panorama-app"
 version = "0.0.0"
 dependencies = [
+ "embed-resource",
  "futures",
  "gpui-component",
  "gpui-pre",
