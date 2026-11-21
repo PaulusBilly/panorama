@@ -10,9 +10,10 @@ use crate::{
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use gpui::{Context, Task};
 use panorama_core::{
-    addons::{FilmDetails, Kind, StreamGroup, StreamsEvent},
+    addons::{AddonKey, FilmDetails, Kind, StreamGroup, StreamSource, StreamState, StreamsEvent},
     party::PartyRelease,
     stremio::{Descriptor, ResumePoint},
+    torrent::TorrentSource,
 };
 use std::sync::Arc;
 
@@ -50,6 +51,49 @@ impl Pick {
         };
         found.or_else(|| first_source(groups))
     }
+}
+
+impl Pick {
+    /// Like [`Pick::last`], for when no more addons will answer. A party release none of this
+    /// install's addons offer, but whose host plays a torrent, plays that torrent from a group of
+    /// its own appended to `groups`.
+    pub fn settle(
+        &self,
+        groups: &mut Vec<StreamGroup>,
+        last: Option<&LastSource>,
+    ) -> Option<SourceRef> {
+        if let Self::Party(release) = self
+            && panorama_core::party::find(release, groups).is_none()
+            && let Some(group) = host_copy(release)
+        {
+            groups.push(group);
+            return Some(SourceRef {
+                group: groups.len() - 1,
+                stream: 0,
+            });
+        }
+        self.last(groups, last)
+    }
+}
+
+/// The host's torrent as a source of its own, when the release names one.
+fn host_copy(release: &PartyRelease) -> Option<StreamGroup> {
+    let torrent = release.torrent.as_ref()?;
+    TorrentSource::from_stream(&torrent.info_hash, torrent.file_idx.map(u32::from), &[]).ok()?;
+    let stream = serde_json::json!({
+        "infoHash": torrent.info_hash,
+        "fileIdx": torrent.file_idx,
+    });
+    Some(StreamGroup {
+        addon: serde_json::from_value::<AddonKey>("party.host#copy".into()).ok()?,
+        name: "Host's copy".into(),
+        state: StreamState::Ready(vec![StreamSource {
+            stream: serde_json::from_value(stream).ok()?,
+            name: Some("Host's copy".into()),
+            title: None,
+            description: None,
+        }]),
+    })
 }
 
 /// A play started outside the film page, until the player closes.
@@ -175,7 +219,11 @@ impl AppState {
                     }
                 }
                 let _ = state.update(cx, |state, cx| {
-                    let fallback = pick.last(&latest, last.as_ref());
+                    let answered = latest.len();
+                    let fallback = pick.settle(&mut latest, last.as_ref());
+                    if latest.len() != answered {
+                        state.streams = Some((id.clone(), Arc::new(latest.clone())));
+                    }
                     if let Some(source) = fallback
                         && let Some(film) = film.take()
                     {
