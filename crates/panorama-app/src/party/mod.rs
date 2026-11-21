@@ -1,6 +1,7 @@
 //! A watch party run from the app: the network side lives on the services runtime
 //! ([`service`]), and the GPUI side sees one [`PartyView`] and applies the party's commands to
 //! the player.
+pub mod follow;
 pub mod handoff;
 mod service;
 mod state;
@@ -16,8 +17,11 @@ use panorama_core::{
         is_hidden_char,
         transport::{PathKind, TransportError},
     },
+    store::{Key, Store},
 };
 use std::{fmt, time::Instant};
+
+const SYNC: &str = "party.sync";
 
 pub use state::{Party, PendingPlay};
 
@@ -36,6 +40,55 @@ pub struct PartyView {
     /// Whether members' play, pause and seek apply; otherwise only the host's do.
     pub anyone_controls: bool,
     pub notices: Vec<NoticeEntry>,
+    /// Which of the host's track choices this person follows.
+    pub sync: PartySync,
+}
+
+/// Whether this person's subtitles and audio follow the host's. Kept per install.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PartySync {
+    pub subtitles: bool,
+    pub audio: bool,
+}
+
+impl Default for PartySync {
+    fn default() -> Self {
+        Self {
+            subtitles: true,
+            audio: true,
+        }
+    }
+}
+
+impl PartySync {
+    pub(crate) fn to_bytes(self) -> [u8; 2] {
+        [u8::from(self.subtitles), u8::from(self.audio)]
+    }
+
+    pub(crate) fn load(store: Option<&Store>) -> Self {
+        (|| {
+            let bytes = store?.get(&Key::pref(SYNC).ok()?).ok()??;
+            Some(Self::from_bytes(&bytes))
+        })()
+        .unwrap_or_default()
+    }
+
+    pub(crate) fn save(self, store: Option<&Store>) {
+        if let (Some(store), Ok(key)) = (store, Key::pref(SYNC)) {
+            let _ = store.set(&key, &self.to_bytes());
+        }
+    }
+
+    /// Anything unreadable gives the default of following the host.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
+        match *bytes {
+            [subtitles @ (0 | 1), audio @ (0 | 1)] => Self {
+                subtitles: subtitles == 1,
+                audio: audio == 1,
+            },
+            _ => Self::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -112,6 +165,7 @@ impl PartyView {
             roster: Vec::new(),
             anyone_controls: false,
             notices: Vec::new(),
+            sync: PartySync::default(),
         }
     }
 

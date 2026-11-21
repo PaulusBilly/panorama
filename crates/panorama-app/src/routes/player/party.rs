@@ -3,12 +3,15 @@
 //! seek through the party.
 use super::*;
 use crate::{
-    party::{member_state, release_matches, user_action},
+    party::{
+        follow::{self, Followed},
+        member_state, release_matches, user_action,
+    },
     playback::model::Status,
 };
 use panorama_core::{
     addons::StreamState,
-    party::{MemberState, PartyMedia, PartyRelease},
+    party::{MemberState, PartyMedia, PartyRelease, TrackChoice},
 };
 use std::time::Duration;
 
@@ -20,6 +23,10 @@ pub(super) struct PartyTap {
     reported: Option<(MemberState, Instant)>,
     /// The player was opening a file; the next ready frame is a reopen.
     opening: bool,
+    /// Host: the tracks the party last heard.
+    announced: Option<TrackChoice>,
+    /// Member: the host's choice being followed.
+    pub(super) followed: Option<Followed>,
 }
 
 impl Player {
@@ -46,6 +53,7 @@ impl Player {
             if changed.is_some() || (media.is_none() && self.model.has_reached_playable) {
                 self.announce(cx);
             }
+            self.announce_tracks(cx);
         } else {
             if let (Some(source), Some(media)) = (changed, &media) {
                 let matched = self.plays_release(source, &media.release);
@@ -56,8 +64,64 @@ impl Player {
             if opened {
                 self.state.read(cx).party_reopened();
             }
+            self.follow_host_tracks(cx);
         }
         self.report(cx);
+    }
+
+    /// Host: tell the party which audio and subtitle tracks are on, whenever they change. The
+    /// player's track list is the source: mpv sends it again each time a selection moves.
+    fn announce_tracks(&mut self, cx: &mut Context<Self>) {
+        if self
+            .state
+            .read(cx)
+            .party
+            .as_ref()
+            .is_none_or(|party| party.media().is_none())
+        {
+            return;
+        }
+        let Some(choice) = follow::choice_of(&self.model.audio, &self.model.subtitles) else {
+            return;
+        };
+        let choice = choice.bounded();
+        if self.party.announced.as_ref() == Some(&choice) {
+            return;
+        }
+        self.party.announced = Some(choice.clone());
+        self.state.read(cx).party_tracks(choice);
+    }
+
+    /// Member: put the audio and subtitles on the host's choice, for the kinds sync follows.
+    /// A host track nothing here matches leaves the member's own pick, and is tried again when
+    /// the track list grows, because an addon's subtitles arrive after the file's.
+    pub(super) fn follow_host_tracks(&mut self, cx: &mut Context<Self>) {
+        let wanted = self
+            .state
+            .read(cx)
+            .party
+            .as_ref()
+            .filter(|party| !party.view.is_host() && party.view.ended().is_none())
+            .and_then(|party| Some((party.host_tracks()?.clone(), party.view.sync)));
+        let Some((choice, sync)) = wanted else {
+            self.party.followed = None;
+            return;
+        };
+        if !self.ui.loaded {
+            return;
+        }
+        let mut followed = match self.party.followed.take() {
+            Some(followed) if followed.is(&choice, sync) => followed,
+            _ => Followed::new(choice, sync),
+        };
+        let plan = followed.step(&self.model.audio, &self.model.subtitles);
+        if let Some(id) = plan.audio {
+            self.choose_audio(id, cx);
+        }
+        if let Some(id) = plan.subtitle {
+            self.follow_subtitle(id, cx);
+        }
+        self.party.followed = Some(followed);
     }
 
     fn report(&mut self, cx: &mut Context<Self>) {
@@ -115,6 +179,7 @@ impl Player {
         let at = self.model.time.unwrap_or(selection.start.seconds());
         self.state
             .update(cx, |state, _| state.party_media(media, at));
+        self.party.announced = None;
     }
 
     fn plays_release(&self, source: SourceRef, release: &PartyRelease) -> bool {
