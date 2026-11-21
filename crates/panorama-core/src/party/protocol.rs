@@ -340,10 +340,7 @@ impl TrackChoice {
         }
         Ok(())
     }
-}
 
-impl TrackChoice {
-    /// The choice as members accept it.
     pub fn bounded(self) -> Self {
         Self {
             audio: self.audio.map(TrackKey::bounded),
