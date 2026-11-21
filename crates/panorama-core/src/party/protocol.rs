@@ -10,6 +10,8 @@ pub(super) const MAX_NAME: usize = 32;
 const MAX_TITLE: usize = 200;
 const MAX_LABEL: usize = 5000;
 const MAX_BINGE_GROUP: usize = 200;
+const MAX_LANGUAGE: usize = 16;
+const MAX_CODEC: usize = 32;
 /// Milliseconds on a monotonic clock that started with the app: far more than any run lasts,
 /// and exact as an `f64`.
 const MAX_TIME_MS: i64 = 1 << 53;
@@ -59,6 +61,9 @@ pub enum Down {
         revision: u64,
         playback: PlaybackState,
         anyone_controls: bool,
+        gate: Gate,
+        /// `None` until the host's player names its tracks for this media.
+        tracks: Option<TrackChoice>,
     },
     Roster {
         members: Vec<MemberView>,
@@ -127,6 +132,48 @@ impl fmt::Debug for PartyMedia {
             .field("film_id", &self.film_id)
             .field("video_id", &self.video_id)
             .field("torrent", &self.release.torrent.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// What holds the party's timeline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Gate {
+    /// Nothing plays until the host starts the party.
+    Lobby,
+    Ready,
+    /// The party is paused while this member buffers, the host included.
+    Waiting(u32),
+}
+
+/// The host's audio and subtitle tracks. A `None` track is one the host turned off.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrackChoice {
+    pub audio: Option<TrackKey>,
+    pub subtitle: Option<TrackKey>,
+}
+
+/// A track as every member's player can find it. Never an mpv track id: those number the
+/// tracks of one loaded file, and addon subtitles arrive in a different order on each machine.
+/// Compare a local track with a received key through [`TrackKey::bounded`].
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrackKey {
+    pub language: Option<String>,
+    pub title: Option<String>,
+    pub codec: Option<String>,
+    /// Loaded from outside the media file, such as an addon subtitle.
+    pub external: bool,
+}
+
+impl fmt::Debug for TrackKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TrackKey")
+            .field("language", &self.language)
+            .field("codec", &self.codec)
+            .field("external", &self.external)
             .finish_non_exhaustive()
     }
 }
@@ -241,9 +288,14 @@ impl Down {
     fn validated(self) -> Result<Self, ProtocolError> {
         match &self {
             Self::Load { media, .. } => media.check()?,
-            Self::State { playback, .. } => {
+            Self::State {
+                playback, tracks, ..
+            } => {
                 check(is_position(playback.anchor_position), "position")?;
                 check(is_time(playback.anchor_host_ms), "time")?;
+                if let Some(tracks) = tracks {
+                    tracks.check()?;
+                }
             }
             Self::Pong {
                 sent_ms, host_ms, ..
@@ -286,6 +338,52 @@ impl PartyMedia {
                 .is_none_or(|group| group.chars().count() <= MAX_BINGE_GROUP),
             "binge_group",
         )
+    }
+}
+
+impl TrackChoice {
+    fn check(&self) -> Result<(), ProtocolError> {
+        for key in [&self.audio, &self.subtitle].into_iter().flatten() {
+            key.check()?;
+        }
+        Ok(())
+    }
+
+    pub fn bounded(self) -> Self {
+        Self {
+            audio: self.audio.map(TrackKey::bounded),
+            subtitle: self.subtitle.map(TrackKey::bounded),
+        }
+    }
+}
+
+impl TrackKey {
+    /// The key as it travels: hidden characters dropped and each field cut to its limit.
+    pub fn bounded(self) -> Self {
+        let cut = |text: Option<String>, max| {
+            text.map(|text| {
+                text.chars()
+                    .filter(|c| !is_hidden_char(*c))
+                    .take(max)
+                    .collect()
+            })
+        };
+        Self {
+            language: cut(self.language, MAX_LANGUAGE),
+            title: cut(self.title, MAX_TITLE),
+            codec: cut(self.codec, MAX_CODEC),
+            external: self.external,
+        }
+    }
+
+    fn check(&self) -> Result<(), ProtocolError> {
+        let fits = |text: &Option<String>, max| {
+            text.as_ref()
+                .is_none_or(|text| text.chars().count() <= max && !text.chars().any(is_hidden_char))
+        };
+        check(fits(&self.language, MAX_LANGUAGE), "language")?;
+        check(fits(&self.title, MAX_TITLE), "track_title")?;
+        check(fits(&self.codec, MAX_CODEC), "codec")
     }
 }
 

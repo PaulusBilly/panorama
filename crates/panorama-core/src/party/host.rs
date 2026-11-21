@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use super::{
     MAX_MEMBERS, PROTOCOL_VERSION,
     protocol::{
-        Action, ByeReason, Down, MAX_NAME, MAX_POSITION, MemberState, MemberView, Notice,
-        NoticeKind, PartyMedia, PlaybackState, Up,
+        Action, ByeReason, Down, Gate, MAX_NAME, MAX_POSITION, MemberState, MemberView, Notice,
+        NoticeKind, PartyMedia, PlaybackState, TrackChoice, Up,
     },
     transport::PartySecret,
 };
@@ -74,6 +74,11 @@ pub enum HostInput {
         media: PartyMedia,
         at: f64,
     },
+    /// Leave the lobby: the party plays once everyone is ready. Nothing to start before media.
+    Start,
+    /// The host's player changed track, or named its tracks for new media. Send it after
+    /// `SetMedia`, which forgets the tracks.
+    Tracks(TrackChoice),
     Settings(HostSettings),
     End,
     /// About every 250 ms.
@@ -105,8 +110,9 @@ pub struct HostSession {
     conns: BTreeMap<ConnId, Conn>,
     next_member: u32,
     showing: Option<Showing>,
+    tracks: Option<TrackChoice>,
     revision: u64,
-    published: Option<(PlaybackState, bool)>,
+    published: Option<Published>,
     published_ms: i64,
     roster: Vec<MemberView>,
     roster_ms: Option<i64>,
@@ -127,8 +133,18 @@ struct Showing {
     anchor_host_ms: i64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct Published {
+    playback: PlaybackState,
+    anyone_controls: bool,
+    gate: Gate,
+    tracks: Option<TrackChoice>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Phase {
+    /// Nothing plays, however ready everyone is, until the host's `Start`.
+    Lobby,
     /// Everyone opens the media paused; the party starts once all are ready.
     WaitingForReady {
         since: i64,
@@ -219,6 +235,18 @@ impl Participant {
     }
 }
 
+impl Published {
+    fn state(self, revision: u64) -> Down {
+        Down::State {
+            revision,
+            playback: self.playback,
+            anyone_controls: self.anyone_controls,
+            gate: self.gate,
+            tracks: self.tracks,
+        }
+    }
+}
+
 impl Showing {
     fn playback(&self) -> PlaybackState {
         PlaybackState {
@@ -246,6 +274,7 @@ impl HostSession {
             conns: BTreeMap::new(),
             next_member: HOST_ID + 1,
             showing: None,
+            tracks: None,
             revision: 0,
             published: None,
             published_ms: 0,
@@ -278,6 +307,15 @@ impl HostSession {
                 duration,
             } => self.host.report(now_ms, state, position, duration),
             HostInput::SetMedia { media, at } => self.load(now_ms, media, at, &mut out),
+            HostInput::Start => {
+                if let Some(showing) = &mut self.showing
+                    && showing.phase == Phase::Lobby
+                {
+                    let ready = Phase::WaitingForReady { since: now_ms };
+                    showing.set(now_ms, ready, showing.anchor_position, self.host.duration);
+                }
+            }
+            HostInput::Tracks(tracks) => self.tracks = Some(tracks.bounded()),
             HostInput::Settings(settings) => self.settings = settings,
             HostInput::End => {
                 self.end(&mut out);
@@ -291,6 +329,7 @@ impl HostSession {
     }
 
     fn message(&mut self, now: i64, conn: ConnId, msg: Up, out: &mut Vec<HostOutput>) {
+        let gate = self.gate();
         let joined = match self.conns.get_mut(&conn) {
             None => return,
             Some(Conn::AwaitingHello { .. }) => {
@@ -331,18 +370,33 @@ impl HostSession {
                 joined.report(now, state, position, duration);
                 joined.release_matched = release_matched;
             }
+            Up::Request {
+                action: Action::Play | Action::Pause,
+            } if gate == Gate::Lobby => self.deny(conn, out),
             Up::Request { action } if self.settings.anyone_controls => {
                 let by = joined.name.clone();
                 self.apply(now, action, by, out);
             }
-            Up::Request { .. } => out.push(HostOutput::Send {
-                conn,
-                msg: Down::Notice(Notice {
-                    kind: NoticeKind::Denied,
-                    by: self.host.name.clone(),
-                    at: None,
-                }),
+            Up::Request { .. } => self.deny(conn, out),
+        }
+    }
+
+    fn deny(&self, conn: ConnId, out: &mut Vec<HostOutput>) {
+        out.push(HostOutput::Send {
+            conn,
+            msg: Down::Notice(Notice {
+                kind: NoticeKind::Denied,
+                by: self.host.name.clone(),
+                at: None,
             }),
+        });
+    }
+
+    fn gate(&self) -> Gate {
+        match self.showing.as_ref().map(|showing| showing.phase) {
+            None | Some(Phase::Lobby) => Gate::Lobby,
+            Some(Phase::WaitingFor { member, .. }) => Gate::Waiting(member),
+            Some(_) => Gate::Ready,
         }
     }
 
@@ -389,11 +443,7 @@ impl HostSession {
                     media: showing.media.clone(),
                     revision: self.revision,
                 },
-                Down::State {
-                    revision: self.revision,
-                    playback: showing.playback(),
-                    anyone_controls: self.settings.anyone_controls,
-                },
+                self.published_of(showing).state(self.revision),
             ] {
                 out.push(HostOutput::Send { conn, msg });
             }
@@ -438,6 +488,11 @@ impl HostSession {
                 member.reset();
             }
         }
+        let phase = match self.showing.as_ref().map(|showing| showing.phase) {
+            None | Some(Phase::Lobby) => Phase::Lobby,
+            Some(_) => Phase::WaitingForReady { since: now },
+        };
+        self.tracks = None;
         self.revision += 1;
         self.published = None;
         self.broadcast(
@@ -449,7 +504,7 @@ impl HostSession {
         );
         self.showing = Some(Showing {
             media,
-            phase: Phase::WaitingForReady { since: now },
+            phase,
             anchor_position: within(at, None),
             anchor_host_ms: now,
         });
@@ -462,7 +517,7 @@ impl HostSession {
         let position = showing.playback().expected_at(now);
         let (phase, position, kind) = match (action, showing.phase) {
             (Action::Play, Phase::Paused) => (Phase::Playing, position, NoticeKind::Played),
-            (Action::Play, _) | (Action::Pause, Phase::Paused) => return,
+            (Action::Play, _) | (Action::Pause, Phase::Paused | Phase::Lobby) => return,
             (Action::Pause, _) => (Phase::Paused, position, NoticeKind::Paused),
             (Action::Seek { to }, phase) => (phase, to, NoticeKind::Seeked),
         };
@@ -529,7 +584,7 @@ impl HostSession {
                 }
                 (!wait || timed_out || !held).then_some(Phase::Playing)
             }
-            Phase::Playing | Phase::Paused => None,
+            Phase::Lobby | Phase::Playing | Phase::Paused => None,
         };
         let host_duration = self.host.duration;
         for conn in self.conns.values_mut() {
@@ -577,25 +632,20 @@ impl HostSession {
     /// when someone joins or leaves, and when only reports moved it, at most once a tick.
     fn publish(&mut self, now: i64, out: &mut Vec<HostOutput>) {
         if let Some(showing) = &self.showing {
-            let current = (showing.playback(), self.settings.anyone_controls);
-            let changed = self.published != Some(current);
+            let current = self.published_of(showing);
+            let changed = self.published.as_ref() != Some(&current);
             if changed {
                 self.revision += 1;
-                if self.published.map(|(playback, _)| playback) != Some(current.0) {
-                    out.push(HostOutput::Apply(current.0));
+                if self.published.as_ref().map(|published| published.playback)
+                    != Some(current.playback)
+                {
+                    out.push(HostOutput::Apply(current.playback));
                 }
-                self.published = Some(current);
+                self.published = Some(current.clone());
             }
             if changed || now - self.published_ms >= REFRESH_MS {
                 self.published_ms = now;
-                self.broadcast(
-                    Down::State {
-                        revision: self.revision,
-                        playback: current.0,
-                        anyone_controls: current.1,
-                    },
-                    out,
-                );
+                self.broadcast(current.state(self.revision), out);
             }
         }
         let roster = std::iter::once(self.host.view(true))
@@ -616,6 +666,15 @@ impl HostSession {
                 out,
             );
             out.push(HostOutput::Roster(roster));
+        }
+    }
+
+    fn published_of(&self, showing: &Showing) -> Published {
+        Published {
+            playback: showing.playback(),
+            anyone_controls: self.settings.anyone_controls,
+            gate: self.gate(),
+            tracks: self.tracks.clone(),
         }
     }
 
