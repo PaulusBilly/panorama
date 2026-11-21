@@ -673,8 +673,7 @@ fn every_state_decodes(out: &[HostOutput]) {
             revision: 1,
             playback,
             anyone_controls,
-            lobby: false,
-            waiting_for: None,
+            gate: Gate::Ready,
             tracks: None,
         });
         assert!(decode_down(&line).is_ok(), "members refuse {playback:?}");
@@ -767,12 +766,12 @@ fn lobby() -> (HostSession, Vec<HostOutput>) {
     (host, out)
 }
 
-fn in_lobby(out: &[HostOutput], to: ConnId) -> Option<bool> {
+fn gate(out: &[HostOutput], to: ConnId) -> Option<Gate> {
     sent_to(out, to)
         .into_iter()
         .rev()
         .find_map(|msg| match msg {
-            Down::State { lobby, .. } => Some(lobby),
+            Down::State { gate, .. } => Some(gate),
             _ => None,
         })
 }
@@ -783,16 +782,6 @@ fn tracks(out: &[HostOutput], to: ConnId) -> Option<Option<TrackChoice>> {
         .rev()
         .find_map(|msg| match msg {
             Down::State { tracks, .. } => Some(tracks),
-            _ => None,
-        })
-}
-
-fn waiting_for(out: &[HostOutput], to: ConnId) -> Option<Option<u32>> {
-    sent_to(out, to)
-        .into_iter()
-        .rev()
-        .find_map(|msg| match msg {
-            Down::State { waiting_for, .. } => Some(waiting_for),
             _ => None,
         })
 }
@@ -812,10 +801,10 @@ fn a_new_party_waits_in_the_lobby_until_start() {
 #[test]
 fn start_leaves_the_lobby_and_waits_for_members_still_loading() {
     let (mut host, out) = lobby();
-    assert_eq!(in_lobby(&out, SAM), Some(true));
+    assert_eq!(gate(&out, SAM), Some(Gate::Lobby));
     local(&mut host, 1_500, MemberState::Ready);
     let out = host.handle(2_000, HostInput::Start);
-    assert_eq!(in_lobby(&out, SAM), Some(false));
+    assert_eq!(gate(&out, SAM), Some(Gate::Ready));
     assert_eq!(playing(&out, SAM), Some(false));
     let out = report(&mut host, 3_000, SAM, MemberState::Ready);
     assert_eq!(playing(&out, SAM), Some(true));
@@ -855,9 +844,9 @@ fn state_names_the_member_the_party_waits_for() {
     let mut host = party();
     report(&mut host, 500, SAM, MemberState::Buffering);
     let out = tick(&mut host, 2_500);
-    assert_eq!(waiting_for(&out, SAM), Some(Some(1)));
+    assert_eq!(gate(&out, SAM), Some(Gate::Waiting(1)));
     let out = report(&mut host, 3_000, SAM, MemberState::Playing);
-    assert_eq!(waiting_for(&out, SAM), Some(None));
+    assert_eq!(gate(&out, SAM), Some(Gate::Ready));
 }
 
 #[test]
@@ -916,7 +905,7 @@ fn the_lobby_holds_on_pause_and_moves_on_seek() {
     let (_, playback, _) = *states(&out, SAM).last().unwrap();
     assert_eq!(playback.anchor_position, 500.0);
     assert!(!playback.playing);
-    assert_eq!(in_lobby(&out, SAM), Some(true));
+    assert_eq!(gate(&out, SAM), Some(Gate::Lobby));
 }
 
 #[test]
@@ -944,7 +933,7 @@ fn a_member_joining_the_lobby_gets_the_media_and_the_lobby() {
     assert!(matches!(&sent[1], Down::Load { media: m, .. } if *m == media()));
     assert!(matches!(
         sent[2],
-        Down::State { lobby: true, playback, .. } if !playback.playing
+        Down::State { gate: Gate::Lobby, playback, .. } if !playback.playing
     ));
 }
 
@@ -961,7 +950,7 @@ fn start_before_media_does_nothing() {
             at: 0.0,
         },
     );
-    assert_eq!(in_lobby(&out, SAM), Some(true));
+    assert_eq!(gate(&out, SAM), Some(Gate::Lobby));
     report(&mut host, 1_500, SAM, MemberState::Ready);
     let out = tick(&mut host, 30_000);
     assert_eq!(playing(&out, SAM), Some(false));

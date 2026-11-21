@@ -29,8 +29,7 @@ fn state(revision: u64, playing: bool, at: f64, host_ms: i64) -> MemberInput {
             anchor_host_ms: host_ms,
         },
         anyone_controls: false,
-        lobby: false,
-        waiting_for: None,
+        gate: Gate::Ready,
         tracks: None,
     })
 }
@@ -222,8 +221,7 @@ fn members_see_anyone_controls() {
                 anchor_host_ms: 0,
             },
             anyone_controls,
-            lobby: false,
-            waiting_for: None,
+            gate: Gate::Ready,
             tracks: None,
         })
     };
@@ -413,7 +411,7 @@ fn a_member_loads_in_the_lobby_and_reports_ready_without_playing() {
 #[test]
 fn a_member_hears_the_hosts_tracks_and_who_holds_the_party() {
     let mut member = joined();
-    let update = |revision, waiting_for, tracks| {
+    let update = |revision, gate, tracks| {
         MemberInput::Down(Down::State {
             revision,
             playback: PlaybackState {
@@ -422,44 +420,42 @@ fn a_member_hears_the_hosts_tracks_and_who_holds_the_party() {
                 anchor_host_ms: 0,
             },
             anyone_controls: false,
-            lobby: true,
-            waiting_for,
+            gate,
             tracks,
         })
     };
     let heard = |out: &[MemberOutput]| {
         out.iter()
-            .filter(|o| matches!(o, MemberOutput::Tracks(_) | MemberOutput::WaitingFor(_)))
+            .filter(|o| matches!(o, MemberOutput::Tracks(_) | MemberOutput::Gate(_)))
             .cloned()
             .collect::<Vec<_>>()
     };
-    let out = member.handle(50, update(1, None, None));
-    assert!(heard(&out).is_empty());
-    assert!(out.contains(&MemberOutput::Lobby(true)));
-    let out = member.handle(100, update(2, Some(2), Some(english_subtitles())));
+    let out = member.handle(50, update(1, Gate::Lobby, None));
+    assert_eq!(heard(&out), [MemberOutput::Gate(Gate::Lobby)]);
+    let out = member.handle(100, update(2, Gate::Waiting(2), Some(english_subtitles())));
     assert_eq!(
         heard(&out),
         [
             MemberOutput::Tracks(english_subtitles()),
-            MemberOutput::WaitingFor(Some(2))
+            MemberOutput::Gate(Gate::Waiting(2))
         ]
     );
-    let out = member.handle(200, update(3, Some(2), Some(english_subtitles())));
+    let out = member.handle(200, update(3, Gate::Waiting(2), Some(english_subtitles())));
     assert!(heard(&out).is_empty());
-    let out = member.handle(300, update(4, None, None));
-    assert_eq!(heard(&out), [MemberOutput::WaitingFor(None)]);
+    let out = member.handle(300, update(4, Gate::Ready, None));
+    assert_eq!(heard(&out), [MemberOutput::Gate(Gate::Ready)]);
     member.handle(400, load(5, "Next"));
-    let out = member.handle(500, update(6, None, Some(english_subtitles())));
+    let out = member.handle(500, update(6, Gate::Ready, Some(english_subtitles())));
     assert_eq!(heard(&out), [MemberOutput::Tracks(english_subtitles())]);
     member.handle(600, MemberInput::Reopened);
-    let out = member.handle(700, update(7, Some(1), Some(english_subtitles())));
+    let out = member.handle(700, update(7, Gate::Waiting(1), Some(english_subtitles())));
     assert_eq!(
         heard(&out),
         [
             MemberOutput::Tracks(english_subtitles()),
-            MemberOutput::WaitingFor(Some(1))
+            MemberOutput::Gate(Gate::Waiting(1))
         ]
     );
     let out = member.handle(800, MemberInput::Leave);
-    assert_eq!(heard(&out), [MemberOutput::WaitingFor(None)]);
+    assert_eq!(heard(&out), [MemberOutput::Gate(Gate::Ready)]);
 }

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use super::{
     MAX_MEMBERS, PROTOCOL_VERSION,
     protocol::{
-        Action, ByeReason, Down, MAX_NAME, MAX_POSITION, MemberState, MemberView, Notice,
+        Action, ByeReason, Down, Gate, MAX_NAME, MAX_POSITION, MemberState, MemberView, Notice,
         NoticeKind, PartyMedia, PlaybackState, TrackChoice, Up,
     },
     transport::PartySecret,
@@ -76,7 +76,8 @@ pub enum HostInput {
     },
     /// Leave the lobby: the party plays once everyone is ready. Nothing to start before media.
     Start,
-    /// The host's player changed track, or named its tracks for new media.
+    /// The host's player changed track, or named its tracks for new media. Send it after
+    /// `SetMedia`, which forgets the tracks.
     Tracks(TrackChoice),
     Settings(HostSettings),
     End,
@@ -136,8 +137,7 @@ struct Showing {
 struct Published {
     playback: PlaybackState,
     anyone_controls: bool,
-    lobby: bool,
-    waiting_for: Option<u32>,
+    gate: Gate,
     tracks: Option<TrackChoice>,
 }
 
@@ -241,8 +241,7 @@ impl Published {
             revision,
             playback: self.playback,
             anyone_controls: self.anyone_controls,
-            lobby: self.lobby,
-            waiting_for: self.waiting_for,
+            gate: self.gate,
             tracks: self.tracks,
         }
     }
@@ -254,13 +253,6 @@ impl Showing {
             playing: self.phase == Phase::Playing,
             anchor_position: self.anchor_position,
             anchor_host_ms: self.anchor_host_ms,
-        }
-    }
-
-    fn waiting_for(&self) -> Option<u32> {
-        match self.phase {
-            Phase::WaitingFor { member, .. } => Some(member),
-            _ => None,
         }
     }
 
@@ -319,7 +311,8 @@ impl HostSession {
                 if let Some(showing) = &mut self.showing
                     && showing.phase == Phase::Lobby
                 {
-                    showing.phase = Phase::WaitingForReady { since: now_ms };
+                    let ready = Phase::WaitingForReady { since: now_ms };
+                    showing.set(now_ms, ready, showing.anchor_position, self.host.duration);
                 }
             }
             HostInput::Tracks(tracks) => self.tracks = Some(tracks.bounded()),
@@ -336,7 +329,7 @@ impl HostSession {
     }
 
     fn message(&mut self, now: i64, conn: ConnId, msg: Up, out: &mut Vec<HostOutput>) {
-        let in_lobby = self.in_lobby();
+        let gate = self.gate();
         let joined = match self.conns.get_mut(&conn) {
             None => return,
             Some(Conn::AwaitingHello { .. }) => {
@@ -379,7 +372,7 @@ impl HostSession {
             }
             Up::Request {
                 action: Action::Play | Action::Pause,
-            } if in_lobby => self.deny(conn, out),
+            } if gate == Gate::Lobby => self.deny(conn, out),
             Up::Request { action } if self.settings.anyone_controls => {
                 let by = joined.name.clone();
                 self.apply(now, action, by, out);
@@ -399,11 +392,12 @@ impl HostSession {
         });
     }
 
-    /// Start needs media, so a party with none has not started.
-    fn in_lobby(&self) -> bool {
-        self.showing
-            .as_ref()
-            .is_none_or(|showing| showing.phase == Phase::Lobby)
+    fn gate(&self) -> Gate {
+        match self.showing.as_ref().map(|showing| showing.phase) {
+            None | Some(Phase::Lobby) => Gate::Lobby,
+            Some(Phase::WaitingFor { member, .. }) => Gate::Waiting(member),
+            Some(_) => Gate::Ready,
+        }
     }
 
     fn hello(
@@ -494,10 +488,9 @@ impl HostSession {
                 member.reset();
             }
         }
-        let phase = if self.in_lobby() {
-            Phase::Lobby
-        } else {
-            Phase::WaitingForReady { since: now }
+        let phase = match self.showing.as_ref().map(|showing| showing.phase) {
+            None | Some(Phase::Lobby) => Phase::Lobby,
+            Some(_) => Phase::WaitingForReady { since: now },
         };
         self.tracks = None;
         self.revision += 1;
@@ -680,8 +673,7 @@ impl HostSession {
         Published {
             playback: showing.playback(),
             anyone_controls: self.settings.anyone_controls,
-            lobby: showing.phase == Phase::Lobby,
-            waiting_for: showing.waiting_for(),
+            gate: self.gate(),
             tracks: self.tracks.clone(),
         }
     }

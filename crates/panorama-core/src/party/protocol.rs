@@ -61,10 +61,7 @@ pub enum Down {
         revision: u64,
         playback: PlaybackState,
         anyone_controls: bool,
-        /// Until the host starts the party, nothing plays.
-        lobby: bool,
-        /// The member whose buffering holds the party, the host included.
-        waiting_for: Option<u32>,
+        gate: Gate,
         /// `None` until the host's player names its tracks for this media.
         tracks: Option<TrackChoice>,
     },
@@ -137,6 +134,17 @@ impl fmt::Debug for PartyMedia {
             .field("torrent", &self.release.torrent.is_some())
             .finish_non_exhaustive()
     }
+}
+
+/// What holds the party's timeline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Gate {
+    /// Nothing plays until the host starts the party.
+    Lobby,
+    Ready,
+    /// The party is paused while this member buffers, the host included.
+    Waiting(u32),
 }
 
 /// The host's audio and subtitle tracks. A `None` track is one the host turned off.
