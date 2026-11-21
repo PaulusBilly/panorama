@@ -1,5 +1,5 @@
 //! Debug capture and post-window diagnostics.
-// Desktop capture needs HWND and GDI calls; unsafe is confined to this boundary.
+// Window capture needs HWND and GDI calls; unsafe is confined to this boundary.
 #[allow(unsafe_code)]
 pub mod screenshot;
 

@@ -42,7 +42,7 @@ fn window_handle(window: &Window) -> Result<usize, String> {
     let handle = HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
     match handle.as_raw() {
         RawWindowHandle::Win32(handle) => Ok(handle.hwnd.get() as usize),
-        _ => Err("Desktop capture requires a Windows HWND".into()),
+        _ => Err("Window capture requires a Windows HWND".into()),
     }
 }
 
@@ -52,7 +52,7 @@ fn window_handle(window: &Window) -> Result<usize, String> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let handle = HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
-        return Err("Desktop capture requires an AppKit view".into());
+        return Err("Window capture requires an AppKit view".into());
     };
     // SAFETY: AppKit handles carry GPUI's live NSView; this runs on the main thread.
     let view = unsafe { handle.ns_view.cast::<objc2_app_kit::NSView>().as_ref() };
@@ -76,12 +76,12 @@ fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn window_handle(_: &Window) -> Result<usize, String> {
-    Err("--screenshot desktop capture is implemented only on Windows and macOS".into())
+    Err("--screenshot window capture is implemented only on Windows and macOS".into())
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn capture(_: usize, _: &std::path::Path) -> Result<(), String> {
-    Err("--screenshot desktop capture is implemented only on Windows and macOS".into())
+    Err("--screenshot window capture is implemented only on Windows and macOS".into())
 }
 
 #[cfg(target_os = "windows")]
