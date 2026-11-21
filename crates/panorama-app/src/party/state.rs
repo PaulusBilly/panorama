@@ -20,7 +20,6 @@ use panorama_core::{
 use tokio::sync::mpsc::UnboundedSender;
 
 const NAME: &str = "party.name";
-const SYNC: &str = "party.sync";
 
 /// The party this window is in, from start until the user leaves. An ended party stays, so
 /// its reason shows, until left.
@@ -108,22 +107,12 @@ impl AppState {
 
     /// Whether this install's subtitles and audio follow the host's.
     pub fn party_sync(&self) -> PartySync {
-        (|| {
-            let key = Key::pref(SYNC).ok()?;
-            let bytes = self.services.as_ref()?.store.as_ref()?.get(&key).ok()??;
-            Some(PartySync::from_bytes(&bytes))
-        })()
-        .unwrap_or_default()
+        PartySync::load(self.services.as_ref().and_then(|s| s.store.as_deref()))
     }
 
     /// Keep which of the host's tracks this install follows, now and in later parties.
     pub fn set_party_sync(&mut self, sync: PartySync, cx: &mut Context<Self>) {
-        if let (Some(store), Ok(key)) = (
-            self.services.as_ref().and_then(|s| s.store.as_ref()),
-            Key::pref(SYNC),
-        ) {
-            let _ = store.set(&key, &sync.to_bytes());
-        }
+        sync.save(self.services.as_ref().and_then(|s| s.store.as_deref()));
         if let Some(party) = self.party.as_mut() {
             party.view.sync = sync;
             party.send(Input::Sync(sync));

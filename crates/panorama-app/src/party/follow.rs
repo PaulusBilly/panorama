@@ -63,26 +63,64 @@ pub fn follow(
     Follow { audio, subtitle }
 }
 
-/// Whether `choice` has an answer here yet for each kind `sync` follows: a match, or the host
-/// having turned it off. Without one, a later track list (an addon's subtitles arrive late)
-/// may still bring a match.
+/// Per kind, whether `choice` has an answer here: a match, or the host having turned it off.
+/// A kind `sync` does not follow counts as answered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Settled {
+    pub audio: bool,
+    pub subtitles: bool,
+}
+
 pub fn settled(
     sync: PartySync,
     choice: &TrackChoice,
     audio: &[Track],
     subtitles: &[Track],
-) -> bool {
-    let audio_ok = !sync.audio
-        || choice
-            .audio
-            .as_ref()
-            .is_none_or(|key| find(audio, key).is_some());
-    let subtitles_ok = !sync.subtitles
-        || choice
-            .subtitle
-            .as_ref()
-            .is_none_or(|key| find(subtitles, key).is_some());
-    audio_ok && subtitles_ok
+) -> Settled {
+    let answered = |follows: bool, key: &Option<TrackKey>, tracks: &[Track]| {
+        !follows || key.as_ref().is_none_or(|key| find(tracks, key).is_some())
+    };
+    Settled {
+        audio: answered(sync.audio, &choice.audio, audio),
+        subtitles: answered(sync.subtitles, &choice.subtitle, subtitles),
+    }
+}
+
+/// A host choice under one sync setting. Each kind is applied once, when its match first
+/// appears, and left alone after, so a kind with no match here never pulls the other back.
+pub struct Followed {
+    choice: TrackChoice,
+    sync: PartySync,
+    audio_done: bool,
+    subtitles_done: bool,
+}
+
+impl Followed {
+    pub fn new(choice: TrackChoice, sync: PartySync) -> Self {
+        Self {
+            choice,
+            sync,
+            audio_done: false,
+            subtitles_done: false,
+        }
+    }
+
+    pub fn is(&self, choice: &TrackChoice, sync: PartySync) -> bool {
+        self.choice == *choice && self.sync == sync
+    }
+
+    /// The tracks to select now.
+    pub fn step(&mut self, audio: &[Track], subtitles: &[Track]) -> Follow {
+        let pending = PartySync {
+            audio: self.sync.audio && !self.audio_done,
+            subtitles: self.sync.subtitles && !self.subtitles_done,
+        };
+        let plan = follow(pending, &self.choice, audio, subtitles);
+        let settled = settled(pending, &self.choice, audio, subtitles);
+        self.audio_done |= settled.audio;
+        self.subtitles_done |= settled.subtitles;
+        plan
+    }
 }
 
 fn is_on(tracks: &[Track], id: i64) -> bool {
@@ -103,7 +141,7 @@ fn find(tracks: &[Track], key: &TrackKey) -> Option<i64> {
 /// How well `track` matches `key`, or `None` when it is a different language. Where the track
 /// comes from outranks its title, which outranks its codec.
 fn fit(track: &Track, key: &TrackKey) -> Option<u8> {
-    let mine = key_of(track);
+    let mine = key_of(track).bounded();
     let same_language = match (&mine.language, &key.language) {
         (Some(mine), Some(theirs)) => same_language(mine, theirs),
         (None, None) => mine.title == key.title,

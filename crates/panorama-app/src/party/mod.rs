@@ -17,8 +17,11 @@ use panorama_core::{
         is_hidden_char,
         transport::{PathKind, TransportError},
     },
+    store::{Key, Store},
 };
 use std::{fmt, time::Instant};
+
+const SYNC: &str = "party.sync";
 
 pub use state::{Party, PendingPlay};
 
@@ -60,6 +63,20 @@ impl Default for PartySync {
 impl PartySync {
     pub(crate) fn to_bytes(self) -> [u8; 2] {
         [u8::from(self.subtitles), u8::from(self.audio)]
+    }
+
+    pub(crate) fn load(store: Option<&Store>) -> Self {
+        (|| {
+            let bytes = store?.get(&Key::pref(SYNC).ok()?).ok()??;
+            Some(Self::from_bytes(&bytes))
+        })()
+        .unwrap_or_default()
+    }
+
+    pub(crate) fn save(self, store: Option<&Store>) {
+        if let (Some(store), Ok(key)) = (store, Key::pref(SYNC)) {
+            let _ = store.set(&key, &self.to_bytes());
+        }
     }
 
     /// Anything unreadable gives the default of following the host.
