@@ -32,6 +32,18 @@ fn media() -> PartyMedia {
     }
 }
 
+fn english_subtitles() -> TrackChoice {
+    TrackChoice {
+        audio: None,
+        subtitle: Some(TrackKey {
+            language: Some("en".into()),
+            title: Some("English [SDH]".into()),
+            codec: Some("subrip".into()),
+            external: true,
+        }),
+    }
+}
+
 #[test]
 fn the_secret_never_prints() {
     let host = HostSession::new("Alex".into(), secret(), HostSettings::default());

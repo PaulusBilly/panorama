@@ -49,6 +49,9 @@ fn downs() -> Vec<Down> {
                 anchor_host_ms: 99_000,
             },
             anyone_controls: true,
+            lobby: true,
+            waiting_for: Some(2),
+            tracks: Some(english_subtitles()),
         },
         Down::Roster {
             members: vec![MemberView {
@@ -214,6 +217,9 @@ fn rejects_times_outside_a_safe_range() {
                 anchor_host_ms,
             },
             anyone_controls: false,
+            lobby: false,
+            waiting_for: None,
+            tracks: None,
         }))
     };
     assert_eq!(state(i64::MIN), invalid);
@@ -238,4 +244,73 @@ fn names_refuse_invisible_format_characters() {
         assert_eq!(hello(name), Err(ProtocolError::Invalid("name")), "{name:?}");
     }
     assert!(hello("Zoë 🍿").is_ok());
+}
+
+fn state_with(tracks: TrackChoice) -> Result<Down, ProtocolError> {
+    decode_down(&encode(&Down::State {
+        revision: 1,
+        playback: PlaybackState {
+            playing: false,
+            anchor_position: 0.0,
+            anchor_host_ms: 0,
+        },
+        anyone_controls: false,
+        lobby: false,
+        waiting_for: None,
+        tracks: Some(tracks),
+    }))
+}
+
+#[test]
+fn a_track_choice_round_trips() {
+    let tracks = TrackChoice {
+        audio: Some(TrackKey {
+            language: Some("ja".into()),
+            title: None,
+            codec: Some("eac3".into()),
+            external: false,
+        }),
+        ..english_subtitles()
+    };
+    let Ok(Down::State {
+        tracks: decoded, ..
+    }) = state_with(tracks.clone())
+    else {
+        panic!("a valid track choice decodes");
+    };
+    assert_eq!(decoded, Some(tracks));
+    assert!(state_with(TrackChoice::default()).is_ok());
+}
+
+#[test]
+fn an_oversized_track_field_is_rejected() {
+    let with = |change: fn(&mut TrackKey)| {
+        let mut tracks = english_subtitles();
+        change(tracks.subtitle.as_mut().unwrap());
+        state_with(tracks)
+    };
+    assert_eq!(
+        with(|key| key.language = Some("e".repeat(17))),
+        Err(ProtocolError::Invalid("language"))
+    );
+    assert_eq!(
+        with(|key| key.title = Some("t".repeat(201))),
+        Err(ProtocolError::Invalid("track_title"))
+    );
+    assert_eq!(
+        with(|key| key.codec = Some("c".repeat(33))),
+        Err(ProtocolError::Invalid("codec"))
+    );
+    assert_eq!(
+        with(|key| key.title = Some("Eng\u{202E}lish".into())),
+        Err(ProtocolError::Invalid("track_title"))
+    );
+    assert!(with(|key| key.title = Some("t".repeat(200))).is_ok());
+}
+
+#[test]
+fn a_track_title_never_prints() {
+    let printed = format!("{:?}", english_subtitles());
+    assert!(!printed.contains("SDH"), "{printed}");
+    assert!(printed.contains("\"en\""), "{printed}");
 }

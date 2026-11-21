@@ -469,6 +469,7 @@ impl Host {
                     )
                 });
                 self.handle(HostInput::SetMedia { media, at });
+                self.handle(HostInput::Start);
             }
             Input::Settings(settings) => {
                 if let Role::Host {
@@ -722,6 +723,11 @@ impl Member {
                 MemberOutput::SetSpeed(speed) => self.events.player(Command::SetSpeed(speed)),
                 MemberOutput::Controls { anyone_controls } => {
                     self.view.anyone_controls = anyone_controls;
+                }
+                MemberOutput::Lobby(lobby) => trace(|| format!("member lobby={lobby}")),
+                MemberOutput::Tracks(tracks) => trace(|| format!("member tracks {tracks:?}")),
+                MemberOutput::WaitingFor(member) => {
+                    trace(|| format!("member waiting_for={member:?}"));
                 }
                 MemberOutput::Roster(members) => {
                     self.view.roster = members

@@ -108,6 +108,7 @@ fn states(out: &[HostOutput], to: ConnId) -> Vec<(u64, PlaybackState, bool)> {
                 revision,
                 playback,
                 anyone_controls,
+                ..
             } => Some((revision, playback, anyone_controls)),
             _ => None,
         })
@@ -140,8 +141,11 @@ fn dropped(out: &[HostOutput], conn: ConnId) -> bool {
     out.contains(&HostOutput::Drop { conn })
 }
 
+/// Sets the media and leaves the lobby, if the party is still in it.
 fn set_media(host: &mut HostSession, now: i64, at: f64) -> Vec<HostOutput> {
-    host.handle(now, HostInput::SetMedia { media: media(), at })
+    let mut out = host.handle(now, HostInput::SetMedia { media: media(), at });
+    out.extend(host.handle(now, HostInput::Start));
+    out
 }
 
 /// Alex hosts, Sam has joined, and the film plays from 100 s since host time 0.
@@ -669,6 +673,9 @@ fn every_state_decodes(out: &[HostOutput]) {
             revision: 1,
             playback,
             anyone_controls,
+            lobby: false,
+            waiting_for: None,
+            tracks: None,
         });
         assert!(decode_down(&line).is_ok(), "members refuse {playback:?}");
     }
@@ -744,4 +751,218 @@ fn a_flapping_member_moves_the_roster_at_most_once_a_tick() {
     let sam = roster(&out).unwrap().into_iter().find(|m| m.name == "Sam");
     assert_eq!(sam.unwrap().state, MemberState::Playing);
     assert!(roster(&tick(&mut host, 1_520)).is_none());
+}
+
+/// Alex hosts with Sam joined, and the film is set while the party is still in the lobby.
+fn lobby() -> (HostSession, Vec<HostOutput>) {
+    let mut host = host();
+    join(&mut host, 0, SAM, "Sam");
+    let out = host.handle(
+        1_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 42.0,
+        },
+    );
+    (host, out)
+}
+
+fn in_lobby(out: &[HostOutput], to: ConnId) -> Option<bool> {
+    sent_to(out, to)
+        .into_iter()
+        .rev()
+        .find_map(|msg| match msg {
+            Down::State { lobby, .. } => Some(lobby),
+            _ => None,
+        })
+}
+
+fn tracks(out: &[HostOutput], to: ConnId) -> Option<Option<TrackChoice>> {
+    sent_to(out, to)
+        .into_iter()
+        .rev()
+        .find_map(|msg| match msg {
+            Down::State { tracks, .. } => Some(tracks),
+            _ => None,
+        })
+}
+
+fn waiting_for(out: &[HostOutput], to: ConnId) -> Option<Option<u32>> {
+    sent_to(out, to)
+        .into_iter()
+        .rev()
+        .find_map(|msg| match msg {
+            Down::State { waiting_for, .. } => Some(waiting_for),
+            _ => None,
+        })
+}
+
+#[test]
+fn a_new_party_waits_in_the_lobby_until_start() {
+    let (mut host, _) = lobby();
+    local(&mut host, 1_500, MemberState::Ready);
+    report(&mut host, 1_500, SAM, MemberState::Ready);
+    host.handle(2_000, HostInput::Local(Action::Play));
+    let out = tick(&mut host, 60_000);
+    assert_eq!(playing(&out, SAM), Some(false));
+    let out = host.handle(60_000, HostInput::Start);
+    assert_eq!(playing(&out, SAM), Some(true));
+}
+
+#[test]
+fn start_leaves_the_lobby_and_waits_for_members_still_loading() {
+    let (mut host, out) = lobby();
+    assert_eq!(in_lobby(&out, SAM), Some(true));
+    local(&mut host, 1_500, MemberState::Ready);
+    let out = host.handle(2_000, HostInput::Start);
+    assert_eq!(in_lobby(&out, SAM), Some(false));
+    assert_eq!(playing(&out, SAM), Some(false));
+    let out = report(&mut host, 3_000, SAM, MemberState::Ready);
+    assert_eq!(playing(&out, SAM), Some(true));
+}
+
+#[test]
+fn set_media_in_the_lobby_does_not_start_playback() {
+    let (mut host, out) = lobby();
+    assert!(matches!(&sent_to(&out, SAM)[0], Down::Load { media: m, .. } if *m == media()));
+    let paused = PlaybackState {
+        playing: false,
+        anchor_position: 42.0,
+        anchor_host_ms: 1_000,
+    };
+    assert_eq!(states(&out, SAM)[0].1, paused);
+    let out = report(&mut host, 1_500, SAM, MemberState::Ready);
+    assert_eq!(roster(&out).unwrap()[1].state, MemberState::Ready);
+    host.handle(2_000, HostInput::Local(Action::Pause));
+    let out = host.handle(
+        3_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 0.0,
+        },
+    );
+    assert_eq!(playing(&out, SAM), Some(false));
+    let out = tick(&mut host, 40_000);
+    assert_eq!(playing(&out, SAM), Some(false));
+    assert!(
+        !out.iter()
+            .any(|o| matches!(o, HostOutput::Apply(p) if p.playing))
+    );
+}
+
+#[test]
+fn state_names_the_member_the_party_waits_for() {
+    let mut host = party();
+    report(&mut host, 500, SAM, MemberState::Buffering);
+    let out = tick(&mut host, 2_500);
+    assert_eq!(waiting_for(&out, SAM), Some(Some(1)));
+    let out = report(&mut host, 3_000, SAM, MemberState::Playing);
+    assert_eq!(waiting_for(&out, SAM), Some(None));
+}
+
+#[test]
+fn a_version_1_member_gets_version_mismatch() {
+    let mut host = host();
+    host.handle(0, HostInput::Connected { conn: SAM });
+    let hello =
+        r#"{"t":"hello","name":"Sam","version":1,"secret":"0123456789abcdef0123456789abcdef"}"#;
+    let out = host.handle(
+        0,
+        HostInput::Message {
+            conn: SAM,
+            msg: decode_up(hello).unwrap(),
+        },
+    );
+    assert_eq!(
+        sent_to(&out, SAM),
+        vec![Down::Bye {
+            reason: ByeReason::VersionMismatch
+        }]
+    );
+    assert!(dropped(&out, SAM));
+}
+
+#[test]
+fn the_hosts_tracks_reach_members() {
+    let mut host = party();
+    let out = host.handle(1_000, HostInput::Tracks(english_subtitles()));
+    assert_eq!(tracks(&out, SAM), Some(Some(english_subtitles())));
+    let mut long = english_subtitles();
+    long.subtitle.as_mut().unwrap().title = Some(format!("Eng\u{200B}lish{}", "t".repeat(300)));
+    let out = host.handle(2_000, HostInput::Tracks(long));
+    let sent = tracks(&out, SAM)
+        .flatten()
+        .and_then(|tracks| tracks.subtitle);
+    let title = sent.and_then(|key| key.title).unwrap();
+    assert_eq!(title.chars().count(), 200);
+    assert!(title.starts_with("Englishttt"), "{title}");
+    every_state_decodes(&out);
+}
+
+#[test]
+fn new_media_forgets_the_hosts_tracks() {
+    let mut host = party();
+    host.handle(1_000, HostInput::Tracks(english_subtitles()));
+    let out = set_media(&mut host, 2_000, 0.0);
+    assert_eq!(tracks(&out, SAM), Some(None));
+}
+
+#[test]
+fn the_lobby_holds_on_pause_and_moves_on_seek() {
+    let (mut host, _) = lobby();
+    let out = host.handle(2_000, HostInput::Local(Action::Pause));
+    assert!(sent_to(&out, SAM).is_empty());
+    let out = host.handle(3_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    let (_, playback, _) = *states(&out, SAM).last().unwrap();
+    assert_eq!(playback.anchor_position, 500.0);
+    assert!(!playback.playing);
+    assert_eq!(in_lobby(&out, SAM), Some(true));
+}
+
+#[test]
+fn a_members_play_in_the_lobby_is_denied() {
+    let (mut host, _) = lobby();
+    host.handle(
+        1_500,
+        HostInput::Settings(HostSettings {
+            anyone_controls: true,
+            ..HostSettings::default()
+        }),
+    );
+    let out = request(&mut host, 2_000, SAM, Action::Play);
+    assert!(sent_to(&out, SAM).iter().any(
+        |msg| matches!(msg, Down::Notice(Notice { kind, .. }) if *kind == NoticeKind::Denied)
+    ));
+    assert_eq!(playing(&out, SAM), None);
+}
+
+#[test]
+fn a_member_joining_the_lobby_gets_the_media_and_the_lobby() {
+    let (mut host, _) = lobby();
+    let out = join(&mut host, 2_000, KIM, "Kim");
+    let sent = sent_to(&out, KIM);
+    assert!(matches!(&sent[1], Down::Load { media: m, .. } if *m == media()));
+    assert!(matches!(
+        sent[2],
+        Down::State { lobby: true, playback, .. } if !playback.playing
+    ));
+}
+
+#[test]
+fn start_before_media_does_nothing() {
+    let mut host = host();
+    join(&mut host, 0, SAM, "Sam");
+    local(&mut host, 0, MemberState::Ready);
+    host.handle(500, HostInput::Start);
+    let out = host.handle(
+        1_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 0.0,
+        },
+    );
+    assert_eq!(in_lobby(&out, SAM), Some(true));
+    report(&mut host, 1_500, SAM, MemberState::Ready);
+    let out = tick(&mut host, 30_000);
+    assert_eq!(playing(&out, SAM), Some(false));
 }

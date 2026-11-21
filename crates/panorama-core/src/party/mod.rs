@@ -16,11 +16,12 @@ pub use host::{ConnId, HostInput, HostOutput, HostSession, HostSettings};
 pub use member::{MemberInput, MemberOutput, MemberSession};
 pub use protocol::{
     Action, ByeReason, Down, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
-    PlaybackState, ProtocolError, Up, decode_down, decode_up, encode, is_hidden_char,
+    PlaybackState, ProtocolError, TrackChoice, TrackKey, Up, decode_down, decode_up, encode,
+    is_hidden_char,
 };
 pub use release::{PartyRelease, TorrentRef, find};
 
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 /// Including the host.
 pub const MAX_MEMBERS: usize = 8;
 /// Bytes per line on the wire.

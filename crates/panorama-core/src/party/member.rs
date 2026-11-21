@@ -3,7 +3,8 @@ use super::{
     clock::ClockSync,
     drift::{Correction, correct},
     protocol::{
-        Action, ByeReason, Down, MemberState, MemberView, Notice, PartyMedia, PlaybackState, Up,
+        Action, ByeReason, Down, MemberState, MemberView, Notice, PartyMedia, PlaybackState,
+        TrackChoice, Up,
     },
     transport::PartySecret,
 };
@@ -58,6 +59,12 @@ pub enum MemberOutput {
     Controls {
         anyone_controls: bool,
     },
+    /// Whether the party waits in its lobby, when that changes.
+    Lobby(bool),
+    /// The host's tracks for the current media, when they change.
+    Tracks(TrackChoice),
+    /// The member whose buffering holds the party changed; `None` once nobody does.
+    WaitingFor(Option<u32>),
     Roster(Vec<MemberView>),
     Notice(Notice),
     /// The host ended the connection. The player keeps playing.
@@ -78,6 +85,9 @@ pub struct MemberSession {
     playback: Option<PlaybackState>,
     applied: Option<PlaybackState>,
     anyone_controls: Option<bool>,
+    lobby: Option<bool>,
+    tracks: Option<TrackChoice>,
+    waiting_for: Option<u32>,
     speed: f64,
     last_seek_ms: Option<i64>,
     player: Option<Player>,
@@ -157,6 +167,9 @@ impl MemberSession {
             playback: None,
             applied: None,
             anyone_controls: None,
+            lobby: None,
+            tracks: None,
+            waiting_for: None,
             speed: 1.0,
             last_seek_ms: None,
             player: None,
@@ -202,6 +215,7 @@ impl MemberSession {
             MemberInput::Release { matched } => self.release_matched = matched,
             MemberInput::Reopened => {
                 self.applied = None;
+                self.tracks = None;
                 // A new file starts at normal speed.
                 self.speed = 1.0;
             }
@@ -250,6 +264,7 @@ impl MemberSession {
                 self.media = Some(media.clone());
                 self.playback = None;
                 self.applied = None;
+                self.tracks = None;
                 // Opening a new source resets the player's speed.
                 self.speed = 1.0;
                 self.last_seek_ms = None;
@@ -259,6 +274,9 @@ impl MemberSession {
                 revision,
                 playback,
                 anyone_controls,
+                lobby,
+                waiting_for,
+                tracks,
             } => {
                 if self.stale(revision) {
                     return;
@@ -268,6 +286,20 @@ impl MemberSession {
                 if self.anyone_controls != Some(anyone_controls) {
                     self.anyone_controls = Some(anyone_controls);
                     out.push(MemberOutput::Controls { anyone_controls });
+                }
+                if self.lobby != Some(lobby) {
+                    self.lobby = Some(lobby);
+                    out.push(MemberOutput::Lobby(lobby));
+                }
+                if let Some(tracks) = tracks
+                    && self.tracks.as_ref() != Some(&tracks)
+                {
+                    self.tracks = Some(tracks.clone());
+                    out.push(MemberOutput::Tracks(tracks));
+                }
+                if self.waiting_for != waiting_for {
+                    self.waiting_for = waiting_for;
+                    out.push(MemberOutput::WaitingFor(waiting_for));
                 }
             }
             Down::Roster { members } => out.push(MemberOutput::Roster(members)),
@@ -380,6 +412,9 @@ impl MemberSession {
 
     fn end(&mut self, out: &mut Vec<MemberOutput>) {
         self.link = Link::Ended;
+        if self.waiting_for.take().is_some() {
+            out.push(MemberOutput::WaitingFor(None));
+        }
         self.set_speed(1.0, out);
     }
 

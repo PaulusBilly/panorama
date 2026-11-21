@@ -29,6 +29,9 @@ fn state(revision: u64, playing: bool, at: f64, host_ms: i64) -> MemberInput {
             anchor_host_ms: host_ms,
         },
         anyone_controls: false,
+        lobby: false,
+        waiting_for: None,
+        tracks: None,
     })
 }
 
@@ -219,6 +222,9 @@ fn members_see_anyone_controls() {
                 anchor_host_ms: 0,
             },
             anyone_controls,
+            lobby: false,
+            waiting_for: None,
+            tracks: None,
         })
     };
     let out = member.handle(100, update(true));
@@ -376,4 +382,84 @@ fn loads_open_at_most_every_two_seconds_and_the_latest_wins() {
     assert!(loads(&member.handle(2_000, MemberInput::Tick)).is_empty());
     assert_eq!(loads(&member.handle(2_100, MemberInput::Tick)), ["C"]);
     assert!(loads(&member.handle(9_000, MemberInput::Tick)).is_empty());
+}
+
+#[test]
+fn a_member_loads_in_the_lobby_and_reports_ready_without_playing() {
+    let mut member = joined();
+    let out = member.handle(
+        100,
+        MemberInput::Down(Down::Load {
+            media: media(),
+            revision: 1,
+        }),
+    );
+    assert_eq!(out, vec![MemberOutput::Load(media())]);
+    let out = member.handle(200, state(2, false, 0.0, 100));
+    assert_eq!(
+        player_commands(&out),
+        vec![MemberOutput::Seek(0.0), MemberOutput::SetPaused(true)]
+    );
+    let out = member.handle(3_000, player(MemberState::Ready, 0.0));
+    assert!(
+        reports(&out)
+            .iter()
+            .any(|up| matches!(up, Up::Report { state, .. } if *state == MemberState::Ready))
+    );
+    let out = member.handle(60_000, state(2, false, 0.0, 100));
+    assert!(player_commands(&out).is_empty());
+}
+
+#[test]
+fn a_member_hears_the_hosts_tracks_and_who_holds_the_party() {
+    let mut member = joined();
+    let update = |revision, waiting_for, tracks| {
+        MemberInput::Down(Down::State {
+            revision,
+            playback: PlaybackState {
+                playing: false,
+                anchor_position: 0.0,
+                anchor_host_ms: 0,
+            },
+            anyone_controls: false,
+            lobby: true,
+            waiting_for,
+            tracks,
+        })
+    };
+    let heard = |out: &[MemberOutput]| {
+        out.iter()
+            .filter(|o| matches!(o, MemberOutput::Tracks(_) | MemberOutput::WaitingFor(_)))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let out = member.handle(50, update(1, None, None));
+    assert!(heard(&out).is_empty());
+    assert!(out.contains(&MemberOutput::Lobby(true)));
+    let out = member.handle(100, update(2, Some(2), Some(english_subtitles())));
+    assert_eq!(
+        heard(&out),
+        [
+            MemberOutput::Tracks(english_subtitles()),
+            MemberOutput::WaitingFor(Some(2))
+        ]
+    );
+    let out = member.handle(200, update(3, Some(2), Some(english_subtitles())));
+    assert!(heard(&out).is_empty());
+    let out = member.handle(300, update(4, None, None));
+    assert_eq!(heard(&out), [MemberOutput::WaitingFor(None)]);
+    member.handle(400, load(5, "Next"));
+    let out = member.handle(500, update(6, None, Some(english_subtitles())));
+    assert_eq!(heard(&out), [MemberOutput::Tracks(english_subtitles())]);
+    member.handle(600, MemberInput::Reopened);
+    let out = member.handle(700, update(7, Some(1), Some(english_subtitles())));
+    assert_eq!(
+        heard(&out),
+        [
+            MemberOutput::Tracks(english_subtitles()),
+            MemberOutput::WaitingFor(Some(1))
+        ]
+    );
+    let out = member.handle(800, MemberInput::Leave);
+    assert_eq!(heard(&out), [MemberOutput::WaitingFor(None)]);
 }
