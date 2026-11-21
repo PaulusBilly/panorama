@@ -1,4 +1,4 @@
-//! Windows and macOS desktop capture isolated from the UI thread.
+//! Windows and macOS window capture isolated from the UI thread.
 use gpui::{Context, Window};
 use std::{path::PathBuf, sync::mpsc::Sender};
 
@@ -90,22 +90,28 @@ fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
     use windows::Win32::{
         Foundation::{HWND, POINT, RECT},
         Graphics::Gdi::*,
-        UI::WindowsAndMessaging::{GetClientRect, IsIconic},
+        Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow},
+        UI::WindowsAndMessaging::{GetClientRect, GetWindowRect, IsIconic},
     };
+    const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2);
     unsafe {
         let hwnd = HWND(handle as *mut _);
-        let mut rect = RECT::default();
-        GetClientRect(hwnd, &mut rect).map_err(|error| error.to_string())?;
-        let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+        let mut client = RECT::default();
+        GetClientRect(hwnd, &mut client).map_err(|error| error.to_string())?;
+        let (width, height) = (client.right - client.left, client.bottom - client.top);
         if width <= 0 || height <= 0 || IsIconic(hwnd).as_bool() {
             return Err("Cannot capture a minimized or empty window".into());
         }
-        let mut origin = POINT {
-            x: rect.left,
-            y: rect.top,
-        };
+        let mut outer = RECT::default();
+        GetWindowRect(hwnd, &mut outer).map_err(|error| error.to_string())?;
+        let mut origin = POINT { x: 0, y: 0 };
         if !ClientToScreen(hwnd, &mut origin).as_bool() {
             return Err("ClientToScreen failed".into());
+        }
+        let (left, top) = (origin.x - outer.left, origin.y - outer.top);
+        let (full_width, full_height) = (outer.right - outer.left, outer.bottom - outer.top);
+        if left < 0 || top < 0 || left + width > full_width || top + height > full_height {
+            return Err("The client area lies outside the window rectangle".into());
         }
         let desktop = GetDC(None);
         if desktop.is_invalid() {
@@ -116,7 +122,7 @@ fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
             ReleaseDC(None, desktop);
             return Err("CreateCompatibleDC failed".into());
         }
-        let bitmap = CreateCompatibleBitmap(desktop, width, height);
+        let bitmap = CreateCompatibleBitmap(desktop, full_width, full_height);
         if bitmap.is_invalid() {
             let _ = DeleteDC(memory);
             ReleaseDC(None, desktop);
@@ -130,21 +136,12 @@ fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
             return Err("SelectObject failed".into());
         }
         let result = (|| {
-            BitBlt(
-                memory,
-                0,
-                0,
-                width,
-                height,
-                Some(desktop),
-                origin.x,
-                origin.y,
-                SRCCOPY | CAPTUREBLT,
-            )
-            .map_err(|error| format!("Desktop BitBlt failed: {error}"))?;
+            if !PrintWindow(hwnd, memory, PW_RENDERFULLCONTENT).as_bool() {
+                return Err("PrintWindow failed".to_string());
+            }
             SelectObject(memory, old);
-            let length = (width as usize)
-                .checked_mul(height as usize)
+            let length = (full_width as usize)
+                .checked_mul(full_height as usize)
                 .and_then(|size| size.checked_mul(4))
                 .ok_or("Capture dimensions overflow")?;
             let mut bytes = Vec::new();
@@ -155,8 +152,8 @@ fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
             let mut info = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: width,
-                    biHeight: -height,
+                    biWidth: full_width,
+                    biHeight: -full_height,
                     biPlanes: 1,
                     biBitCount: 32,
                     biCompression: BI_RGB.0,
@@ -168,15 +165,22 @@ fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
                 memory,
                 bitmap,
                 0,
-                height as u32,
+                full_height as u32,
                 Some(bytes.as_mut_ptr().cast()),
                 &mut info,
                 DIB_RGB_COLORS,
-            ) != height
+            ) != full_height
             {
                 return Err("GetDIBits failed".into());
             }
-            for pixel in bytes.as_chunks_mut::<4>().0 {
+            let stride = full_width as usize * 4;
+            let row = width as usize * 4;
+            let mut cropped = Vec::with_capacity(row * height as usize);
+            for y in 0..height as usize {
+                let start = (top as usize + y) * stride + left as usize * 4;
+                cropped.extend_from_slice(&bytes[start..start + row]);
+            }
+            for pixel in cropped.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
                 pixel[3] = 255;
             }
@@ -187,7 +191,7 @@ fn capture(handle: usize, path: &std::path::Path) -> Result<(), String> {
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
             writer
-                .write_image_data(&bytes)
+                .write_image_data(&cropped)
                 .map_err(|error| error.to_string())?;
             writer.finish().map_err(|error| error.to_string())?;
             Ok(())
