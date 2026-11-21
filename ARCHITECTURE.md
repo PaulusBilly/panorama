@@ -37,7 +37,7 @@ The Electron and Next.js app it replaced has been removed; this is the only app.
 - `sha2` (=0.10.9) and `getrandom` (=0.3.4): salted installation identities and OS-generated installation salt. Both reuse versions already in the workspace lockfile.
 - `image` (=0.25.10, defaults off; `jpeg`, `png`, `webp`): content sniffing, bounded decoding (4096×4096, 64 MiB), and aspect-preserving downscaling.
 - `axum` (=0.8.9, dev-dependency, defaults off; `http1`, `tokio`): deterministic HTTP test server on 127.0.0.1 with counters and explicit release gates, without public internet.
-- `windows` (=0.62.2): Win32 HWND and GDI desktop capture, matching GPUI's resolved version.
+- `windows` (=0.62.2): Win32 HWND and GDI window capture (PrintWindow), matching GPUI's resolved version.
 - `raw-window-handle` (=0.6.2): obtain the GPUI window's HWND without platform assumptions.
 - `png` (=0.18.1): encode debug window captures on a background executor.
 
@@ -134,8 +134,8 @@ target/release/panorama.exe --screenshot search:arrival search.png --size 1280x8
 ```
 
 Screenshot sizes use logical pixels and respect the 960x600 window minimum.
-On Windows capture maps the client rectangle to screen coordinates for desktop BitBlt;
-keep the interactive desktop visible and the window unobscured. Capture and PNG
+On Windows capture calls PrintWindow with PW_RENDERFULLCONTENT on the window, so
+windows that cover Panorama stay out of the PNG. Capture and PNG
 writing run off the UI thread, after a settled frame and at least 1600 ms.
 
 Every `--screenshot` invocation checks the shell's inherited GPUI text style at
