@@ -173,6 +173,7 @@ impl Player {
         let images = cx.observe(&state.read(cx).images.clone(), |_, _, cx| cx.notify());
         let streams = cx.observe(&state, |player, _, cx| {
             player.sync_groups(cx);
+            player.follow_host_tracks(cx);
             cx.notify();
         });
         let selection = current_selection(state.read(cx), &id, &args);
@@ -335,6 +336,7 @@ impl Player {
         if source_changed {
             self.health = Health::default();
             self.ui.subs.reset();
+            self.party.followed = None;
         }
         if tracks || source_changed {
             self.sync_subtitles(cx);

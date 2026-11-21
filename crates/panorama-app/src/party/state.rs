@@ -1,6 +1,6 @@
 //! The party on `AppState`: start, join, leave, settings, and what the player feeds in.
 use super::{
-    PartyView, Role, default_name, display_name,
+    PartySync, PartyView, Role, default_name, display_name,
     service::{self, Event, Input},
 };
 use crate::{
@@ -12,7 +12,7 @@ use gpui::{Context, Task};
 use panorama_core::{
     addons::{FilmDetails, Kind, ResourceEvent},
     party::{
-        Action, HostSettings, MemberState, PartyMedia,
+        Action, HostSettings, MemberState, PartyMedia, TrackChoice,
         transport::{InviteError, parse_invite},
     },
     store::Key,
@@ -20,6 +20,7 @@ use panorama_core::{
 use tokio::sync::mpsc::UnboundedSender;
 
 const NAME: &str = "party.name";
+const SYNC: &str = "party.sync";
 
 /// The party this window is in, from start until the user leaves. An ended party stays, so
 /// its reason shows, until left.
@@ -28,6 +29,8 @@ pub struct Party {
     inputs: UnboundedSender<Input>,
     /// Host: the media last announced. Member: the media last loaded.
     media: Option<PartyMedia>,
+    /// Member: the host's latest track choice, once it has named its tracks.
+    host_tracks: Option<TrackChoice>,
     _events: Task<()>,
 }
 
@@ -39,12 +42,17 @@ impl Party {
             view,
             inputs,
             media: None,
+            host_tracks: None,
             _events: Task::ready(()),
         }
     }
 
     pub fn media(&self) -> Option<&PartyMedia> {
         self.media.as_ref()
+    }
+
+    pub fn host_tracks(&self) -> Option<&TrackChoice> {
+        self.host_tracks.as_ref()
     }
 
     /// Whether the user's play, pause and seek go through the party instead of the player.
@@ -98,6 +106,38 @@ impl AppState {
         true
     }
 
+    /// Whether this install's subtitles and audio follow the host's.
+    pub fn party_sync(&self) -> PartySync {
+        (|| {
+            let key = Key::pref(SYNC).ok()?;
+            let bytes = self.services.as_ref()?.store.as_ref()?.get(&key).ok()??;
+            Some(PartySync::from_bytes(&bytes))
+        })()
+        .unwrap_or_default()
+    }
+
+    /// Keep which of the host's tracks this install follows, now and in later parties.
+    pub fn set_party_sync(&mut self, sync: PartySync, cx: &mut Context<Self>) {
+        if let (Some(store), Ok(key)) = (
+            self.services.as_ref().and_then(|s| s.store.as_ref()),
+            Key::pref(SYNC),
+        ) {
+            let _ = store.set(&key, &sync.to_bytes());
+        }
+        if let Some(party) = self.party.as_mut() {
+            party.view.sync = sync;
+            party.send(Input::Sync(sync));
+        }
+        cx.notify();
+    }
+
+    /// Host: the local player's audio and subtitle tracks, after the media was announced.
+    pub fn party_tracks(&self, tracks: TrackChoice) {
+        if let Some(party) = self.party.as_ref().filter(|party| party.view.is_host()) {
+            party.send(Input::Tracks(tracks));
+        }
+    }
+
     /// Host a party. Whatever plays next, or plays now, is what the party watches. Any party
     /// this window was in is left first.
     pub fn start_party(&mut self, name: Option<String>, cx: &mut Context<Self>) {
@@ -108,7 +148,14 @@ impl AppState {
             .and_then(|name| display_name(&name))
             .unwrap_or_else(|| self.party_name());
         let settings = HostSettings::default();
-        let spawned = service::host(&services.runtime, services.store.clone(), name, settings);
+        let sync = self.party_sync();
+        let spawned = service::host(
+            &services.runtime,
+            services.store.clone(),
+            name,
+            settings,
+            sync,
+        );
         let role = Role::Host {
             invite: None,
             settings,
@@ -131,7 +178,14 @@ impl AppState {
         let name = name
             .and_then(|name| display_name(&name))
             .unwrap_or_else(|| self.party_name());
-        let spawned = service::member(&services.runtime, services.store.clone(), name, invite);
+        let sync = self.party_sync();
+        let spawned = service::member(
+            &services.runtime,
+            services.store.clone(),
+            name,
+            invite,
+            sync,
+        );
         self.attach_party(spawned, Role::Member, cx);
         Ok(())
     }
@@ -294,6 +348,7 @@ impl AppState {
             view: PartyView::new(role, super::Link::Starting),
             inputs: spawned.inputs,
             media: None,
+            host_tracks: None,
             _events: task,
         });
         cx.notify();
@@ -316,7 +371,9 @@ impl AppState {
                     host.send(command);
                 }
             }
+            Event::Tracks(tracks) => party.host_tracks = Some(tracks),
             Event::Load(media) => {
+                party.host_tracks = None;
                 party.media = Some(media.clone());
                 self.play_by_id(
                     media.kind,

@@ -1,9 +1,16 @@
 use super::*;
-use crate::playback::{
-    launch::Pick,
-    model::{PlaybackError, SourceRef, Stage},
+use crate::{
+    party::follow::{Follow, choice_of, follow},
+    playback::{
+        launch::Pick,
+        model::{PlaybackError, SourceRef, Stage, Track},
+        source::{ResolvedSource, resolve},
+    },
 };
-use panorama_core::addons::{AddonKey, StreamState};
+use panorama_core::{
+    addons::{AddonKey, StreamState},
+    party::{TorrentRef, TrackChoice},
+};
 use serde_json::{Value, json};
 
 const HASH: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -252,4 +259,143 @@ fn a_peer_that_stops_reading_overflows_its_queue() {
         assert!(queue.line("{}".into()).is_ok());
     }
     assert!(queue.line("{}".into()).is_err());
+}
+
+fn track(id: i64, lang: &str, label: &str, external: bool, selected: bool) -> Track {
+    Track {
+        id,
+        label: label.into(),
+        description: None,
+        lang: Some(lang.into()),
+        codec: Some("subrip".into()),
+        selected,
+        external,
+    }
+}
+
+/// What the host's party hears, from the host's own subtitle list.
+fn hosts_choice(subtitles: &[Track]) -> TrackChoice {
+    choice_of(&[track(1, "eng", "English", false, true)], subtitles).unwrap()
+}
+
+#[test]
+fn a_friend_follows_the_hosts_subtitle_by_language() {
+    let host = [
+        track(2, "fra", "French", false, false),
+        track(7, "eng", "OpenSubtitles", true, true),
+    ];
+    let choice = hosts_choice(&host);
+    assert_eq!(
+        choice
+            .subtitle
+            .as_ref()
+            .and_then(|key| key.language.as_deref()),
+        Some("eng")
+    );
+    // The friend's ids and order differ, and they have the embedded English, not the addon's.
+    let friend = [
+        track(1, "fra", "French", false, true),
+        track(4, "jpn", "Japanese", false, false),
+        track(9, "en", "English", false, false),
+    ];
+    assert_eq!(
+        follow(PartySync::default(), &choice, &[], &friend),
+        Follow {
+            audio: None,
+            subtitle: Some(Some(9))
+        }
+    );
+    let own = [track(3, "fra", "French", false, true)];
+    assert_eq!(
+        follow(PartySync::default(), &choice, &[], &own).subtitle,
+        None,
+        "no match keeps the friend's own pick"
+    );
+}
+
+#[test]
+fn a_friend_follows_the_host_turning_subtitles_off() {
+    let host = [track(2, "eng", "English", false, false)];
+    let choice = hosts_choice(&host);
+    assert_eq!(choice.subtitle, None);
+    let friend = [track(5, "eng", "English", false, true)];
+    assert_eq!(
+        follow(PartySync::default(), &choice, &[], &friend).subtitle,
+        Some(None)
+    );
+}
+
+#[test]
+fn a_friend_with_sync_off_keeps_their_subtitle() {
+    let host = [track(7, "eng", "English", false, true)];
+    let choice = hosts_choice(&host);
+    let friend = [
+        track(1, "fra", "French", false, true),
+        track(2, "eng", "English", false, false),
+    ];
+    let sync = PartySync {
+        subtitles: false,
+        audio: true,
+    };
+    assert_eq!(follow(sync, &choice, &[], &friend).subtitle, None);
+    assert_eq!(
+        follow(PartySync::default(), &choice, &[], &friend).subtitle,
+        Some(Some(2))
+    );
+}
+
+#[test]
+fn sync_settings_survive_a_restart() {
+    let sync = PartySync {
+        subtitles: false,
+        audio: true,
+    };
+    assert_eq!(PartySync::from_bytes(&sync.to_bytes()), sync);
+    assert_eq!(PartySync::from_bytes(b"junk"), PartySync::default());
+    assert!(PartySync::default().subtitles && PartySync::default().audio);
+}
+
+fn hosts_release(torrent: Option<TorrentRef>) -> PartyRelease {
+    PartyRelease {
+        addon: "com.host.addon".into(),
+        torrent,
+        label: "Host addon\nFilm 1080p".into(),
+        binge_group: None,
+    }
+}
+
+#[test]
+fn no_match_with_a_host_torrent_plays_the_torrent() {
+    let release = hosts_release(Some(TorrentRef {
+        info_hash: HASH.into(),
+        file_idx: Some(2),
+    }));
+    let mut groups = vec![group("com.other#a", vec![link("Another film")])];
+    let picked = Pick::Party(release.clone())
+        .settle(&mut groups, None)
+        .expect("a source");
+    let chosen = &groups[picked.group];
+    let StreamState::Ready(streams) = &chosen.state else {
+        panic!("the torrent's group is ready");
+    };
+    let stream = &streams[picked.stream];
+    assert!(matches!(resolve(stream), Ok(ResolvedSource::Torrent(_))));
+    assert!(
+        release_matches(&release, chosen, stream),
+        "the roster shows the friend as matched"
+    );
+}
+
+#[test]
+fn no_match_without_a_host_torrent_plays_the_closest() {
+    let mut groups = vec![group("com.other#a", vec![link("Another film")])];
+    let picked = Pick::Party(hosts_release(None)).settle(&mut groups, None);
+    assert_eq!(
+        picked,
+        Some(SourceRef {
+            group: 0,
+            stream: 0
+        })
+    );
+    assert_eq!(groups.len(), 1);
 }
