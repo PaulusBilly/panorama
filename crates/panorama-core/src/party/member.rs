@@ -3,7 +3,7 @@ use super::{
     clock::ClockSync,
     drift::{Correction, correct},
     protocol::{
-        Action, ByeReason, Down, MemberState, MemberView, Notice, PartyMedia, PlaybackState,
+        Action, ByeReason, Down, Gate, MemberState, MemberView, Notice, PartyMedia, PlaybackState,
         TrackChoice, Up,
     },
     transport::PartySecret,
@@ -59,12 +59,10 @@ pub enum MemberOutput {
     Controls {
         anyone_controls: bool,
     },
-    /// Whether the party waits in its lobby, when that changes.
-    Lobby(bool),
     /// The host's tracks for the current media, when they change.
     Tracks(TrackChoice),
-    /// The member whose buffering holds the party changed; `None` once nobody does.
-    WaitingFor(Option<u32>),
+    /// What holds the party, when that changes; `Ready` once the party ends.
+    Gate(Gate),
     Roster(Vec<MemberView>),
     Notice(Notice),
     /// The host ended the connection. The player keeps playing.
@@ -85,9 +83,8 @@ pub struct MemberSession {
     playback: Option<PlaybackState>,
     applied: Option<PlaybackState>,
     anyone_controls: Option<bool>,
-    lobby: Option<bool>,
     tracks: Option<TrackChoice>,
-    waiting_for: Option<u32>,
+    gate: Option<Gate>,
     speed: f64,
     last_seek_ms: Option<i64>,
     player: Option<Player>,
@@ -167,9 +164,8 @@ impl MemberSession {
             playback: None,
             applied: None,
             anyone_controls: None,
-            lobby: None,
             tracks: None,
-            waiting_for: None,
+            gate: None,
             speed: 1.0,
             last_seek_ms: None,
             player: None,
@@ -274,8 +270,7 @@ impl MemberSession {
                 revision,
                 playback,
                 anyone_controls,
-                lobby,
-                waiting_for,
+                gate,
                 tracks,
             } => {
                 if self.stale(revision) {
@@ -287,19 +282,15 @@ impl MemberSession {
                     self.anyone_controls = Some(anyone_controls);
                     out.push(MemberOutput::Controls { anyone_controls });
                 }
-                if self.lobby != Some(lobby) {
-                    self.lobby = Some(lobby);
-                    out.push(MemberOutput::Lobby(lobby));
-                }
                 if let Some(tracks) = tracks
                     && self.tracks.as_ref() != Some(&tracks)
                 {
                     self.tracks = Some(tracks.clone());
                     out.push(MemberOutput::Tracks(tracks));
                 }
-                if self.waiting_for != waiting_for {
-                    self.waiting_for = waiting_for;
-                    out.push(MemberOutput::WaitingFor(waiting_for));
+                if self.gate != Some(gate) {
+                    self.gate = Some(gate);
+                    out.push(MemberOutput::Gate(gate));
                 }
             }
             Down::Roster { members } => out.push(MemberOutput::Roster(members)),
@@ -412,8 +403,9 @@ impl MemberSession {
 
     fn end(&mut self, out: &mut Vec<MemberOutput>) {
         self.link = Link::Ended;
-        if self.waiting_for.take().is_some() {
-            out.push(MemberOutput::WaitingFor(None));
+        if self.gate.is_some_and(|gate| gate != Gate::Ready) {
+            self.gate = Some(Gate::Ready);
+            out.push(MemberOutput::Gate(Gate::Ready));
         }
         self.set_speed(1.0, out);
     }

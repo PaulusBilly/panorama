@@ -724,11 +724,8 @@ impl Member {
                 MemberOutput::Controls { anyone_controls } => {
                     self.view.anyone_controls = anyone_controls;
                 }
-                MemberOutput::Lobby(lobby) => trace(|| format!("member lobby={lobby}")),
                 MemberOutput::Tracks(tracks) => trace(|| format!("member tracks {tracks:?}")),
-                MemberOutput::WaitingFor(member) => {
-                    trace(|| format!("member waiting_for={member:?}"));
-                }
+                MemberOutput::Gate(gate) => trace(|| format!("member gate {gate:?}")),
                 MemberOutput::Roster(members) => {
                     self.view.roster = members
                         .into_iter()

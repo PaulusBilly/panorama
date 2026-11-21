@@ -15,7 +15,7 @@ pub use drift::{Correction, correct};
 pub use host::{ConnId, HostInput, HostOutput, HostSession, HostSettings};
 pub use member::{MemberInput, MemberOutput, MemberSession};
 pub use protocol::{
-    Action, ByeReason, Down, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
+    Action, ByeReason, Down, Gate, MemberState, MemberView, Notice, NoticeKind, PartyMedia,
     PlaybackState, ProtocolError, TrackChoice, TrackKey, Up, decode_down, decode_up, encode,
     is_hidden_char,
 };

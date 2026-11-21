@@ -49,8 +49,7 @@ fn downs() -> Vec<Down> {
                 anchor_host_ms: 99_000,
             },
             anyone_controls: true,
-            lobby: true,
-            waiting_for: Some(2),
+            gate: Gate::Waiting(2),
             tracks: Some(english_subtitles()),
         },
         Down::Roster {
@@ -217,8 +216,7 @@ fn rejects_times_outside_a_safe_range() {
                 anchor_host_ms,
             },
             anyone_controls: false,
-            lobby: false,
-            waiting_for: None,
+            gate: Gate::Ready,
             tracks: None,
         }))
     };
@@ -255,8 +253,7 @@ fn state_with(tracks: TrackChoice) -> Result<Down, ProtocolError> {
             anchor_host_ms: 0,
         },
         anyone_controls: false,
-        lobby: false,
-        waiting_for: None,
+        gate: Gate::Ready,
         tracks: Some(tracks),
     }))
 }
