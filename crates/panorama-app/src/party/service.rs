@@ -469,6 +469,7 @@ impl Host {
                     )
                 });
                 self.handle(HostInput::SetMedia { media, at });
+                self.handle(HostInput::Start);
             }
             Input::Settings(settings) => {
                 if let Role::Host {
@@ -723,6 +724,8 @@ impl Member {
                 MemberOutput::Controls { anyone_controls } => {
                     self.view.anyone_controls = anyone_controls;
                 }
+                MemberOutput::Tracks(tracks) => trace(|| format!("member tracks {tracks:?}")),
+                MemberOutput::Gate(gate) => trace(|| format!("member gate {gate:?}")),
                 MemberOutput::Roster(members) => {
                     self.view.roster = members
                         .into_iter()
