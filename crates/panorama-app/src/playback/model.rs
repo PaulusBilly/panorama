@@ -342,6 +342,14 @@ impl PlaybackModel {
                     self.status = Status::Ready;
                 }
             }
+            // mpv may still describe the cache around the spot a seek left; it reads from
+            // `cache_end - buffered`, so a snapshot that reads elsewhere is not the new spot's.
+            PlayerEvent::DemuxerCacheState(cache)
+                if self.seek_from.is_some_and(|target| {
+                    finite(cache.cache_end_seconds)
+                        .zip(finite(cache.buffered_seconds))
+                        .is_some_and(|(end, ahead)| (end - ahead - target).abs() > 2.0)
+                }) => {}
             PlayerEvent::DemuxerCacheState(cache) => {
                 self.buffered_until = finite(cache.cache_end_seconds);
                 self.cache_seconds = finite(cache.buffered_seconds);

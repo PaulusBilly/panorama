@@ -238,17 +238,7 @@ fn thin_cache(model: &PlaybackModel) -> bool {
         .time
         .zip(model.duration)
         .is_some_and(|(time, duration)| duration - time <= READY_CACHE);
-    // mpv may still describe the cache around the spot a seek left: only what reaches past
-    // the current position counts.
-    let past_here = model
-        .buffered_until
-        .zip(model.time)
-        .map(|(end, time)| end - time);
-    let ahead = match (model.cache_seconds, past_here) {
-        (Some(cached), Some(past_here)) => Some(cached.min(past_here)),
-        (cached, past_here) => cached.or(past_here),
-    };
-    ahead.is_some_and(|ahead| ahead < READY_CACHE) && !near_end
+    model.cache_seconds.is_some_and(|ahead| ahead < READY_CACHE) && !near_end
 }
 
 /// A user's play, pause or seek as the absolute action the party decides on. Anything else is

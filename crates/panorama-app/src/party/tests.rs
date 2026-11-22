@@ -69,16 +69,29 @@ fn a_seek_reads_as_buffering_until_the_picture_moves_on() {
 #[test]
 fn a_paused_seek_is_not_ready_on_the_old_spots_cache() {
     use crate::playback::model::HostEvent;
-    let mut model = model(Status::Ready, true, Some(10.0));
-    model.cache_seconds = Some(14.0);
-    model.apply(HostEvent::Seeked(200.0));
-    assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
-    // A cache report still about the spot the seek left.
-    model.cache_seconds = Some(9.8);
-    model.buffered_until = Some(19.8);
-    assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
-    model.buffered_until = Some(210.0);
-    assert_eq!(member_state(&model).unwrap().0, MemberState::Paused);
+    use panorama_mpv::{CacheState, PlayerEvent};
+    let cache = |end, ahead| {
+        HostEvent::Mpv(PlayerEvent::DemuxerCacheState(CacheState {
+            cache_end_seconds: Some(end),
+            buffered_seconds: Some(ahead),
+            ..Default::default()
+        }))
+    };
+    for target in [200.0, 110.0] {
+        let mut model = model(Status::Ready, true, Some(140.0));
+        model.apply(cache(154.0, 14.0));
+        model.apply(HostEvent::Seeked(target));
+        assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
+        // A snapshot still about the spot the seek left, sent before the seek.
+        model.apply(cache(150.0, 9.8));
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Buffering,
+            "{target}"
+        );
+        model.apply(cache(target + 10.0, 10.0));
+        assert_eq!(member_state(&model).unwrap().0, MemberState::Paused);
+    }
 }
 
 #[test]
