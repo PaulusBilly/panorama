@@ -89,6 +89,10 @@ pub struct AppState {
     pub party: Option<crate::party::Party>,
     /// A film to open by id once the account is ready.
     pub pending_play: Option<crate::party::PendingPlay>,
+    /// A newer Panorama, downloaded and applied when this one quits.
+    pub update: Option<crate::updater::Ready>,
+    /// Set once the user asked to restart into `update`, so quitting doesn't apply it twice.
+    pub update_restarting: bool,
     host: Arc<ServicesHost>,
     events: Option<Task<()>>,
     request: Option<Task<()>>,
@@ -128,6 +132,8 @@ impl AppState {
             playback_host: None,
             party: None,
             pending_play: None,
+            update: None,
+            update_restarting: false,
             player: None,
             closing: false,
             account: Account::SignedOut,

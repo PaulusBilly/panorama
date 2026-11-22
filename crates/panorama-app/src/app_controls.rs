@@ -12,6 +12,17 @@ impl AppShell {
         }
         cx.notify();
     }
+    /// Quit into the downloaded update; Velopack's updater reopens Panorama once it's applied.
+    pub fn restart_to_update(&mut self, cx: &mut Context<Self>) {
+        let ready = self.state.update(cx, |state, _| {
+            state.update_restarting = true;
+            state.update.clone()
+        });
+        if let Some(ready) = ready {
+            crate::updater::apply_after_exit(&ready, true);
+            cx.quit();
+        }
+    }
     pub fn finish_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.login = None;
         self.sidebar.account.focus(window, cx);
