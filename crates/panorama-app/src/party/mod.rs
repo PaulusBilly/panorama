@@ -147,7 +147,10 @@ pub struct InviteLink(String);
 impl InviteLink {
     /// A made-up link for `--party-preview` captures.
     pub fn preview() -> Self {
-        Self("panorama://party/preview".into())
+        Self(format!(
+            "{}#preview",
+            panorama_core::party::transport::WEB_INVITE
+        ))
     }
 
     pub fn as_str(&self) -> &str {
