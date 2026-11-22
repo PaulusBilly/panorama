@@ -155,3 +155,34 @@ async fn a_dying_stream_jumping_to_the_end_does_not_move_the_resume_point() {
         lock(&backend.log)
     );
 }
+
+#[tokio::test]
+async fn a_position_from_before_a_seek_does_not_move_the_resume_point() {
+    let (mut runner, backend, _) = setup();
+    lock(&backend.scripts).extend([
+        Script {
+            events: vec![
+                PlayerEvent::Duration(Some(600.0)),
+                PlayerEvent::TimePos(Some(100.0)),
+                PlayerEvent::TimePos(Some(100.5)),
+            ],
+            ..Default::default()
+        },
+        Script::default(),
+    ]);
+    let mut selection = selection();
+    selection.start = StartMode::Resume(100.0);
+    runner.control(Command::Headless(Box::new(selection))).await;
+    let (generation, result) = runner.pending.next().await.unwrap();
+    runner.opened(generation, result).await;
+    runner.control(Command::Seek(300.0)).await;
+    // Positions mpv sent before it heard of the seek.
+    runner.tick().await;
+    runner.control(Command::Retry).await;
+    resolve(&mut runner).await;
+    assert!(
+        lock(&backend.log).iter().any(|entry| entry == "load@300"),
+        "{:?}",
+        lock(&backend.log)
+    );
+}

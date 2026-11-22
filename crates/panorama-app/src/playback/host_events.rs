@@ -83,16 +83,24 @@ impl Runner {
             .map(|active| active.events())
             .unwrap_or_default();
         for event in events {
+            // Once playing, the position only creeps forward, and a seek sets it itself: a
+            // leap is mpv calling a stream that died its end, and goes nowhere.
             if let PlayerEvent::TimePos(Some(seconds)) = &event
+                && self.model.advancing()
+                && *seconds > self.position + MAX_LEAP
+            {
+                continue;
+            }
+            // Until a seek lands, mpv may still report where it was: the seek's target holds.
+            let settled = !self.model.seeking();
+            if let PlayerEvent::TimePos(Some(seconds)) = &event
+                && settled
                 && seconds.is_finite()
                 && *seconds >= 0.0
                 && self.resume.is_none()
                 && self
                     .awaiting_resume
                     .is_none_or(|target| (*seconds - target).abs() <= 3.0)
-                // Once playing, it only creeps forward, and a seek sets the position itself:
-                // a leap is mpv calling a stream that died its end.
-                && (!self.model.advancing() || *seconds <= self.position + MAX_LEAP)
             {
                 self.awaiting_resume = None;
                 self.position = *seconds;
@@ -107,7 +115,7 @@ impl Runner {
                     self.model.duration,
                 );
             }
-            let time = matches!(event, PlayerEvent::TimePos(Some(_)));
+            let time = settled && matches!(event, PlayerEvent::TimePos(Some(_)));
             let pause = matches!(event, PlayerEvent::Pause(_));
             let was_ended = self.model.status == Status::Ended;
             let shutdown = matches!(event, PlayerEvent::Shutdown);

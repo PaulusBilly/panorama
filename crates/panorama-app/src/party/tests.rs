@@ -112,6 +112,35 @@ fn a_paused_seek_is_not_ready_on_the_old_spots_cache() {
 }
 
 #[test]
+fn a_seek_landing_on_a_cached_spot_reads_ready_at_once() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::{CacheState, PlayerEvent};
+    let mut model = model(Status::Ready, true, Some(140.0));
+    model.apply(HostEvent::Seeked(110.0));
+    // mpv reads the new spot before it says the seek landed, then nothing changes.
+    model.apply(HostEvent::Mpv(PlayerEvent::DemuxerCacheState(CacheState {
+        cache_end_seconds: Some(130.0),
+        buffered_seconds: Some(20.0),
+        ..Default::default()
+    })));
+    model.apply(HostEvent::Mpv(PlayerEvent::PlaybackRestart));
+    assert_eq!(member_state(&model).unwrap().0, MemberState::Paused);
+}
+
+#[test]
+fn a_seek_mpv_never_lands_ends_once_playback_moves_on() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::PlayerEvent;
+    let mut model = model(Status::Ready, false, Some(10.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(10.5))));
+    model.apply(HostEvent::Seeked(200.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.2))));
+    assert!(model.seeking());
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.6))));
+    assert!(!model.seeking());
+}
+
+#[test]
 fn the_player_reports_what_it_is_doing() {
     let report = |status, paused| member_state(&model(status, paused, Some(42.5))).unwrap().0;
     assert_eq!(member_state(&model(Status::Idle, false, None)), None);
