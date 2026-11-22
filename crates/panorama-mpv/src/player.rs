@@ -344,6 +344,7 @@ fn run(
         // Only a refused load stops playback. A seek or property mpv refuses (a seek before
         // the file opens, a track that is gone) leaves the film playing.
         let mut loading = false;
+        let mut seeking = false;
         let mut batch = std::collections::VecDeque::new();
         while !stopping.load(Ordering::Acquire) {
             if !pending {
@@ -355,10 +356,12 @@ fn run(
                 let result = match next {
                     Some(Request::Command(args)) => {
                         loading = args.first().is_some_and(|name| name == "loadfile");
+                        seeking = args.first().is_some_and(|name| name == "seek");
                         Some(client.command(&args))
                     }
                     Some(Request::Property(name, mut value)) => {
                         loading = false;
+                        seeking = false;
                         Some(client.set(&name, &mut value))
                     }
                     Some(Request::Properties(values)) => {
@@ -391,6 +394,7 @@ fn run(
             for event in received.events {
                 let _ = updates.send(match event {
                     PlayerEvent::Error(_) if subtitle_reply => PlayerEvent::SubtitleFailed,
+                    PlayerEvent::Error(_) if received.reply && seeking => PlayerEvent::SeekRefused,
                     PlayerEvent::Error(_) if received.reply && !loading => continue,
                     event => event,
                 });

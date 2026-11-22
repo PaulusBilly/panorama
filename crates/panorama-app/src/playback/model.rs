@@ -322,21 +322,16 @@ impl PlaybackModel {
                     if self.seek_from.is_some_and(|from| now > from + 0.25) {
                         self.seek_from = None;
                     }
-                    // A seek mpv refused never restarts playback; playing on from its target
-                    // ends it all the same. Playing creeps forward from there, where reports
-                    // from before the seek start somewhere else.
-                    if self.seek_pending.is_some_and(|target| {
-                        (target + 0.25..target + 5.0).contains(&now)
-                            && (0.0..1.0).contains(&(now - before))
-                    }) {
-                        self.seek_pending = None;
-                        self.held_cache = None;
-                    }
                 }
                 self.time = value;
                 if live && self.time.is_some() && matches!(self.status, Status::Preparing(_)) {
                     self.status = Status::Ready;
                 }
+            }
+            // No restart follows a refused seek; playback carries on from where it was.
+            PlayerEvent::SeekRefused => {
+                self.seek_pending = None;
+                self.held_cache = None;
             }
             PlayerEvent::PlaybackRestart => {
                 // mpv restarts playback once a seek lands, paused or not, after every event

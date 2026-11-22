@@ -128,15 +128,13 @@ fn a_seek_landing_on_a_cached_spot_reads_ready_at_once() {
 }
 
 #[test]
-fn a_seek_mpv_never_lands_ends_once_playback_moves_on() {
+fn a_refused_seek_ends_without_landing() {
     use crate::playback::model::HostEvent;
     use panorama_mpv::PlayerEvent;
-    let mut model = model(Status::Ready, false, Some(10.0));
-    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(10.5))));
-    model.apply(HostEvent::Seeked(200.0));
-    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.2))));
-    assert!(model.seeking());
-    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.6))));
+    let mut model = model(Status::Ready, false, Some(100.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(100.5))));
+    model.apply(HostEvent::Seeked(300.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::SeekRefused));
     assert!(!model.seeking());
 }
 
@@ -147,7 +145,7 @@ fn reports_creeping_on_from_before_a_seek_do_not_end_it() {
     let mut model = model(Status::Ready, false, Some(109.5));
     model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(110.0))));
     model.apply(HostEvent::Seeked(100.0));
-    for stale in [110.0, 110.5, 111.0] {
+    for stale in [110.0, 110.5, 111.0, 100.5, 101.0] {
         model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(stale))));
     }
     assert!(model.seeking());
