@@ -62,11 +62,26 @@ fn start_anyway_is_offered_while_someone_loads() {
 }
 
 #[test]
-fn escape_closes_the_lobby_and_leaves_the_party() {
-    let readiness = Readiness::of(&roster(&[("Sam", MemberState::Loading)]));
-    for host in [true, false] {
-        assert_eq!(decide(host, &readiness, Command::Escape), Some(Exit::Leave));
-    }
+fn escape_keeps_a_party_friends_joined_and_leaves_an_empty_one() {
+    let joined = Readiness::of(&roster(&[("Sam", MemberState::Loading)]));
+    assert_eq!(decide(true, &joined, Command::Escape), Some(Exit::Browse));
+    assert_eq!(decide(false, &joined, Command::Escape), Some(Exit::Leave));
+    let alone = Readiness::of(&roster(&[]));
+    assert_eq!(decide(true, &alone, Command::Escape), Some(Exit::Leave));
+}
+
+#[test]
+fn the_host_picks_another_film_or_ends_the_party() {
+    let joined = Readiness::of(&roster(&[("Sam", MemberState::Ready)]));
+    assert_eq!(
+        decide(true, &joined, Command::PickAnotherFilm),
+        Some(Exit::Browse)
+    );
+    assert_eq!(decide(false, &joined, Command::PickAnotherFilm), None);
+    assert_eq!(
+        decide(true, &joined, Command::LeaveParty),
+        Some(Exit::Leave)
+    );
 }
 
 #[test]

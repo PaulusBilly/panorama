@@ -241,10 +241,10 @@ impl PartyLobby {
                     Button::round(
                         "party-lobby-close",
                         Icon::Close,
-                        if self.is_host() {
-                            "Close and end the party"
-                        } else {
-                            "Close and leave the party"
+                        match (self.is_host(), self.readiness(cx).friends) {
+                            (true, 0) => "Close and end the party",
+                            (true, _) => "Close and keep the party",
+                            (false, _) => "Close and leave the party",
                         },
                     )
                     .compact()
@@ -440,9 +440,42 @@ impl PartyLobby {
                 slot += 1;
             }
         }
+        let pick_film = quiet(
+            "party-lobby-pick-film",
+            "Pick another film",
+            None,
+            &self.pick_film,
+            look,
+            self.exit.is_none(),
+            window,
+        )
+        .on_click(
+            cx.listener(|lobby, _, window, cx| lobby.act(Command::PickAnotherFilm, window, cx)),
+        );
+        let end = quiet(
+            "party-lobby-end",
+            "End party",
+            None,
+            &self.leave,
+            look,
+            self.exit.is_none(),
+            window,
+        )
+        .on_click(cx.listener(|lobby, _, window, cx| lobby.act(Command::LeaveParty, window, cx)));
+        // The two ways out of the lobby, apart from starting: pulled out by their own padding
+        // so the labels line up with the rows above.
         section("Source", None, theme, false)
             .child(row)
             .when(self.changing, |section| section.child(list))
+            .child(
+                div()
+                    .mt(px(8.0))
+                    .mx(px(-10.0))
+                    .flex()
+                    .justify_between()
+                    .child(pick_film)
+                    .child(end),
+            )
     }
 
     fn choice(
