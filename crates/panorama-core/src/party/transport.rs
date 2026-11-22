@@ -14,6 +14,10 @@ use super::MAX_LINE;
 pub const ALPN: &[u8] = b"panorama/party/1";
 
 const INVITE_PREFIX: &str = "panorama://party/";
+/// Where an invite points. The join page reads the fragment in the browser, so the party secret
+/// never reaches a server.
+pub const WEB_INVITE: &str = "https://paulusbilly.github.io/panorama/join";
+const MAX_INVITE: usize = 2048;
 const ONLINE_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -155,19 +159,44 @@ pub struct Invite {
     pub secret: PartySecret,
 }
 
+/// Accepts the https join link, the old `panorama://party/<ticket>?s=<secret>` link, the join
+/// page's `panorama://party/<ticket>.<secret>` link, and the bare `<ticket>.<secret>` fragment.
 pub fn parse_invite(invite: &str) -> Result<Invite, InviteError> {
-    let rest = invite
-        .trim()
-        .strip_prefix(INVITE_PREFIX)
-        .ok_or(InviteError::Scheme)?;
-    let (ticket, query) = rest.split_once('?').ok_or(InviteError::Shape)?;
-    let secret = query.strip_prefix("s=").ok_or(InviteError::Shape)?;
+    let invite = invite.trim();
+    if invite.len() > MAX_INVITE {
+        return Err(InviteError::Shape);
+    }
+    let (ticket, secret) = if let Some(rest) = invite.strip_prefix(INVITE_PREFIX) {
+        let rest = rest.strip_suffix('/').unwrap_or(rest);
+        match rest.split_once('?') {
+            Some((ticket, query)) => (ticket, query.strip_prefix("s=").ok_or(InviteError::Shape)?),
+            None => split_fragment(rest)?,
+        }
+    } else if let Some(rest) = invite.strip_prefix(WEB_INVITE) {
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        split_fragment(rest.strip_prefix('#').ok_or(InviteError::Scheme)?)?
+    } else if invite.contains("://") {
+        return Err(InviteError::Scheme);
+    } else {
+        split_fragment(invite)?
+    };
+    if ticket.is_empty()
+        || !ticket
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    {
+        return Err(InviteError::Ticket);
+    }
     let ticket = EndpointTicket::from_str(ticket).map_err(|_| InviteError::Ticket)?;
     let secret = PartySecret::from_hex(secret).ok_or(InviteError::Secret)?;
     Ok(Invite {
         addr: ticket.endpoint_addr().clone(),
         secret,
     })
+}
+
+fn split_fragment(fragment: &str) -> Result<(&str, &str), InviteError> {
+    fragment.rsplit_once('.').ok_or(InviteError::Shape)
 }
 
 /// The relay alone is enough to dial: iroh trades direct addresses over it for hole punching, so
@@ -183,7 +212,7 @@ fn invite_for(addr: EndpointAddr, network: Network, secret: &PartySecret) -> Str
         }
     };
     format!(
-        "{INVITE_PREFIX}{}?s={}",
+        "{WEB_INVITE}#{}.{}",
         EndpointTicket::new(addr),
         secret.to_hex()
     )

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="dark">
+<title>Join a Panorama watch party</title>
+<style>
+  :root {
+    --canvas: oklch(0.13 0 0);
+    --surface: oklch(0.2 0 0);
+    --ink: #fff;
+    --ink-muted: oklch(1 0 0 / 0.62);
+    --line: oklch(1 0 0 / 0.16);
+    --accent: #3048ff;
+  }
+  * { box-sizing: border-box; border-radius: 0; }
+  html { background: var(--canvas); }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 400 1rem/1.5 "Aspekta", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    width: 100%;
+    max-width: 30rem;
+    margin: 0 auto;
+    padding: 12vh 16px 48px;
+  }
+  .mark {
+    margin: 0 0 48px;
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0 0 12px;
+    font-size: clamp(1.75rem, 7vw, 2.25rem);
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  p { margin: 0; color: var(--ink-muted); text-wrap: pretty; }
+  .bar {
+    height: 2px;
+    margin: 32px 0 0;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .bar::after {
+    content: "";
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    animation: fill 3s linear forwards;
+  }
+  @keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .bar::after { animation: none; transform: none; }
+  }
+  .fallback { margin-top: 32px; }
+  .fallback[hidden], .bar[hidden] { display: none; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  .button {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    padding: 0 24px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .button:hover { background: var(--surface); }
+  .button.primary { background: var(--accent); border-color: var(--accent); }
+  .button.primary:hover { background: #4a5fff; border-color: #4a5fff; }
+  .button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .note { margin-top: 24px; font-size: 0.875rem; }
+  .note a { color: var(--ink); text-underline-offset: 3px; }
+  @media (max-width: 480px) {
+    main { padding-top: 8vh; }
+    .actions { flex-direction: column; }
+    .button { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark">Panorama</div>
+  <h1 id="title">Opening your watch party</h1>
+  <p id="lead">Panorama should open in a moment. Your browser may ask you to allow it.</p>
+  <div class="bar" id="bar" role="presentation"></div>
+
+  <section class="fallback" id="fallback" hidden>
+    <p>Nothing opened? Install Panorama, then open this link again.</p>
+    <div class="actions">
+      <a class="button primary" href="https://github.com/PaulusBilly/panorama/releases/latest" rel="noopener">Download Panorama</a>
+      <button class="button" id="copy" type="button">Copy invite</button>
+    </div>
+    <p class="note" id="status" role="status" aria-live="polite"></p>
+  </section>
+</main>
+<script>
+(function () {
+  var fragment = location.hash.slice(1);
+  var valid = /^[a-z0-9]{1,2000}\.[0-9a-f]{32}$/.test(fragment);
+  var title = document.getElementById("title");
+  var lead = document.getElementById("lead");
+  var bar = document.getElementById("bar");
+  var fallback = document.getElementById("fallback");
+  var status = document.getElementById("status");
+  var copy = document.getElementById("copy");
+
+  if (!valid) {
+    title.textContent = "This invite is incomplete";
+    lead.textContent = "Ask your host to send the invite again, and open the whole link.";
+    bar.hidden = true;
+    return;
+  }
+
+  var invite = location.href;
+
+  function reveal() {
+    title.textContent = "Open Panorama to join";
+    lead.textContent = "If Panorama is installed, open it from the link again. If not, download it first.";
+    bar.hidden = true;
+    fallback.hidden = false;
+  }
+
+  function copyInvite() {
+    function done(ok) { status.textContent = ok ? "Invite copied." : "Could not copy. Copy the address bar instead."; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(invite).then(function () { done(true); }, function () { done(legacyCopy()); });
+    } else {
+      done(legacyCopy());
+    }
+  }
+
+  function legacyCopy() {
+    var field = document.createElement("textarea");
+    field.value = invite;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(field);
+    return ok;
+  }
+
+  copy.addEventListener("click", copyInvite);
+  window.setTimeout(reveal, 3000);
+  location.href = "panorama://party/" + fragment;
+})();
+</script>
+</body>
+</html>

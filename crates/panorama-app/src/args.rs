@@ -5,6 +5,26 @@ use std::{ffi::OsString, path::PathBuf};
 /// What the system passes when someone opens an invite link.
 const INVITE_LINK: &str = "panorama://party/";
 
+/// The link a system launch carries. It is the whole command line, either `--open-url <link>` or
+/// a bare `panorama://party/...`, so a crafted link cannot bring other flags with it.
+fn opened_link(argv: &[OsString]) -> Result<Option<String>, String> {
+    let text = |arg: &OsString| arg.to_str().map(str::to_owned);
+    let marked = argv.iter().any(|arg| arg.to_str() == Some("--open-url"));
+    let bare = argv.iter().enumerate().any(|(at, arg)| {
+        arg.to_str().is_some_and(|arg| arg.starts_with(INVITE_LINK))
+            && (at == 0 || argv[at - 1].to_str() != Some("--party-join"))
+    });
+    match argv {
+        [flag, url] if flag.to_str() == Some("--open-url") => {
+            text(url).map(Some).ok_or_else(|| "Invalid link".to_owned())
+        }
+        _ if marked => Err("--open-url takes one link and nothing else".into()),
+        [url] if bare => Ok(text(url)),
+        _ if bare => Err("An opened link must be the only argument".into()),
+        _ => Ok(None),
+    }
+}
+
 /// One invocation's startup options.
 #[derive(Clone)]
 pub struct Args {
@@ -98,7 +118,9 @@ pub struct Args {
 impl Args {
     /// Parse command line arguments without disk access.
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, String> {
-        let mut args = args.into_iter();
+        let argv: Vec<OsString> = args.into_iter().collect();
+        let link = opened_link(&argv)?;
+        let mut args = argv.into_iter();
         let mut result = Self {
             player_state: None,
             play_file: None,
@@ -146,8 +168,13 @@ impl Args {
             party_preview: None,
             runtime_problem: None,
         };
+        if let Some(link) = link {
+            if panorama_core::party::transport::parse_invite(&link).is_ok() {
+                result.party_join = Some(link);
+            }
+            return Ok(result);
+        }
         let mut screenshot_options = false;
-        let mut opened_link = false;
         while let Some(arg) = args.next() {
             match arg
                 .to_str()
@@ -383,12 +410,6 @@ impl Args {
                     }
                     result.scroll.push(delta);
                 }
-                link if link.starts_with(INVITE_LINK) && !opened_link => {
-                    opened_link = true;
-                    if panorama_core::party::transport::parse_invite(link).is_ok() {
-                        result.party_join = Some(link.to_owned());
-                    }
-                }
                 _ => return Err("Unknown argument".into()),
             }
         }
@@ -501,8 +522,37 @@ mod tests {
         assert_eq!(args.party_join, None);
         assert_eq!(args.route, Route::Home);
         assert!(parse(&[link, link]).is_err());
+        let (ticket, secret) = link
+            .strip_prefix("panorama://party/")
+            .and_then(|rest| rest.split_once("?s="))
+            .unwrap();
+        let page_link = format!("panorama://party/{ticket}.{secret}/");
+        let args = parse(&[&page_link]).unwrap();
+        assert_eq!(args.party_join.as_deref(), Some(page_link.as_str()));
         assert!(parse(&["panorama://room/abc"]).is_err());
         assert!(parse(&["notes.txt"]).is_err());
+    }
+    #[test]
+    fn a_system_launch_carries_only_the_link() {
+        let link = crate::party::handoff::SAMPLE_INVITE;
+        let args = parse(&["--open-url", link]).unwrap();
+        assert_eq!(args.party_join.as_deref(), Some(link));
+        assert!(!args.fixtures);
+        let args = parse(&["--open-url", "panorama://party/broken?s=00"]).unwrap();
+        assert_eq!(args.party_join, None);
+        for smuggled in [
+            vec!["--open-url", link, "--fixtures"],
+            vec!["--open-url", link, "--data-dir", "/tmp/x"],
+            vec!["--fixtures", "--open-url", link],
+            vec!["--data-dir", "/tmp/x", link],
+            vec![link, "--fixtures"],
+            vec!["--open-url"],
+            vec!["--open-url", link, link],
+        ] {
+            let error = parse(&smuggled).unwrap_err();
+            assert!(!error.contains("endpoint"), "{smuggled:?}");
+        }
+        assert!(parse(&[link]).is_ok());
     }
     #[test]
     fn every_runtime_problem_can_be_forced() {

@@ -216,7 +216,8 @@ impl AppShell {
 
 impl AppShell {
     /// Joins the party an invite link names and opens its lobby. Every way in comes through
-    /// here: the sidebar's field, an opened invite link, and a second launch's handoff.
+    /// here: the sidebar's field, an opened invite link, a second launch's handoff, and a link
+    /// the system opens.
     pub(crate) fn join_party_from_invite(
         &mut self,
         invite: &str,
@@ -230,6 +231,8 @@ impl AppShell {
             self.close_join(window, cx);
         }
         self.open_party_lobby_as_member(window, cx);
+        cx.activate(true);
+        window.activate_window();
         Ok(())
     }
 
@@ -270,12 +273,8 @@ impl AppShell {
         let Some(invite) = crate::party::handoff::take(&dir, std::time::SystemTime::now()) else {
             return;
         };
-        if self
-            .join_party_from_invite(&invite, None, window, cx)
-            .is_ok()
-        {
-            cx.activate(true);
-            window.activate_window();
+        if let Err(error) = self.join_party_from_invite(&invite, None, window, cx) {
+            crate::debug::log(format!("party join refused: {error}"));
         }
     }
 

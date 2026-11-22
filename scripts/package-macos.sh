@@ -41,6 +41,14 @@ cat > "$app/Contents/Info.plist" <<EOF
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.entertainment</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>Panorama watch party</string>
+      <key>CFBundleURLSchemes</key>
+      <array><string>panorama</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>
 EOF

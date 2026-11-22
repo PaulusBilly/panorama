@@ -25,6 +25,8 @@ pub mod hero;
 pub mod home_layout;
 pub mod image_cache;
 pub mod join_party;
+#[allow(unsafe_code)]
+pub mod link_handler;
 pub mod login;
 pub mod party;
 pub mod party_lobby;
