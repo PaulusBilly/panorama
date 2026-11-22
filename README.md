@@ -35,13 +35,15 @@ PANORAMA_LIBMPV_DIR=$PWD/target/libmpv cargo run -p panorama-app
 
 On Windows, `pwsh scripts/stage-windows-libmpv.ps1` downloads and verifies the pinned build (it needs 7-Zip).
 
-To give Panorama to someone on Windows, build the installer (needs 7-Zip and Inno Setup 6, `winget install JRSoftware.InnoSetup`):
+To give Panorama to someone on Windows, build the installer with [Velopack](https://velopack.io) (needs 7-Zip and the .NET SDK, then `dotnet tool install -g vpk --version 1.3.39-g8d2844f`):
 
 ```powershell
 pwsh scripts/package-windows-installer.ps1
 ```
 
-It writes `target/package/Panorama-Setup-<version>.exe`. The installer needs no administrator rights, puts `libmpv-2.dll` beside `panorama.exe`, adds Start menu and desktop shortcuts, and makes `panorama://` watch party invite links open Panorama.
+It writes `target/velopack/PanoramaApp-win-Setup.exe` and the update feed beside it. The installer needs no administrator rights, installs to `%LocalAppData%\PanoramaApp` (apart from the user data in `%LocalAppData%\Panorama`), and adds Start menu and desktop shortcuts. Panorama registers `panorama://` watch party invite links itself on launch.
+
+Installed copies update themselves from GitHub Releases: at launch Panorama checks for a newer release and downloads it in the background, the account menu offers **Restart to update**, and otherwise the update is applied when Panorama quits. Pushing a version tag such as `v0.1.3` runs `.github/workflows/release.yml`, which builds the installer and publishes it with the feed to that tag's release.
 
 To look around without an account, run on fixture data: `cargo run -p panorama-app -- --fixtures`.
 

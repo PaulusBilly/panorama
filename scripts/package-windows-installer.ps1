@@ -1,36 +1,52 @@
 #requires -Version 7
-# Builds Panorama-Setup-<version>.exe under target/package/ from the verified zip folder that
-# package-windows.ps1 assembles. Needs Inno Setup 6 (winget install JRSoftware.InnoSetup).
+# Builds the Velopack release under target/velopack/ from the verified folder that
+# package-windows.ps1 assembles: PanoramaApp-win-Setup.exe, the full .nupkg, a delta from the
+# previous release when one is there, and releases.win.json, the feed the app updates from.
+# Needs vpk at the same version as the velopack crate:
+#   dotnet tool install -g vpk --version 1.3.39-g8d2844f
+# With -Publish it first pulls the previous release from GitHub (so a delta can be made) and
+# afterwards uploads the new one as a published release, using $env:GITHUB_TOKEN.
+param([switch]$Publish)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path -Parent $PSScriptRoot
-$out = Join-Path $repo 'target/package'
-$stage = Join-Path $out 'panorama-windows-x64'
-$script = Join-Path $repo 'packaging/windows/panorama.iss'
+$stage = Join-Path $repo 'target/package/panorama-windows-x64'
+$out = Join-Path $repo 'target/velopack'
+$icon = Join-Path $repo 'packaging/windows/panorama.ico'
+$repoUrl = 'https://github.com/PaulusBilly/panorama'
 
-$iscc = @(
-    (Get-Command iscc -ErrorAction SilentlyContinue)?.Source
-    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe')
-    (Join-Path $env:ProgramFiles 'Inno Setup 6/ISCC.exe')
-    (Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 6/ISCC.exe')
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
-if (-not $iscc) { throw 'Inno Setup 6 is not installed. Run: winget install JRSoftware.InnoSetup' }
+if (-not (Get-Command vpk -ErrorAction SilentlyContinue)) {
+    throw 'vpk is not installed. Run: dotnet tool install -g vpk --version 1.3.39-g8d2844f'
+}
 
 & (Join-Path $PSScriptRoot 'package-windows.ps1')
 if ($LASTEXITCODE) { throw "package-windows.ps1 failed ($LASTEXITCODE)" }
 & (Join-Path $PSScriptRoot 'verify-windows-package.ps1')
 if ($LASTEXITCODE) { throw "verify-windows-package.ps1 failed ($LASTEXITCODE)" }
 
-foreach ($file in 'panorama.exe', 'libmpv-2.dll') {
-    if (-not (Test-Path -LiteralPath (Join-Path $stage $file))) { throw "The package folder is missing $file" }
+$version = (Select-String -Path (Join-Path $repo 'crates/panorama-app/Cargo.toml') -Pattern '^\s*version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+# vpk refuses to pack a version at or below one already in the folder, so start clean.
+Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $out | Out-Null
+
+if ($Publish) {
+    if (-not $env:GITHUB_TOKEN) { throw 'GITHUB_TOKEN is not set' }
+    vpk download github --repoUrl $repoUrl --token $env:GITHUB_TOKEN --outputDir $out
+    if ($LASTEXITCODE) { throw "vpk download failed ($LASTEXITCODE)" }
 }
 
-$version = (Select-String -Path (Join-Path $repo 'crates/panorama-app/Cargo.toml') -Pattern '^\s*version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-& $iscc /Qp "/DAppVersion=$version" "/DSourceDir=$stage" "/DOutputDir=$out" $script
-if ($LASTEXITCODE) { throw "Inno Setup failed ($LASTEXITCODE)" }
+# The pack id names the install folder, %LocalAppData%\<packId>, which uninstall deletes whole.
+# It must not be "Panorama": that folder holds panorama.db, the user's sign-in and history.
+vpk pack --packId PanoramaApp --packVersion $version --packTitle Panorama --packAuthors Panorama `
+    --packDir $stage --mainExe panorama.exe --icon $icon --runtime win-x64 --outputDir $out
+if ($LASTEXITCODE) { throw "vpk pack failed ($LASTEXITCODE)" }
 
-$setup = Join-Path $out "Panorama-Setup-$version.exe"
-$sha = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
-[IO.File]::WriteAllText("$setup.sha256", "$sha  $(Split-Path -Leaf $setup)`n", [Text.UTF8Encoding]::new($false))
-Write-Host "Installer: $setup ($((Get-Item $setup).Length) bytes)`nsha256 $sha"
+if ($Publish) {
+    vpk upload github --repoUrl $repoUrl --token $env:GITHUB_TOKEN --outputDir $out `
+        --publish --releaseName "Panorama $version" --tag "v$version" --merge
+    if ($LASTEXITCODE) { throw "vpk upload failed ($LASTEXITCODE)" }
+}
+
+$setup = Join-Path $out 'PanoramaApp-win-Setup.exe'
+Write-Host "Installer: $setup ($((Get-Item $setup).Length) bytes)"
