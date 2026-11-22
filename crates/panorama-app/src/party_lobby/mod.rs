@@ -52,6 +52,8 @@ pub enum Exit {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Readiness {
     pub waiting: Vec<String>,
+    /// Those waited for whose player can't play the source: only Change or Start anyway helps.
+    pub failed: Vec<String>,
     pub friends: usize,
 }
 
@@ -61,7 +63,12 @@ impl Readiness {
         Self {
             friends: friends.clone().count(),
             waiting: friends
+                .clone()
                 .filter(|row| !is_ready(row.member.state))
+                .map(|row| row.member.name.clone())
+                .collect(),
+            failed: friends
+                .filter(|row| row.member.state == MemberState::Failed)
                 .map(|row| row.member.name.clone())
                 .collect(),
         }

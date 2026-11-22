@@ -244,8 +244,16 @@ impl AppShell {
     /// The sidebar's Watch party: back to the party's film with its panel open. Before the
     /// party has opened a film, the popover says so and offers a way out.
     pub(crate) fn open_party_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(id) =
-            (self.state.read(cx).playback.as_ref()).map(|playing| playing.film.id.clone())
+        let state = self.state.read(cx);
+        // A host who closed the film keeps the party, with nothing to go back to: reopening
+        // the last film would play it for everyone.
+        let between_films = state
+            .party
+            .as_ref()
+            .is_some_and(|party| party.view.is_host() && party.media().is_none());
+        let Some(id) = (state.playback.as_ref())
+            .filter(|_| !between_films)
+            .map(|playing| playing.film.id.clone())
         else {
             self.toggle_join(window, cx);
             return;

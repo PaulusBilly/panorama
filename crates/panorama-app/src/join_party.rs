@@ -206,7 +206,19 @@ impl AppShell {
         };
         let mut shadow = popover_shadow();
         shadow[0].color = theme.rule.into();
-        let (title, detail) = if in_party {
+        let hosting = in_party
+            && self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .is_some_and(|party| party.view.is_host());
+        let (title, detail) = if hosting {
+            (
+                "Watch party",
+                "Your party is still open. Choose Watch together on a film to play it for everyone.",
+            )
+        } else if in_party {
             (
                 "Watch party",
                 "You're in a watch party. It opens here when the host starts the film.",
@@ -244,13 +256,16 @@ impl AppShell {
         if in_party {
             return popover.child(
                 div().mt(px(16.0)).flex().justify_end().child(
-                    Button::glass("join-party-leave", "Leave party")
-                        .compact()
-                        .focus(&self.join.leave, view.keyboard)
-                        .tab_stop(self.join.open)
-                        .on_click(cx.listener(|shell, _, window, cx| {
-                            shell.leave_party_from_sidebar(window, cx)
-                        })),
+                    Button::glass(
+                        "join-party-leave",
+                        if hosting { "End party" } else { "Leave party" },
+                    )
+                    .compact()
+                    .focus(&self.join.leave, view.keyboard)
+                    .tab_stop(self.join.open)
+                    .on_click(cx.listener(|shell, _, window, cx| {
+                        shell.leave_party_from_sidebar(window, cx)
+                    })),
                 ),
             );
         }

@@ -241,7 +241,11 @@ impl PartyLobby {
                     Button::round(
                         "party-lobby-close",
                         Icon::Close,
-                        "Close and leave the party",
+                        if self.is_host() {
+                            "Close and end the party"
+                        } else {
+                            "Close and leave the party"
+                        },
                     )
                     .compact()
                     .focus(&self.close, look.keyboard)
@@ -893,8 +897,19 @@ fn host_status(
     theme: Theme,
 ) -> Stateful<Div> {
     let name = |text: String| div().text_color(theme.ink).child(text);
-    if view.is_some_and(|view| view.link == Link::Starting) {
-        return status.child("Getting the party ready");
+    match view.map(|view| view.link) {
+        Some(Link::Starting) => return status.child("Getting the party ready"),
+        Some(Link::Ended(reason)) => {
+            return status.child(crate::party::lobby_ended_text(reason, true));
+        }
+        _ => {}
+    }
+    if let [one] = readiness.failed.as_slice()
+        && readiness.waiting.len() == 1
+    {
+        return status
+            .child(name(one.clone()))
+            .child("can't play this source");
     }
     match readiness.waiting.as_slice() {
         [] if readiness.friends == 0 => status.child("Nobody has joined yet"),
@@ -911,7 +926,7 @@ fn host_status(
     }
 }
 
-fn member_status(view: Option<&PartyView>, has_film: bool) -> SharedString {
+pub(super) fn member_status(view: Option<&PartyView>, has_film: bool) -> SharedString {
     let Some(view) = view else {
         return "You left the party".into();
     };
@@ -921,7 +936,7 @@ fn member_status(view: Option<&PartyView>, has_film: bool) -> SharedString {
         .find(|row| row.member.is_host)
         .map(|row| row.member.name.clone());
     match (view.link, host) {
-        (Link::Ended(_), _) => "The party has ended".into(),
+        (Link::Ended(reason), _) => crate::party::lobby_ended_text(reason, false).into(),
         (Link::Live, Some(host)) if !has_film => format!("{host} is choosing a film").into(),
         (Link::Live, Some(host)) => format!("{host} starts the film when everyone is ready").into(),
         _ => "Joining the party".into(),

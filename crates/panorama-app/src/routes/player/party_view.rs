@@ -26,8 +26,10 @@ pub(super) struct PartyUi {
     seen: Option<Instant>,
     /// Whether notices before this player opened have been skipped.
     primed: bool,
-    /// Whether this party's invite went to the clipboard.
-    copied: bool,
+    /// The party was started here, and its invite goes to the clipboard once it is ready.
+    /// A party started from the lobby was copied there, so a film opening later leaves the
+    /// clipboard alone.
+    copy_pending: bool,
     ended: bool,
     toast: Option<(SharedString, Instant)>,
 }
@@ -58,13 +60,13 @@ impl Player {
             }
         }
         self.party_ui.primed = true;
-        if !self.party_ui.copied
+        if self.party_ui.copy_pending
             && let Role::Host {
                 invite: Some(link), ..
             } = &view.role
         {
             let link = link.as_str().to_owned();
-            self.party_ui.copied = true;
+            self.party_ui.copy_pending = false;
             if self.args.party_preview.is_none() {
                 cx.write_to_clipboard(ClipboardItem::new_string(link));
             }
@@ -186,6 +188,7 @@ impl Player {
                     keyboard,
                     window,
                     |player, cx| {
+                        player.party_ui.copy_pending = true;
                         player
                             .state
                             .update(cx, |state, cx| state.start_party(None, cx))
@@ -197,7 +200,7 @@ impl Player {
         let host = view.is_host();
         if let Some(reason) = view.ended() {
             return body
-                .child(helper(ended_text(reason, host).into()).pt(px(4.0)))
+                .child(helper(crate::party::ended_text(reason, host).into()).pt(px(4.0)))
                 .child(self.party_row(
                     "party-close",
                     slot::PARTY_EXIT,
@@ -261,7 +264,7 @@ impl Player {
                     cx,
                 ))
                 .child(helper(
-                    "Pauses for anyone buffering, up to 30 seconds at a time.".into(),
+                    "Pauses for anyone buffering, and after a jump until everyone is there. Up to 30 seconds at a time.".into(),
                 ))
                 .child(self.checkbox(
                     "party-control",
@@ -528,22 +531,6 @@ fn waiting_text(view: &PartyView) -> Option<String> {
         .find(|row| row.member.member_id == id)
         .map_or("someone", |row| row.member.name.as_str());
     Some(format!("Waiting for {name}"))
-}
-
-fn ended_text(reason: EndReason, host: bool) -> &'static str {
-    match reason {
-        EndReason::Left if host => "You ended the party. Everyone keeps watching on their own.",
-        EndReason::Left => "You left the party.",
-        EndReason::Bye(ByeReason::HostLeft) => "The host ended the party. You can keep watching.",
-        EndReason::Bye(ByeReason::Full) => "That party is full. It holds 8 people.",
-        EndReason::Bye(ByeReason::BadSecret) => "That invite link doesn't work any more.",
-        EndReason::Bye(ByeReason::VersionMismatch) => {
-            "You and the host are on different versions of Panorama. Update both, then rejoin."
-        }
-        EndReason::Bye(ByeReason::Kicked) => "The host removed you from the party.",
-        EndReason::Lost => "Lost the connection to the host. You can keep watching.",
-        EndReason::Failed(_) => "Couldn't reach the party. Check your internet connection.",
-    }
 }
 
 fn notice_text(notice: &Notice) -> String {

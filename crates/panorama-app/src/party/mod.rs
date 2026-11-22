@@ -315,3 +315,38 @@ pub(crate) fn trace(message: impl FnOnce() -> String) {
 
 #[cfg(test)]
 mod tests;
+
+/// Why the party ended for this person, as the player says it.
+pub(crate) fn ended_text(reason: EndReason, host: bool) -> &'static str {
+    match reason {
+        EndReason::Left if host => "You ended the party. Everyone keeps watching on their own.",
+        EndReason::Left => "You left the party.",
+        EndReason::Bye(panorama_core::party::ByeReason::HostLeft) => {
+            "The host ended the party. You can keep watching."
+        }
+        EndReason::Bye(panorama_core::party::ByeReason::Full) => {
+            "That party is full. It holds 8 people."
+        }
+        EndReason::Bye(panorama_core::party::ByeReason::BadSecret) => {
+            "That invite link doesn't work any more."
+        }
+        EndReason::Bye(panorama_core::party::ByeReason::VersionMismatch) => {
+            "You and the host are on different versions of Panorama. Update both, then rejoin."
+        }
+        EndReason::Bye(panorama_core::party::ByeReason::Kicked) => {
+            "The host removed you from the party."
+        }
+        EndReason::Lost => "Lost the connection to the host. You can keep watching.",
+        EndReason::Failed(_) => "Couldn't reach the party. Check your internet connection.",
+    }
+}
+
+/// The same, in a lobby, where there is no film to keep watching.
+pub(crate) fn lobby_ended_text(reason: EndReason, host: bool) -> &'static str {
+    match reason {
+        EndReason::Left if host => "You ended the party.",
+        EndReason::Bye(panorama_core::party::ByeReason::HostLeft) => "The host ended the party.",
+        EndReason::Lost => "Lost the connection to the host.",
+        reason => ended_text(reason, host),
+    }
+}

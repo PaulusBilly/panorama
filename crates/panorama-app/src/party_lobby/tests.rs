@@ -116,3 +116,32 @@ fn the_party_plays_the_hosts_selected_release() {
         "an addon with no sources plays nothing"
     );
 }
+
+#[test]
+fn a_friend_who_cannot_play_is_named_apart_from_the_loading() {
+    let readiness = Readiness::of(&roster(&[
+        ("Sam", MemberState::Failed),
+        ("Rina", MemberState::Ready),
+    ]));
+    assert_eq!(readiness.waiting, ["Sam"]);
+    assert_eq!(readiness.failed, ["Sam"]);
+    assert!(readiness.offers_start_anyway());
+}
+
+#[test]
+fn a_friends_lobby_says_why_the_party_ended() {
+    use crate::party::{EndReason, Link};
+    use panorama_core::party::ByeReason;
+    let mut view = preview(false);
+    let said = |view: &PartyView| view::member_status(Some(view), true).to_string();
+    view.link = Link::Ended(EndReason::Bye(ByeReason::VersionMismatch));
+    assert!(
+        said(&view).contains("different versions"),
+        "{}",
+        said(&view)
+    );
+    view.link = Link::Ended(EndReason::Bye(ByeReason::HostLeft));
+    assert_eq!(said(&view), "The host ended the party.");
+    view.link = Link::Ended(EndReason::Lost);
+    assert_eq!(said(&view), "Lost the connection to the host.");
+}
