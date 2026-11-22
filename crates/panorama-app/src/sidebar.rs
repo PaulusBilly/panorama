@@ -67,6 +67,8 @@ pub struct SidebarStatus {
     pub account_menu: bool,
     pub join: bool,
     pub in_party: bool,
+    /// A downloaded update waits in the account menu.
+    pub update_ready: bool,
 }
 
 impl Sidebar {
@@ -222,6 +224,9 @@ impl Sidebar {
                     .hover(|style| style.bg(theme.glass_hover))
                     .role(gpui::Role::Button)
                     .aria_label("Account menu")
+                    .when(status.update_ready, |avatar| {
+                        avatar.aria_description("Update ready")
+                    })
                     .aria_expanded(menu_open)
                     .on_click(cx.listener(|shell, event: &gpui::ClickEvent, window, cx| {
                         shell.menu.set_open(!shell.menu.open);
@@ -230,6 +235,19 @@ impl Sidebar {
                         }
                         cx.notify();
                     }))
+                    .when(status.update_ready, |avatar| {
+                        avatar.child(
+                            div()
+                                .absolute()
+                                .top(px(0.0))
+                                .right(px(0.0))
+                                .size(px(10.0))
+                                .rounded_full()
+                                .border_2()
+                                .border_color(theme.canvas)
+                                .bg(theme.accent),
+                        )
+                    })
                     .map(|avatar| match initial {
                         Some(initial) => avatar
                             .child(LABEL.apply(div()).weight(FontWeight::MEDIUM).child(initial)),

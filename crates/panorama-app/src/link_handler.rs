@@ -29,6 +29,12 @@ pub fn register() {
     }
 }
 
+/// Removes the `panorama://` registration, for the uninstaller.
+pub fn unregister() {
+    #[cfg(target_os = "windows")]
+    registry::remove(SCHEME_KEY);
+}
+
 #[cfg(target_os = "windows")]
 mod registry {
     use std::iter::once;
@@ -122,7 +128,6 @@ mod registry {
         Ok(true)
     }
 
-    #[cfg(test)]
     pub fn remove(key: &str) {
         use windows::Win32::System::Registry::RegDeleteTreeW;
         let key = HSTRING::from(key);

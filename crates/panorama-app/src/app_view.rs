@@ -87,6 +87,7 @@ impl Render for AppShell {
         };
         let route = self.history.current();
         let account = self.state.read(cx).account.clone();
+        let update = (self.state.read(cx).update.as_ref()).map(|ready| ready.version.clone());
         let in_party =
             (self.state.read(cx).party.as_ref()).is_some_and(|party| party.view.ended().is_none());
         let sidebar = route.has_sidebar().then(|| {
@@ -97,16 +98,17 @@ impl Render for AppShell {
                     account_menu: self.menu.open,
                     join: self.join.open,
                     in_party,
+                    update_ready: update.is_some(),
                 },
                 view,
                 window,
                 cx,
             )
         });
-        let menu = self
-            .menu
-            .visible(self.reduced_motion)
-            .then(|| self.menu.render(view, &account, window, cx));
+        let menu = self.menu.visible(self.reduced_motion).then(|| {
+            self.menu
+                .render(view, &account, update.as_deref(), window, cx)
+        });
         let join = (route.has_sidebar() && self.join.visible(self.reduced_motion))
             .then(|| self.join_popover(view, in_party, window, cx));
         div()

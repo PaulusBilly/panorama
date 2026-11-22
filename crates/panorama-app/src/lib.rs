@@ -45,6 +45,7 @@ pub mod tint;
 pub mod titlebar;
 pub mod trailer_preview;
 pub mod transition;
+pub mod updater;
 #[allow(unsafe_code)]
 pub mod window_controls;
 pub mod zoom;

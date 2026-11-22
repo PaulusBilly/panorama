@@ -13,6 +13,7 @@ use panorama_app::{
 use std::{process::ExitCode, sync::mpsc, time::Duration};
 
 fn main() -> ExitCode {
+    panorama_app::updater::startup();
     let args = match Args::parse(std::env::args_os().skip(1)) {
         Ok(args) => args,
         Err(error) => {
@@ -136,13 +137,18 @@ fn main() -> ExitCode {
                     return cx.new(|cx| gpui_component::Root::new(view, window, cx));
                 }
                 let state = cx.new(|cx| AppState::new(host.clone(), initial, cx));
+                if !args.fixtures && !capture_requested {
+                    panorama_app::updater::check(state.clone(), cx);
+                }
                 let quit_state = state.clone();
                 cx.on_app_quit(move |cx| {
-                    let done = quit_state
-                        .read(cx)
-                        .playback_host
-                        .as_ref()
-                        .map(|host| host.shutdown());
+                    let quitting = quit_state.read(cx);
+                    if let Some(ready) = &quitting.update
+                        && !quitting.update_restarting
+                    {
+                        panorama_app::updater::apply_after_exit(ready, false);
+                    }
+                    let done = quitting.playback_host.as_ref().map(|host| host.shutdown());
                     let executor = cx.background_executor().clone();
                     async move {
                         if let Some(done) = done {

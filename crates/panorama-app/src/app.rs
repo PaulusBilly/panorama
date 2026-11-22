@@ -164,6 +164,11 @@ impl AppShell {
                 cx.notify();
             });
         }
+        if args.update_ready {
+            shell.state.update(cx, |state, _| {
+                state.update = Some(crate::updater::Ready::preview("0.1.3"));
+            });
+        }
         if args.open_account_menu {
             shell.menu.set_open(true);
         }

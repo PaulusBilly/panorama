@@ -16,6 +16,8 @@ const WIDTH: f32 = 224.0;
 /// One row of the account popup.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuEntry {
+    /// Quits into the downloaded update and reopens.
+    Update,
     /// Ends the session.
     LogOut,
     /// Opens the sign-in dialog.
@@ -26,6 +28,7 @@ impl MenuEntry {
     /// Visible and accessible label.
     pub fn label(self) -> &'static str {
         match self {
+            Self::Update => "Restart to update",
             Self::LogOut => "Sign out",
             Self::LogIn => "Sign in",
         }
@@ -59,14 +62,19 @@ pub fn popover_shadow() -> Vec<BoxShadow> {
     ]
 }
 
-/// Entries in display order: the sidebar already has Addons and the watch party, so the
-/// session remains.
-pub fn entries(signed_in: bool) -> &'static [MenuEntry] {
-    if signed_in {
-        &[MenuEntry::LogOut]
+/// Entries in display order: the sidebar already has Addons and the watch party, so a ready
+/// update and the session remain.
+pub fn entries(signed_in: bool, update_ready: bool) -> Vec<MenuEntry> {
+    let session = if signed_in {
+        MenuEntry::LogOut
     } else {
-        &[MenuEntry::LogIn]
-    }
+        MenuEntry::LogIn
+    };
+    update_ready
+        .then_some(MenuEntry::Update)
+        .into_iter()
+        .chain([session])
+        .collect()
 }
 
 /// Retained account-popup presence and keyboard focus.
@@ -77,12 +85,12 @@ pub struct AccountMenu {
     focus: Vec<FocusHandle>,
 }
 impl AccountMenu {
-    /// Allocate the popup's single action.
+    /// Allocate a focus target for each possible row.
     pub fn new(cx: &mut Context<AppShell>) -> Self {
         Self {
             open: false,
             presence: Tween::fixed(0.0),
-            focus: vec![cx.focus_handle().tab_stop(false)],
+            focus: (0..2).map(|_| cx.focus_handle().tab_stop(false)).collect(),
         }
     }
     /// Reverse popup presence from its current pose.
@@ -135,10 +143,12 @@ impl AccountMenu {
         &self,
         view: crate::home_layout::ViewSettings,
         account: &Account,
+        update: Option<&str>,
         window: &Window,
         cx: &mut Context<AppShell>,
     ) -> Stateful<Div> {
         let theme = view.theme;
+        let ready = update.map(|version| format!("Panorama {version} is ready"));
         let reduced = view.reduced;
         let viewport = window.viewport_size();
         let avatar = avatar_bounds(viewport);
@@ -182,46 +192,61 @@ impl AccountMenu {
                         .child(div().label().truncate().child(email)),
                 )
             })
-            .children(entries(email_present(account)).iter().zip(&self.focus).map(
-                |(&entry, focus)| {
-                    let label = entry.label();
-                    focus_ring(
-                        div()
-                            .id(("account-entry", entry as usize))
-                            .w_full()
-                            .min_h(px(40.0))
-                            .px(px(12.0))
-                            .flex()
-                            .flex_col()
-                            .justify_center()
-                            .cursor_pointer()
-                            .hover(|style| style.bg(theme.hover))
-                            .role(gpui::Role::MenuItem)
-                            .aria_label(label)
-                            .on_click(cx.listener(move |shell, _, window, cx| {
-                                match entry {
-                                    MenuEntry::LogOut => {
-                                        shell.menu.set_open(false);
-                                        shell.state.update(cx, |state, cx| state.sign_out(cx));
-                                        shell.sidebar.account.focus(window, cx);
+            .children(
+                entries(email_present(account), update.is_some())
+                    .into_iter()
+                    .zip(&self.focus)
+                    .map(|(entry, focus)| {
+                        let label = entry.label();
+                        let caption = (entry == MenuEntry::Update)
+                            .then(|| ready.clone())
+                            .flatten();
+                        focus_ring(
+                            div()
+                                .id(("account-entry", entry as usize))
+                                .w_full()
+                                .min_h(px(40.0))
+                                .px(px(12.0))
+                                .flex()
+                                .flex_col()
+                                .justify_center()
+                                .cursor_pointer()
+                                .hover(|style| style.bg(theme.hover))
+                                .role(gpui::Role::MenuItem)
+                                .aria_label(label)
+                                .on_click(cx.listener(move |shell, _, window, cx| {
+                                    match entry {
+                                        MenuEntry::Update => {
+                                            shell.menu.set_open(false);
+                                            shell.restart_to_update(cx);
+                                        }
+                                        MenuEntry::LogOut => {
+                                            shell.menu.set_open(false);
+                                            shell.state.update(cx, |state, cx| state.sign_out(cx));
+                                            shell.sidebar.account.focus(window, cx);
+                                        }
+                                        MenuEntry::LogIn => {
+                                            shell.menu.set_open(false);
+                                            shell.open_login(window, cx);
+                                        }
                                     }
-                                    MenuEntry::LogIn => {
-                                        shell.menu.set_open(false);
-                                        shell.open_login(window, cx);
-                                    }
-                                }
-                                cx.notify();
-                            }))
-                            .child(div().label().child(label)),
-                        focus,
-                        theme,
-                        self.open,
-                        view.keyboard,
-                        0.0,
-                        window,
-                    )
-                },
-            ))
+                                    cx.notify();
+                                }))
+                                .child(div().label().child(label))
+                                .when_some(caption, |row, caption| {
+                                    row.pb(px(2.0)).child(
+                                        div().caption().text_color(theme.ink_muted).child(caption),
+                                    )
+                                }),
+                            focus,
+                            theme,
+                            self.open,
+                            view.keyboard,
+                            0.0,
+                            window,
+                        )
+                    }),
+            )
     }
 }
 
@@ -235,10 +260,16 @@ mod tests {
 
     #[test]
     fn the_account_menu_has_no_party_entry() {
-        assert_eq!(entries(false), [MenuEntry::LogIn]);
-        assert_eq!(entries(true), [MenuEntry::LogOut]);
-        for entry in entries(true).iter().chain(entries(false)) {
+        assert_eq!(entries(false, false), [MenuEntry::LogIn]);
+        assert_eq!(entries(true, false), [MenuEntry::LogOut]);
+        for entry in entries(true, true).iter().chain(&entries(false, true)) {
             assert!(!entry.label().contains("party"), "{entry:?}");
         }
+    }
+
+    #[test]
+    fn a_ready_update_leads_the_menu() {
+        assert_eq!(entries(true, true), [MenuEntry::Update, MenuEntry::LogOut]);
+        assert_eq!(entries(false, true), [MenuEntry::Update, MenuEntry::LogIn]);
     }
 }

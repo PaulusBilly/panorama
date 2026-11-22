@@ -63,6 +63,8 @@ pub struct Args {
     pub focus_first_card: bool,
     /// Open the account popup before capture.
     pub open_account_menu: bool,
+    /// Show a downloaded update as ready before capture.
+    pub update_ready: bool,
     /// Open the sidebar's Join watch party field before capture.
     pub open_join: bool,
     /// Open the sign-in dialog before capture.
@@ -142,6 +144,7 @@ impl Args {
             open_trailer_card: false,
             focus_first_card: false,
             open_account_menu: false,
+            update_ready: false,
             open_join: false,
             open_sign_in: false,
             open_party_lobby: None,
@@ -312,6 +315,7 @@ impl Args {
                 }
                 "--focus-first-card" => result.focus_first_card = true,
                 "--open-account-menu" => result.open_account_menu = true,
+                "--update-ready" => result.update_ready = true,
                 "--open-join" => result.open_join = true,
                 "--open-sign-in" => result.open_sign_in = true,
                 "--open-party-lobby" => {
