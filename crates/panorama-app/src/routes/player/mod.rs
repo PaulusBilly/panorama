@@ -579,17 +579,24 @@ impl Player {
         });
     }
 
+    /// Leaving the player closes the film for the whole party.
     fn unmount(&mut self, cx: &mut gpui::App) {
+        if self.release(cx) {
+            self.state.update(cx, |state, _| state.party_stop());
+        }
+    }
+
+    /// Closes what plays. `true` when something was playing here.
+    fn release(&mut self, cx: &mut gpui::App) -> bool {
         // Leaving while the sources are still being looked up stops the lookup.
         let id = self.id.clone();
         self.state.update(cx, |state, _| {
             if state.launch.as_ref().is_some_and(|launch| launch.id == id) {
                 state.launch = None;
             }
-            state.party_stop();
         });
         if !self.mounted {
-            return;
+            return false;
         }
         self.flush_prefs(cx);
         self.ui.edit = None;
@@ -609,6 +616,7 @@ impl Player {
         self.rect = None;
         self.mounted = false;
         self.surface_shown = false;
+        true
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -161,13 +161,7 @@ impl Render for PartyLobby {
             .on_action(cx.listener(|lobby, _: &super::CloseLobby, window, cx| {
                 lobby.act(Command::Escape, window, cx)
             }))
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .bg(backdrop)
-                    .opacity(scrim),
-            )
+            .child(div().absolute().inset_0().bg(backdrop).opacity(scrim))
             .child(
                 div()
                     .relative()

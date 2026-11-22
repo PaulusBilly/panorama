@@ -127,9 +127,8 @@ impl AppState {
         }
     }
 
-    /// Host a party. Whatever plays next, or plays now, is what the party watches. Any party
-    /// this window was in is left first.
-    /// Hosts a party, or keeps the one this window already hosts so its friends stay.
+    /// Host a party. Whatever plays next, or plays now, is what the party watches. A party this
+    /// window already hosts is kept, so its friends stay; a party it joined is left first.
     pub fn start_party(&mut self, name: Option<String>, cx: &mut Context<Self>) {
         if self
             .party

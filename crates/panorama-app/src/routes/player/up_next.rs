@@ -102,9 +102,10 @@ impl Player {
         });
     }
 
-    /// Close what plays so the next launch's selection mounts in this same player.
+    /// Close what plays so the next launch's selection mounts in this same player. The party
+    /// stays: the next film's announcement replaces this one's.
     pub fn restart(&mut self, cx: &mut Context<Self>) {
-        self.unmount(cx);
+        self.release(cx);
         self.up_next = UpNext::Hidden;
         self.late_subtitles = None;
         self.subtitle_queue.clear();
