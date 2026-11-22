@@ -17,4 +17,96 @@ impl AppShell {
         self.sidebar.account.focus(window, cx);
         cx.notify();
     }
+
+    /// The host's lobby for the party just started, before `selection` plays.
+    pub fn open_party_lobby_as_host(
+        &mut self,
+        selection: crate::playback::selection::PlaybackSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let side = crate::party_lobby::Side::Host(Box::new(selection));
+        self.open_party_lobby(side, None, window, cx);
+    }
+
+    /// The lobby of the party this window just joined. The host's film opens under it and
+    /// shows once the host starts the party.
+    pub fn open_party_lobby_as_member(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_party_lobby(crate::party_lobby::Side::Member, None, window, cx);
+    }
+
+    /// `--open-party-lobby`: a made-up party over the current route, for captures.
+    pub(crate) fn open_party_lobby_preview(
+        &mut self,
+        host: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = match self.history.current() {
+            Route::Film { id, .. } => id.clone(),
+            _ => String::new(),
+        };
+        let Some(film) =
+            crate::fixtures::details(&id).or_else(|| crate::fixtures::films().into_iter().next())
+        else {
+            return;
+        };
+        let view = crate::party_lobby::preview(host);
+        self.state.update(cx, |state, _| {
+            state.party = Some(crate::party::Party::preview(view));
+        });
+        let side = if host {
+            crate::party_lobby::Side::Host(Box::new(
+                crate::playback::selection::PlaybackSelection {
+                    video_id: film.id.clone(),
+                    film: film.clone(),
+                    groups: crate::fixtures::player_groups(),
+                    source: crate::playback::selection::SourceRef {
+                        group: 0,
+                        stream: 4,
+                    },
+                    start: crate::playback::selection::StartMode::Restart,
+                    meta_base: None,
+                    subtitles: Vec::new(),
+                    late_subtitles: None,
+                },
+            ))
+        } else {
+            crate::party_lobby::Side::Member
+        };
+        self.open_party_lobby(side, Some(film), window, cx);
+    }
+
+    fn open_party_lobby(
+        &mut self,
+        side: crate::party_lobby::Side,
+        film: Option<panorama_core::addons::FilmDetails>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu.set_open(false);
+        let shell = cx.weak_entity();
+        let state = self.state.clone();
+        self.lobby =
+            Some(cx.new(|cx| {
+                crate::party_lobby::PartyLobby::new(shell, state, side, film, window, cx)
+            }));
+        cx.notify();
+    }
+
+    /// After leaving from the lobby: a friend's player, opened under it, closes too.
+    pub(crate) fn leave_party_route(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Route::Player { id } = self.history.current().clone() {
+            if let Some(host) = &self.state.read(cx).playback_host {
+                host.send(crate::playback::host::Command::Stop);
+            }
+            self.back_to_film(id, window, cx);
+        }
+    }
+
+    pub(crate) fn finish_party_lobby(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.lobby = None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
 }

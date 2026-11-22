@@ -1,0 +1,118 @@
+use super::*;
+
+fn roster(friends: &[(&str, MemberState)]) -> Vec<RosterRow> {
+    let mut view = preview(true);
+    view.roster.truncate(1);
+    for (index, (name, state)) in friends.iter().enumerate() {
+        let mut row = view.roster[0].clone();
+        row.member.member_id = index as u32 + 1;
+        row.member.name = (*name).into();
+        row.member.state = *state;
+        row.member.is_host = false;
+        view.roster.push(row);
+    }
+    view.roster
+}
+
+#[test]
+fn start_is_disabled_until_every_joined_friend_is_ready() {
+    let loading = Readiness::of(&roster(&[
+        ("Sam", MemberState::Paused),
+        ("Rina", MemberState::Loading),
+    ]));
+    assert!(!loading.can_start());
+    assert_eq!(decide(true, &loading, Command::StartWatching), None);
+
+    let ready = Readiness::of(&roster(&[
+        ("Sam", MemberState::Paused),
+        ("Rina", MemberState::Ready),
+    ]));
+    assert!(ready.can_start());
+    assert_eq!(
+        decide(true, &ready, Command::StartWatching),
+        Some(Exit::Start)
+    );
+
+    let alone = Readiness::of(&roster(&[]));
+    assert!(alone.can_start(), "a host on their own can start");
+}
+
+#[test]
+fn start_anyway_is_offered_while_someone_loads() {
+    let readiness = Readiness::of(&roster(&[
+        ("Sam", MemberState::Ready),
+        ("Rina", MemberState::Loading),
+        ("Alex", MemberState::Buffering),
+    ]));
+    assert!(readiness.offers_start_anyway());
+    assert_eq!(readiness.waiting, ["Rina", "Alex"]);
+    assert_eq!(
+        decide(true, &readiness, Command::StartAnyway),
+        Some(Exit::Start)
+    );
+    assert_eq!(
+        decide(false, &readiness, Command::StartAnyway),
+        None,
+        "only the host starts the party"
+    );
+
+    let ready = Readiness::of(&roster(&[("Sam", MemberState::Ready)]));
+    assert!(!ready.offers_start_anyway());
+    assert_eq!(decide(true, &ready, Command::StartAnyway), None);
+}
+
+#[test]
+fn escape_closes_the_lobby_and_leaves_the_party() {
+    let readiness = Readiness::of(&roster(&[("Sam", MemberState::Loading)]));
+    for host in [true, false] {
+        assert_eq!(decide(host, &readiness, Command::Escape), Some(Exit::Leave));
+    }
+}
+
+#[test]
+fn a_member_lobby_closes_when_the_host_starts() {
+    let readiness = Readiness::default();
+    assert_eq!(
+        decide(false, &readiness, Command::HostStarted),
+        Some(Exit::Started)
+    );
+    assert_eq!(decide(true, &readiness, Command::HostStarted), None);
+}
+
+#[test]
+fn the_party_plays_the_hosts_selected_release() {
+    let film = crate::fixtures::films().remove(0);
+    let selection = PlaybackSelection {
+        video_id: film.id.clone(),
+        film,
+        groups: crate::fixtures::player_groups(),
+        source: SourceRef {
+            group: 0,
+            stream: 1,
+        },
+        start: crate::playback::selection::StartMode::Restart,
+        meta_base: None,
+        subtitles: Vec::new(),
+        late_subtitles: None,
+    };
+    let media = media_of(&selection).expect("a ready source");
+    assert_eq!(media.film_id, "tmdb:100");
+    let StreamState::Ready(streams) = &selection.groups[0].state else {
+        panic!("fixture streams");
+    };
+    assert_eq!(
+        media.release,
+        PartyRelease::of(&selection.groups[0], &streams[1])
+    );
+    let empty = PlaybackSelection {
+        source: SourceRef {
+            group: 1,
+            stream: 0,
+        },
+        ..selection
+    };
+    assert!(
+        media_of(&empty).is_none(),
+        "an addon with no sources plays nothing"
+    );
+}

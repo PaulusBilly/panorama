@@ -18,48 +18,56 @@ impl Film {
             }
             return;
         }
+        if let Some(selection) = self.selection() {
+            let route = crate::router::Route::Player {
+                id: self.id.clone(),
+            };
+            self.state
+                .update(cx, |state, _| state.playback = Some(selection));
+            let _ = self
+                .shell
+                .update(cx, |shell, cx| shell.navigate(route, window, cx));
+        }
+    }
+    /// What Play would play now: the selected source of the film or the target episode.
+    fn selection(&self) -> Option<crate::playback::selection::PlaybackSelection> {
         // Play does not wait for the subtitle files: a lookup still running follows the player.
         let late_subtitles = if self.subtitles.is_none() {
             self.subtitle_lookup.clone()
         } else {
             None
         };
-        let subtitles = self.subtitles.clone().unwrap_or_default();
-        if let (Some(source), Some(mut film), Some(video_id)) =
-            (self.selected, self.metadata.clone(), self.target.clone())
-        {
-            let id = self.id.clone();
-            film.episodes = (*self.episodes).clone();
-            let selection = crate::playback::selection::PlaybackSelection {
-                video_id,
-                film,
-                groups: self.groups.clone(),
-                source,
-                start: self
-                    .resume_here()
-                    .map_or(crate::playback::selection::StartMode::Restart, |point| {
-                        crate::playback::selection::StartMode::Resume(point.offset_secs)
-                    }),
-                meta_base: self.meta_base.clone(),
-                subtitles,
-                late_subtitles,
-            };
-            self.state
-                .update(cx, |state, _| state.playback = Some(selection));
-            let route = crate::router::Route::Player { id };
-            let _ = self
-                .shell
-                .update(cx, |shell, cx| shell.navigate(route, window, cx));
-        }
+        let mut film = self.metadata.clone()?;
+        film.episodes = (*self.episodes).clone();
+        Some(crate::playback::selection::PlaybackSelection {
+            video_id: self.target.clone()?,
+            film,
+            groups: self.groups.clone(),
+            source: self.selected?,
+            start: self
+                .resume_here()
+                .map_or(crate::playback::selection::StartMode::Restart, |point| {
+                    crate::playback::selection::StartMode::Resume(point.offset_secs)
+                }),
+            meta_base: self.meta_base.clone(),
+            subtitles: self.subtitles.clone().unwrap_or_default(),
+            late_subtitles,
+        })
     }
-    /// Host a watch party and play the film for it. The invite link is copied once the
-    /// party can be reached.
+    /// Host a watch party and open its lobby; the film plays once the host starts it there.
     fn watch_together(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected.is_some() && matches!(self.account, Account::SignedIn(_)) {
-            self.state
-                .update(cx, |state, cx| state.start_party(None, cx));
-        }
-        self.primary_action(window, cx);
+        let selection = self
+            .selection()
+            .filter(|_| matches!(self.account, Account::SignedIn(_)));
+        let Some(selection) = selection else {
+            self.primary_action(window, cx);
+            return;
+        };
+        self.state
+            .update(cx, |state, cx| state.start_party(None, cx));
+        let _ = self.shell.update(cx, |shell, cx| {
+            shell.open_party_lobby_as_host(selection, window, cx)
+        });
     }
     /// The resume point, when it belongs to what Play plays.
     fn resume_here(&self) -> Option<&panorama_core::stremio::ResumePoint> {

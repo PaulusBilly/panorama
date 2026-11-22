@@ -41,6 +41,7 @@ pub enum Icon {
     Retry,
     Close,
     Users,
+    Copy,
 }
 impl Icon {
     pub fn path(self) -> &'static str {
@@ -58,6 +59,7 @@ impl Icon {
             Self::Retry => "refresh.svg",
             Self::Close => "x.svg",
             Self::Users => "users.svg",
+            Self::Copy => "copy.svg",
         }
     }
 }
@@ -310,6 +312,8 @@ mod tests {
             Icon::Person,
             Icon::Retry,
             Icon::Close,
+            Icon::Users,
+            Icon::Copy,
         ] {
             assert!(
                 crate::assets::Assets.load(icon.path()).unwrap().is_some(),

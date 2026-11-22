@@ -71,6 +71,8 @@ pub(super) enum Input {
     /// Host: the local player's audio and subtitle tracks.
     Tracks(TrackChoice),
     Sync(PartySync),
+    /// Host: leave the lobby, so the party plays once everyone is ready.
+    Start,
 }
 
 /// To the GPUI side.
@@ -478,6 +480,9 @@ impl Host {
                     )
                 });
                 self.handle(HostInput::SetMedia { media, at });
+            }
+            Input::Start => {
+                trace(|| "host start".into());
                 self.handle(HostInput::Start);
             }
             Input::Settings(settings) => {
@@ -708,7 +713,7 @@ impl Member {
                 self.handle(MemberInput::Reopened);
             }
             Input::Sync(sync) => self.view.sync = sync,
-            Input::Media { .. } | Input::Settings(_) | Input::Tracks(_) => {}
+            Input::Media { .. } | Input::Settings(_) | Input::Tracks(_) | Input::Start => {}
         }
     }
 
@@ -725,6 +730,7 @@ impl Member {
                 MemberOutput::Welcomed { member_id } => {
                     trace(|| format!("member joined member_id={member_id}"));
                     self.view.link = Link::Live;
+                    self.view.me = Some(member_id);
                 }
                 MemberOutput::Load(media) => {
                     trace(|| {
@@ -745,7 +751,10 @@ impl Member {
                     trace(|| format!("member tracks {tracks:?}"));
                     self.events.send(Event::Tracks(tracks));
                 }
-                MemberOutput::Gate(gate) => trace(|| format!("member gate {gate:?}")),
+                MemberOutput::Gate(gate) => {
+                    trace(|| format!("member gate {gate:?}"));
+                    self.view.gate = Some(gate);
+                }
                 MemberOutput::Roster(members) => {
                     self.view.roster = members
                         .into_iter()
