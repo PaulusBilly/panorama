@@ -173,12 +173,11 @@ impl AppShell {
         if args.open_sign_in {
             shell.open_login(window, cx);
         }
-        let mut joined = false;
-        if let Some(invite) = &args.party_join {
-            match shell.join_party_from_invite(invite, args.party_name.clone(), window, cx) {
-                Ok(()) => joined = true,
-                Err(error) => crate::debug::log(format!("party join refused: {error}")),
-            }
+        if let Some(invite) = &args.party_join
+            && let Err(error) =
+                shell.join_party_from_invite(invite, args.party_name.clone(), window, cx)
+        {
+            crate::debug::log(format!("party join refused: {error}"));
         }
         shell.state.update(cx, |state, cx| {
             if args.party_host {
@@ -189,9 +188,6 @@ impl AppShell {
                 cx.notify();
             }
         });
-        if joined {
-            shell.open_party_lobby_as_member(window, cx);
-        }
         if let Some(host) = args.open_party_lobby {
             shell.open_party_lobby_preview(host, window, cx);
         }
@@ -219,8 +215,8 @@ impl AppShell {
 }
 
 impl AppShell {
-    /// Joins the party an invite link names. Every way in comes through here: the sidebar's
-    /// field, an opened invite link, and a second launch's handoff.
+    /// Joins the party an invite link names and opens its lobby. Every way in comes through
+    /// here: the sidebar's field, an opened invite link, and a second launch's handoff.
     pub(crate) fn join_party_from_invite(
         &mut self,
         invite: &str,
@@ -230,10 +226,10 @@ impl AppShell {
     ) -> Result<(), panorama_core::party::transport::InviteError> {
         self.state
             .update(cx, |state, cx| state.join_party(invite, name, cx))?;
-        self.menu.set_open(false);
         if self.join.open {
             self.close_join(window, cx);
         }
+        self.open_party_lobby_as_member(window, cx);
         Ok(())
     }
 
@@ -278,7 +274,6 @@ impl AppShell {
             .join_party_from_invite(&invite, None, window, cx)
             .is_ok()
         {
-            self.open_party_lobby_as_member(window, cx);
             cx.activate(true);
             window.activate_window();
         }
