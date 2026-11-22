@@ -72,7 +72,7 @@ fn an_internet_invite_names_only_the_relay() {
         .with_ip_addr("203.0.113.9:40000".parse().unwrap());
     let secret = PartySecret::generate().unwrap();
     let invite = invite_for(addr.clone(), Network::Internet, &secret);
-    assert!(invite.len() < 200, "{} chars", invite.len());
+    assert!(invite.len() < 256, "{} chars", invite.len());
     let parsed = parse_invite(&invite).unwrap();
     assert_eq!(parsed.addr.id, addr.id);
     assert_eq!(parsed.addr.ip_addrs().count(), 0);
@@ -132,34 +132,89 @@ async fn sample_invite() -> String {
         .unwrap()
 }
 
+fn parts(invite: &str) -> (String, String) {
+    let fragment = invite
+        .strip_prefix(WEB_INVITE)
+        .and_then(|rest| rest.strip_prefix('#'))
+        .expect("https invite");
+    let (ticket, secret) = fragment.rsplit_once('.').expect("ticket.secret");
+    (ticket.to_owned(), secret.to_owned())
+}
+
 #[tokio::test]
-async fn parse_invite_rejects_other_schemes() {
+async fn https_invites_round_trip() {
     let invite = sample_invite().await;
-    let tail = invite.strip_prefix("panorama://party/").unwrap();
+    assert!(invite.starts_with("https://paulusbilly.github.io/panorama/join#"));
+    let (ticket, secret) = parts(&invite);
+    let parsed = parse_invite(&invite).unwrap();
+    assert_eq!(parsed.secret.to_hex(), secret);
+    for same in [
+        invite.replacen('#', "/#", 1),
+        format!("panorama://party/{ticket}.{secret}"),
+        format!("panorama://party/{ticket}.{secret}/"),
+        format!("{ticket}.{secret}"),
+    ] {
+        let again = parse_invite(&same).unwrap_or_else(|e| panic!("{same:?}: {e}"));
+        assert_eq!(again.addr, parsed.addr);
+        assert_eq!(again.secret, parsed.secret);
+    }
+}
+
+#[tokio::test]
+async fn old_panorama_links_still_parse() {
+    let invite = sample_invite().await;
+    let (ticket, secret) = parts(&invite);
+    let old = parse_invite(&format!("panorama://party/{ticket}?s={secret}")).unwrap();
+    let new = parse_invite(&invite).unwrap();
+    assert_eq!(old.addr, new.addr);
+    assert_eq!(old.secret, new.secret);
+}
+
+#[tokio::test]
+async fn parse_invite_rejects_other_hosts_paths_and_schemes() {
+    let invite = sample_invite().await;
+    let (ticket, secret) = parts(&invite);
+    let tail = format!("{ticket}.{secret}");
     for bad in [
+        format!("https://evil.example/panorama/join#{tail}"),
+        format!("https://paulusbilly.github.io.evil.example/panorama/join#{tail}"),
+        format!("https://paulusbilly.github.io/panorama/other#{tail}"),
+        format!("https://paulusbilly.github.io/panorama/join/x#{tail}"),
+        format!("https://paulusbilly.github.io/panorama/joined#{tail}"),
+        format!("https://paulusbilly.github.io/panorama/join?x=1#{tail}"),
+        format!("https://user@paulusbilly.github.io/panorama/join#{tail}"),
+        format!("http://paulusbilly.github.io/panorama/join#{tail}"),
+        format!("https://paulusbilly.github.io/panorama/join{tail}"),
+        "https://paulusbilly.github.io/panorama/join#".to_owned(),
         format!("https://party/{tail}"),
         format!("panorama://room/{tail}"),
         format!("PANORAMA://party/{tail}"),
-        tail.to_string(),
+        format!("panorama://party/{ticket}?s={secret}&x=1"),
+        format!("{ticket}.{}", "a".repeat(MAX_INVITE)),
+        tail.replace('.', "?s="),
         String::new(),
     ] {
         assert!(parse_invite(&bad).is_err(), "accepted {bad:?}");
     }
-    let (ticket, secret) = tail.split_once('?').unwrap();
     assert_eq!(
         parse_invite(&format!("panorama://party/{ticket}")).unwrap_err(),
         InviteError::Shape
     );
     assert_eq!(
-        parse_invite(&format!("panorama://party/endpointzzz?{secret}")).unwrap_err(),
+        parse_invite(&format!("panorama://party/endpointzzz.{secret}")).unwrap_err(),
         InviteError::Ticket
+    );
+    assert_eq!(
+        parse_invite(&format!("{WEB_INVITE}#{ticket}.zz")).unwrap_err(),
+        InviteError::Secret
     );
 }
 
 #[tokio::test]
 async fn parse_invite_rejects_bad_secret() {
     let invite = sample_invite().await;
-    let (head, _) = invite.split_once("?s=").unwrap();
+    let (ticket, _) = parts(&invite);
+    let head = format!("panorama://party/{ticket}");
     for secret in [
         "",
         "abc",

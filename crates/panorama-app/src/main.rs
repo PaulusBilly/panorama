@@ -43,145 +43,150 @@ fn main() -> ExitCode {
     {
         return ExitCode::SUCCESS;
     }
+    if !locked && args.screenshot.is_none() {
+        panorama_app::link_handler::register();
+    }
     let screenshot = args.screenshot.clone();
     let capture_requested = screenshot.is_some();
     let (outcome, results) = mpsc::channel();
     let startup_outcome = outcome.clone();
-    gpui_platform::application()
+    let application = gpui_platform::application()
         .with_assets(Assets)
-        .with_quit_mode(QuitMode::LastWindowClosed)
-        .run(move |cx| {
-            gpui_component::init(cx);
-            cx.bind_keys([
-                gpui::KeyBinding::new(
-                    "tab",
-                    panorama_app::film_grid::NextCard,
-                    Some("PanoramaCard"),
-                ),
-                gpui::KeyBinding::new(
-                    "shift-tab",
-                    panorama_app::film_grid::PreviousCard,
-                    Some("PanoramaCard"),
-                ),
-                gpui::KeyBinding::new("tab", panorama_app::login::NextField, Some("PanoramaLogin")),
-                gpui::KeyBinding::new(
-                    "shift-tab",
-                    panorama_app::login::PreviousField,
-                    Some("PanoramaLogin"),
-                ),
-                gpui::KeyBinding::new(
-                    "escape",
-                    panorama_app::login::CloseDialog,
-                    Some("PanoramaLogin"),
-                ),
-                gpui::KeyBinding::new("enter", panorama_app::login::Submit, Some("PanoramaLogin")),
-                gpui::KeyBinding::new(
-                    "tab",
-                    panorama_app::party_lobby::NextControl,
-                    Some("PanoramaLobby"),
-                ),
-                gpui::KeyBinding::new(
-                    "shift-tab",
-                    panorama_app::party_lobby::PreviousControl,
-                    Some("PanoramaLobby"),
-                ),
-                gpui::KeyBinding::new(
-                    "escape",
-                    panorama_app::party_lobby::CloseLobby,
-                    Some("PanoramaLobby"),
-                ),
-            ]);
-            if let Err(error) = assets::register_fonts(cx) {
-                let _ = startup_outcome.send(Err(error));
-                cx.quit();
-                return;
-            }
-            Theme::default().install(cx);
-            let bounds = Bounds::centered(None, size(px(args.size.0), px(args.size.1)), cx);
-            let result = cx.open_window(
-                WindowOptions {
-                    // Screenshots need the exact --size; a normal launch fills the screen without entering full screen.
-                    window_bounds: Some(if args.screenshot.is_some() {
-                        WindowBounds::Windowed(bounds)
-                    } else {
-                        WindowBounds::Maximized(bounds)
-                    }),
-                    window_min_size: Some(if capture_requested {
-                        size(px(320.0), px(320.0))
-                    } else {
-                        size(px(960.0), px(600.0))
-                    }),
-                    // macOS drags come from the titlebar strip, so AppKit adds no double-click delay.
-                    app_owns_titlebar_drag: true,
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("Panorama".into()),
-                        appears_transparent: true,
-                        ..Default::default()
-                    }),
+        .with_quit_mode(QuitMode::LastWindowClosed);
+    #[cfg(target_os = "macos")]
+    if let Some(dir) = host.data_dir() {
+        application.on_open_urls(move |urls| party::handoff::deliver_first_valid(&dir, &urls));
+    }
+    application.run(move |cx| {
+        gpui_component::init(cx);
+        cx.bind_keys([
+            gpui::KeyBinding::new(
+                "tab",
+                panorama_app::film_grid::NextCard,
+                Some("PanoramaCard"),
+            ),
+            gpui::KeyBinding::new(
+                "shift-tab",
+                panorama_app::film_grid::PreviousCard,
+                Some("PanoramaCard"),
+            ),
+            gpui::KeyBinding::new("tab", panorama_app::login::NextField, Some("PanoramaLogin")),
+            gpui::KeyBinding::new(
+                "shift-tab",
+                panorama_app::login::PreviousField,
+                Some("PanoramaLogin"),
+            ),
+            gpui::KeyBinding::new(
+                "escape",
+                panorama_app::login::CloseDialog,
+                Some("PanoramaLogin"),
+            ),
+            gpui::KeyBinding::new("enter", panorama_app::login::Submit, Some("PanoramaLogin")),
+            gpui::KeyBinding::new(
+                "tab",
+                panorama_app::party_lobby::NextControl,
+                Some("PanoramaLobby"),
+            ),
+            gpui::KeyBinding::new(
+                "shift-tab",
+                panorama_app::party_lobby::PreviousControl,
+                Some("PanoramaLobby"),
+            ),
+            gpui::KeyBinding::new(
+                "escape",
+                panorama_app::party_lobby::CloseLobby,
+                Some("PanoramaLobby"),
+            ),
+        ]);
+        if let Err(error) = assets::register_fonts(cx) {
+            let _ = startup_outcome.send(Err(error));
+            cx.quit();
+            return;
+        }
+        Theme::default().install(cx);
+        let bounds = Bounds::centered(None, size(px(args.size.0), px(args.size.1)), cx);
+        let result = cx.open_window(
+            WindowOptions {
+                // Screenshots need the exact --size; a normal launch fills the screen without entering full screen.
+                window_bounds: Some(if args.screenshot.is_some() {
+                    WindowBounds::Windowed(bounds)
+                } else {
+                    WindowBounds::Maximized(bounds)
+                }),
+                window_min_size: Some(if capture_requested {
+                    size(px(320.0), px(320.0))
+                } else {
+                    size(px(960.0), px(600.0))
+                }),
+                // macOS drags come from the titlebar strip, so AppKit adds no double-click delay.
+                app_owns_titlebar_drag: true,
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Panorama".into()),
+                    appears_transparent: true,
                     ..Default::default()
-                },
-                |window, cx| {
-                    if capture_requested {
-                        window.activate_window();
-                    }
-                    if locked {
-                        let view = cx.new(|_| AlreadyRunning);
-                        return cx.new(|cx| gpui_component::Root::new(view, window, cx));
-                    }
-                    let state = cx.new(|cx| AppState::new(host.clone(), initial, cx));
-                    let quit_state = state.clone();
-                    cx.on_app_quit(move |cx| {
-                        let done = quit_state
-                            .read(cx)
-                            .playback_host
-                            .as_ref()
-                            .map(|host| host.shutdown());
-                        let executor = cx.background_executor().clone();
-                        async move {
-                            if let Some(done) = done {
-                                panorama_app::playback::window::wait_for_shutdown(
-                                    done,
-                                    |duration| executor.timer(duration),
-                                )
-                                .await;
-                            }
+                }),
+                ..Default::default()
+            },
+            |window, cx| {
+                if capture_requested {
+                    window.activate_window();
+                }
+                if locked {
+                    let view = cx.new(|_| AlreadyRunning);
+                    return cx.new(|cx| gpui_component::Root::new(view, window, cx));
+                }
+                let state = cx.new(|cx| AppState::new(host.clone(), initial, cx));
+                let quit_state = state.clone();
+                cx.on_app_quit(move |cx| {
+                    let done = quit_state
+                        .read(cx)
+                        .playback_host
+                        .as_ref()
+                        .map(|host| host.shutdown());
+                    let executor = cx.background_executor().clone();
+                    async move {
+                        if let Some(done) = done {
+                            panorama_app::playback::window::wait_for_shutdown(done, |duration| {
+                                executor.timer(duration)
+                            })
+                            .await;
                         }
+                    }
+                })
+                .detach();
+                let view = cx.new(|cx| AppShell::new(args, state, outcome, window, cx));
+                cx.new(|cx| gpui_component::Root::new(view, window, cx))
+            },
+        );
+        match result {
+            Ok(handle) => {
+                cx.activate(true);
+                if capture_requested {
+                    cx.spawn(async move |cx| {
+                        cx.background_executor()
+                            .timer(Duration::from_secs(80))
+                            .await;
+                        let _ = startup_outcome.send(Err(
+                            "Screenshot timed out waiting for a settled frame".into(),
+                        ));
+                        let _ = handle.update(cx, |root, window, cx| {
+                            if let Ok(shell) = root.view().clone().downcast::<AppShell>() {
+                                let state = shell.read(cx).state.clone();
+                                panorama_app::playback::window::close(state, window, cx);
+                            } else {
+                                window.remove_window();
+                            }
+                        });
                     })
                     .detach();
-                    let view = cx.new(|cx| AppShell::new(args, state, outcome, window, cx));
-                    cx.new(|cx| gpui_component::Root::new(view, window, cx))
-                },
-            );
-            match result {
-                Ok(handle) => {
-                    cx.activate(true);
-                    if capture_requested {
-                        cx.spawn(async move |cx| {
-                            cx.background_executor()
-                                .timer(Duration::from_secs(80))
-                                .await;
-                            let _ = startup_outcome.send(Err(
-                                "Screenshot timed out waiting for a settled frame".into(),
-                            ));
-                            let _ = handle.update(cx, |root, window, cx| {
-                                if let Ok(shell) = root.view().clone().downcast::<AppShell>() {
-                                    let state = shell.read(cx).state.clone();
-                                    panorama_app::playback::window::close(state, window, cx);
-                                } else {
-                                    window.remove_window();
-                                }
-                            });
-                        })
-                        .detach();
-                    }
-                }
-                Err(error) => {
-                    let _ =
-                        startup_outcome.send(Err(format!("Cannot open Panorama window: {error}")));
-                    cx.quit();
                 }
             }
-        });
+            Err(error) => {
+                let _ = startup_outcome.send(Err(format!("Cannot open Panorama window: {error}")));
+                cx.quit();
+            }
+        }
+    });
     match results.try_recv() {
         Ok(Err(error)) => {
             debug::report(&error);

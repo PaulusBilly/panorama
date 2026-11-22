@@ -19,6 +19,17 @@ pub fn deliver(dir: &Path, link: &str) -> io::Result<()> {
     std::fs::rename(&staged, dir.join(FILE))
 }
 
+/// Hands the open window the first valid invite among the links the system opened, as macOS
+/// reports them to a running app.
+pub fn deliver_first_valid(dir: &Path, urls: &[String]) {
+    if let Some(link) = urls
+        .iter()
+        .find(|url| panorama_core::party::transport::parse_invite(url).is_ok())
+    {
+        let _ = deliver(dir, link);
+    }
+}
+
 /// Takes the handed-off link, if one is waiting, fresh and valid. The file is removed either way,
 /// so each link is joined at most once.
 pub fn take(dir: &Path, now: SystemTime) -> Option<String> {
@@ -104,6 +115,41 @@ mod tests {
         let early = SystemTime::now() + Duration::from_secs(59);
         deliver(&dir, SAMPLE_INVITE).unwrap();
         assert_eq!(take(&dir, early).as_deref(), Some(SAMPLE_INVITE));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn https_sample() -> String {
+        let (ticket, secret) = SAMPLE_INVITE
+            .strip_prefix("panorama://party/")
+            .and_then(|rest| rest.split_once("?s="))
+            .unwrap();
+        format!(
+            "{}#{ticket}.{secret}",
+            panorama_core::party::transport::WEB_INVITE
+        )
+    }
+
+    #[test]
+    fn an_https_link_is_accepted() {
+        let dir = dir("https");
+        let link = https_sample();
+        deliver(&dir, &link).unwrap();
+        assert_eq!(take(&dir, SystemTime::now()), Some(link.clone()));
+        let elsewhere = link.replace("paulusbilly.github.io", "evil.example");
+        deliver(&dir, &elsewhere).unwrap();
+        assert_eq!(take(&dir, SystemTime::now()), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn opened_urls_hand_over_the_first_valid_invite() {
+        let dir = dir("urls");
+        let link = https_sample();
+        let urls = ["panorama://party/nope?s=zz".to_owned(), link.clone()];
+        deliver_first_valid(&dir, &urls);
+        assert_eq!(take(&dir, SystemTime::now()), Some(link));
+        deliver_first_valid(&dir, &urls[..1]);
+        assert_eq!(take(&dir, SystemTime::now()), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

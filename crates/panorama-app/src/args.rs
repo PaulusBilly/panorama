@@ -501,6 +501,13 @@ mod tests {
         assert_eq!(args.party_join, None);
         assert_eq!(args.route, Route::Home);
         assert!(parse(&[link, link]).is_err());
+        let (ticket, secret) = link
+            .strip_prefix("panorama://party/")
+            .and_then(|rest| rest.split_once("?s="))
+            .unwrap();
+        let page_link = format!("panorama://party/{ticket}.{secret}/");
+        let args = parse(&[&page_link]).unwrap();
+        assert_eq!(args.party_join.as_deref(), Some(page_link.as_str()));
         assert!(parse(&["panorama://room/abc"]).is_err());
         assert!(parse(&["notes.txt"]).is_err());
     }
