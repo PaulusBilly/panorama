@@ -3,9 +3,6 @@ pub use super::selection::SourceRef;
 pub use super::torrent_ui::TorrentHealth;
 use panorama_mpv::{EndReason, MpvError, PlayerEvent, TrackKind};
 
-/// A seek has played on from its target once the position moves past it by less than this.
-const SEEK_LANDS: f64 = 5.0;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Stage {
     ResolvingSource,
@@ -138,6 +135,9 @@ pub struct PlaybackModel {
     moved: bool,
     /// Where the last seek landed, until playback moves on after it.
     seek_from: Option<f64>,
+    /// A seek was asked for and mpv has not restarted playback after it: its picture, position
+    /// and cache still describe where it was.
+    seek_pending: bool,
     picture: Picture,
 }
 
@@ -219,6 +219,7 @@ impl PlaybackModel {
             eof_reached: false,
             moved: false,
             seek_from: None,
+            seek_pending: false,
         }
     }
 
@@ -227,9 +228,9 @@ impl PlaybackModel {
         self.moved
     }
 
-    /// A seek has not played on from its target yet.
+    /// A seek has not landed yet.
     pub fn seeking(&self) -> bool {
-        self.seek_from.is_some()
+        self.seek_pending
     }
 
     pub fn apply(&mut self, event: HostEvent) {
@@ -246,6 +247,7 @@ impl PlaybackModel {
                 self.rebuffers = 0;
                 self.moved = false;
                 self.seek_from = None;
+                self.seek_pending = false;
                 self.audio.clear();
                 self.subtitles.clear();
                 self.cue = None;
@@ -276,6 +278,7 @@ impl PlaybackModel {
             HostEvent::Muted(muted) => self.muted = muted,
             HostEvent::Seeked(seconds) => {
                 self.seek_from = Some(seconds);
+                self.seek_pending = true;
                 self.time = finite(Some(seconds));
                 // What was cached ahead of the old spot says nothing about the new one.
                 self.cache_seconds = Some(0.0);
@@ -306,12 +309,7 @@ impl PlaybackModel {
                     if now != before {
                         self.moved = true;
                     }
-                    // Only playing on from the target ends a seek; a position mpv sent before
-                    // the seek, far past a backward one, does not.
-                    if self
-                        .seek_from
-                        .is_some_and(|from| (from + 0.25..from + SEEK_LANDS).contains(&now))
-                    {
+                    if self.seek_from.is_some_and(|from| now > from + 0.25) {
                         self.seek_from = None;
                     }
                 }
@@ -320,7 +318,14 @@ impl PlaybackModel {
                     self.status = Status::Ready;
                 }
             }
-            PlayerEvent::PlaybackRestart if live => self.picture = Picture::Shown,
+            PlayerEvent::PlaybackRestart => {
+                // mpv restarts playback once a seek lands, paused or not, after every event
+                // it sent about the spot the seek left.
+                self.seek_pending = false;
+                if live {
+                    self.picture = Picture::Shown;
+                }
+            }
             PlayerEvent::Duration(value) => {
                 self.duration = finite(value).filter(|value| *value > 0.0)
             }
@@ -350,14 +355,8 @@ impl PlaybackModel {
                     self.status = Status::Ready;
                 }
             }
-            // mpv may still describe the cache around the spot a seek left; it reads from
-            // `cache_end - buffered`, so a snapshot that reads elsewhere is not the new spot's.
-            PlayerEvent::DemuxerCacheState(cache)
-                if self.seek_from.is_some_and(|target| {
-                    finite(cache.cache_end_seconds)
-                        .zip(finite(cache.buffered_seconds))
-                        .is_none_or(|(end, ahead)| (end - ahead - target).abs() > 2.0)
-                }) => {}
+            // Until a seek lands, mpv's cache is the one around the spot it left.
+            PlayerEvent::DemuxerCacheState(_) if self.seek_pending => {}
             PlayerEvent::DemuxerCacheState(cache) => {
                 self.buffered_until = finite(cache.cache_end_seconds);
                 self.cache_seconds = finite(cache.buffered_seconds);
