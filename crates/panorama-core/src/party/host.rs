@@ -506,6 +506,7 @@ impl HostSession {
         }
         let phase = match self.showing.as_ref().map(|showing| showing.phase) {
             None | Some(Phase::Lobby) => Phase::Lobby,
+            Some(Phase::Paused) => Phase::Paused,
             Some(_) => Phase::WaitingForReady { since: now },
         };
         self.tracks = None;

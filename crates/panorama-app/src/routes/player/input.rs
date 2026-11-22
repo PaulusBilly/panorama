@@ -430,6 +430,7 @@ impl Player {
             RowKey::Source(source) => {
                 if source != self.model.source && self.pending_source != Some(source) {
                     self.pending_source = Some(source);
+                    self.party.picked = Some(source);
                     self.send(Command::SwitchSource(source), cx);
                 }
                 if let Some(change) = self.panels.close() {

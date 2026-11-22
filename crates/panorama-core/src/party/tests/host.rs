@@ -1058,3 +1058,47 @@ fn a_stall_that_outlasts_the_track_switch_still_holds_the_party() {
     let out = tick(&mut host, 6_500);
     assert_eq!(waits(&out), 1);
 }
+
+fn loads(out: &[HostOutput], to: ConnId) -> usize {
+    sent_to(out, to)
+        .iter()
+        .filter(|msg| matches!(msg, Down::Load { .. }))
+        .count()
+}
+
+#[test]
+fn a_source_picked_mid_film_reloads_everyone_where_the_host_is() {
+    let mut host = party();
+    let out = host.handle(
+        30_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 130.0,
+        },
+    );
+    assert_eq!(loads(&out, SAM), 1);
+    assert_eq!(playing(&out, SAM), Some(false));
+    local(&mut host, 32_000, MemberState::Ready);
+    let out = report(&mut host, 33_000, SAM, MemberState::Ready);
+    assert_eq!(playing(&out, SAM), Some(true));
+    let (_, playback, _) = *states(&out, SAM).last().unwrap();
+    assert_eq!(playback.anchor_position, 130.0);
+}
+
+#[test]
+fn a_source_picked_while_paused_stays_paused() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Pause));
+    host.handle(
+        30_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 110.0,
+        },
+    );
+    local(&mut host, 32_000, MemberState::Ready);
+    report(&mut host, 33_000, SAM, MemberState::Ready);
+    let out = tick(&mut host, 60_000);
+    assert_ne!(playing(&out, SAM), Some(true));
+    assert_eq!(host.gate(), Gate::Ready);
+}

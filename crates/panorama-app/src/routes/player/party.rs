@@ -25,6 +25,9 @@ pub(super) struct PartyTap {
     opening: bool,
     /// Host: the tracks the party last heard.
     announced: Option<TrackChoice>,
+    /// Host: the source the host picked by hand, which the party follows. A fallback it
+    /// did not pick stays the host's own.
+    pub(super) picked: Option<SourceRef>,
     /// Member: the host's choice being followed.
     pub(super) followed: Option<Followed>,
 }
@@ -139,7 +142,7 @@ impl Player {
         }
     }
 
-    /// Host: tell the party what is playing, from where. A switch to another source of the
+    /// Host: tell the party what is playing, from where. A fallback to another source of the
     /// same film or episode stays the host's own: members keep the copies they are playing.
     fn announce(&mut self, cx: &mut Context<Self>) {
         let Some(selection) = self.selection(cx) else {
@@ -151,9 +154,12 @@ impl Player {
             .party
             .as_ref()
             .and_then(|party| party.media());
-        if announced.is_some_and(|media| {
-            media.film_id == selection.film.id && media.video_id == selection.video_id
-        }) {
+        let picked = self.party.picked.take() == Some(self.model.source);
+        if !picked
+            && announced.is_some_and(|media| {
+                media.film_id == selection.film.id && media.video_id == selection.video_id
+            })
+        {
             return;
         }
         let source = self.model.source;
