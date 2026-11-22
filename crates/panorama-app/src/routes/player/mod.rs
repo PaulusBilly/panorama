@@ -586,6 +586,7 @@ impl Player {
             if state.launch.as_ref().is_some_and(|launch| launch.id == id) {
                 state.launch = None;
             }
+            state.party_stop();
         });
         if !self.mounted {
             return;

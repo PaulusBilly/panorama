@@ -73,6 +73,8 @@ pub(super) enum Input {
     Sync(PartySync),
     /// Host: leave the lobby, so the party plays once everyone is ready.
     Start,
+    /// Host: the film closed; everyone waits in the lobby for the next one.
+    Stop,
 }
 
 /// To the GPUI side.
@@ -84,6 +86,8 @@ pub(super) enum Event {
     Load(PartyMedia),
     /// Member: the host's track choice.
     Tracks(TrackChoice),
+    /// Member: the host closed the film.
+    Stop,
 }
 
 pub(super) struct Spawned {
@@ -485,6 +489,10 @@ impl Host {
                 trace(|| "host start".into());
                 self.handle(HostInput::Start);
             }
+            Input::Stop => {
+                trace(|| "host stop".into());
+                self.handle(HostInput::Stop);
+            }
             Input::Settings(settings) => {
                 if let Role::Host {
                     settings: shown, ..
@@ -714,7 +722,11 @@ impl Member {
                 self.handle(MemberInput::Reopened);
             }
             Input::Sync(sync) => self.view.sync = sync,
-            Input::Media { .. } | Input::Settings(_) | Input::Tracks(_) | Input::Start => {}
+            Input::Media { .. }
+            | Input::Settings(_)
+            | Input::Tracks(_)
+            | Input::Start
+            | Input::Stop => {}
         }
     }
 
@@ -765,6 +777,10 @@ impl Member {
                 MemberOutput::Notice(notice) => {
                     trace(|| format!("notice {:?}", notice.kind));
                     self.view.notify(notice);
+                }
+                MemberOutput::Stop => {
+                    trace(|| "member stop".into());
+                    self.events.send(Event::Stop);
                 }
                 MemberOutput::Ended(reason) => {
                     trace(|| format!("member ended {reason:?}"));

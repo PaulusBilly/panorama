@@ -955,3 +955,48 @@ fn start_before_media_does_nothing() {
     let out = tick(&mut host, 30_000);
     assert_eq!(playing(&out, SAM), Some(false));
 }
+
+fn stops(out: &[HostOutput], to: ConnId) -> usize {
+    sent_to(out, to)
+        .iter()
+        .filter(|msg| matches!(msg, Down::Stop { .. }))
+        .count()
+}
+
+#[test]
+fn the_host_leaving_the_film_sends_everyone_back_to_the_lobby() {
+    let mut host = party();
+    let out = host.handle(5_000, HostInput::Stop);
+    assert_eq!(stops(&out, SAM), 1);
+    assert_eq!(host.gate(), Gate::Lobby);
+    assert!(states(&tick(&mut host, 20_000), SAM).is_empty());
+
+    let out = host.handle(21_000, HostInput::SetMedia { media: media(), at: 0.0 });
+    assert!(sent_to(&out, SAM).iter().any(|msg| matches!(msg, Down::Load { .. })));
+    assert_eq!(gate(&out, SAM), Some(Gate::Lobby));
+}
+
+#[test]
+fn stopping_twice_tells_the_party_once() {
+    let mut host = party();
+    host.handle(5_000, HostInput::Stop);
+    assert_eq!(stops(&host.handle(6_000, HostInput::Stop), SAM), 0);
+}
+
+#[test]
+fn a_friend_joining_after_the_stop_waits_in_the_lobby_with_nothing_to_load() {
+    let mut host = party();
+    host.handle(5_000, HostInput::Stop);
+    let out = join(&mut host, 6_000, KIM, "Kim");
+    let sent = sent_to(&out, KIM);
+    assert!(sent.iter().any(|msg| matches!(msg, Down::Welcome { .. })));
+    assert!(!sent.iter().any(|msg| matches!(msg, Down::Load { .. } | Down::State { .. })));
+}
+
+#[test]
+fn ending_after_a_stop_still_says_goodbye() {
+    let mut host = party();
+    host.handle(5_000, HostInput::Stop);
+    let out = host.handle(6_000, HostInput::End);
+    assert!(sent_to(&out, SAM).contains(&Down::Bye { reason: ByeReason::HostLeft }));
+}

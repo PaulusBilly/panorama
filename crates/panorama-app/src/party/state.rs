@@ -12,7 +12,7 @@ use gpui::{Context, Task};
 use panorama_core::{
     addons::{FilmDetails, Kind, ResourceEvent},
     party::{
-        Action, HostSettings, MemberState, PartyMedia, TrackChoice,
+        Action, Gate, HostSettings, MemberState, PartyMedia, TrackChoice,
         transport::{InviteError, parse_invite},
     },
     store::Key,
@@ -129,7 +129,15 @@ impl AppState {
 
     /// Host a party. Whatever plays next, or plays now, is what the party watches. Any party
     /// this window was in is left first.
+    /// Hosts a party, or keeps the one this window already hosts so its friends stay.
     pub fn start_party(&mut self, name: Option<String>, cx: &mut Context<Self>) {
+        if self
+            .party
+            .as_ref()
+            .is_some_and(|party| party.view.is_host() && party.view.ended().is_none())
+        {
+            return;
+        }
         let Some(services) = self.services.clone() else {
             return;
         };
@@ -251,6 +259,26 @@ impl AppState {
         }
     }
 
+    /// Member: the host closed the film, and the party waits in the lobby for the next one.
+    pub fn party_stopped(&self) -> bool {
+        self.party.as_ref().is_some_and(|party| {
+            !party.view.is_host()
+                && party.view.ended().is_none()
+                && party.media.is_none()
+                && party.view.gate == Some(Gate::Lobby)
+        })
+    }
+
+    /// Host: the film closed. Friends close theirs and wait in the lobby, and the next
+    /// announced film reaches them even when it is the same one.
+    pub fn party_stop(&mut self) {
+        if let Some(party) = self.party.as_mut().filter(|party| party.view.is_host())
+            && party.media.take().is_some()
+        {
+            party.send(Input::Stop);
+        }
+    }
+
     /// Member: whether the source now playing is the host's release.
     pub fn party_release(&self, matched: bool) {
         if let Some(party) = &self.party {
@@ -369,6 +397,11 @@ impl AppState {
                 }
             }
             Event::Tracks(tracks) => party.host_tracks = Some(tracks),
+            Event::Stop => {
+                party.host_tracks = None;
+                party.media = None;
+                self.drop_party_play();
+            }
             Event::Load(media) => {
                 party.host_tracks = None;
                 party.media = Some(media.clone());

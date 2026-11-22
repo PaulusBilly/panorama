@@ -67,6 +67,7 @@ fn downs() -> Vec<Down> {
             by: "Alex".into(),
             at: Some(724.0),
         }),
+        Down::Stop { revision: 6 },
         Down::Bye {
             reason: ByeReason::BadSecret,
         },

@@ -76,6 +76,8 @@ pub enum HostInput {
     },
     /// Leave the lobby: the party plays once everyone is ready. Nothing to start before media.
     Start,
+    /// The host left the film. Members close it and wait in the lobby until the next `SetMedia`.
+    Stop,
     /// The host's player changed track, or named its tracks for new media. Send it after
     /// `SetMedia`, which forgets the tracks.
     Tracks(TrackChoice),
@@ -315,6 +317,7 @@ impl HostSession {
                     showing.set(now_ms, ready, showing.anchor_position, self.host.duration);
                 }
             }
+            HostInput::Stop => self.stop(&mut out),
             HostInput::Tracks(tracks) => self.tracks = Some(tracks.bounded()),
             HostInput::Settings(settings) => self.settings = settings,
             HostInput::End => {
@@ -509,6 +512,27 @@ impl HostSession {
             anchor_position: within(at, None),
             anchor_host_ms: now,
         });
+    }
+
+    fn stop(&mut self, out: &mut Vec<HostOutput>) {
+        if self.showing.take().is_none() {
+            return;
+        }
+        self.host.reset();
+        for conn in self.conns.values_mut() {
+            if let Conn::Joined(member) = conn {
+                member.reset();
+            }
+        }
+        self.tracks = None;
+        self.revision += 1;
+        self.published = None;
+        self.broadcast(
+            Down::Stop {
+                revision: self.revision,
+            },
+            out,
+        );
     }
 
     fn apply(&mut self, now: i64, action: Action, by: String, out: &mut Vec<HostOutput>) {

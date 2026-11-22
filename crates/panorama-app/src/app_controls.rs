@@ -106,6 +106,10 @@ impl AppShell {
 
     pub(crate) fn finish_party_lobby(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.lobby = None;
+        // The host closed the film while this lobby was still fading out.
+        if self.state.read(cx).party_stopped() {
+            return self.open_party_lobby_as_member(window, cx);
+        }
         window.focus(&self.focus, cx);
         cx.notify();
     }
