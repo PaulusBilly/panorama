@@ -971,8 +971,18 @@ fn the_host_leaving_the_film_sends_everyone_back_to_the_lobby() {
     assert_eq!(host.gate(), Gate::Lobby);
     assert!(states(&tick(&mut host, 20_000), SAM).is_empty());
 
-    let out = host.handle(21_000, HostInput::SetMedia { media: media(), at: 0.0 });
-    assert!(sent_to(&out, SAM).iter().any(|msg| matches!(msg, Down::Load { .. })));
+    let out = host.handle(
+        21_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 0.0,
+        },
+    );
+    assert!(
+        sent_to(&out, SAM)
+            .iter()
+            .any(|msg| matches!(msg, Down::Load { .. }))
+    );
     assert_eq!(gate(&out, SAM), Some(Gate::Lobby));
 }
 
@@ -990,7 +1000,11 @@ fn a_friend_joining_after_the_stop_waits_in_the_lobby_with_nothing_to_load() {
     let out = join(&mut host, 6_000, KIM, "Kim");
     let sent = sent_to(&out, KIM);
     assert!(sent.iter().any(|msg| matches!(msg, Down::Welcome { .. })));
-    assert!(!sent.iter().any(|msg| matches!(msg, Down::Load { .. } | Down::State { .. })));
+    assert!(
+        !sent
+            .iter()
+            .any(|msg| matches!(msg, Down::Load { .. } | Down::State { .. }))
+    );
 }
 
 #[test]
@@ -998,5 +1012,49 @@ fn ending_after_a_stop_still_says_goodbye() {
     let mut host = party();
     host.handle(5_000, HostInput::Stop);
     let out = host.handle(6_000, HostInput::End);
-    assert!(sent_to(&out, SAM).contains(&Down::Bye { reason: ByeReason::HostLeft }));
+    assert!(sent_to(&out, SAM).contains(&Down::Bye {
+        reason: ByeReason::HostLeft
+    }));
+}
+
+fn waits(out: &[HostOutput]) -> usize {
+    notices(out)
+        .iter()
+        .filter(|notice| notice.kind == NoticeKind::WaitingFor)
+        .count()
+}
+
+/// `party()` once the host switched audio at 1_000 and both players stalled on the reload.
+fn switched_audio() -> HostSession {
+    let mut host = party();
+    let mut french_audio = english_subtitles();
+    french_audio.audio = Some(TrackKey {
+        language: Some("fr".into()),
+        title: None,
+        codec: Some("aac".into()),
+        external: false,
+    });
+    host.handle(500, HostInput::Tracks(english_subtitles()));
+    host.handle(1_000, HostInput::Tracks(french_audio));
+    local(&mut host, 1_100, MemberState::Buffering);
+    report(&mut host, 1_300, SAM, MemberState::Buffering);
+    host
+}
+
+#[test]
+fn the_stall_after_a_track_switch_does_not_hold_the_party() {
+    let mut host = switched_audio();
+    let out = tick(&mut host, 3_500);
+    assert_eq!(waits(&out), 0);
+    local(&mut host, 3_600, MemberState::Playing);
+    report(&mut host, 3_700, SAM, MemberState::Playing);
+    assert_eq!(waits(&tick(&mut host, 8_000)), 0);
+}
+
+#[test]
+fn a_stall_that_outlasts_the_track_switch_still_holds_the_party() {
+    let mut host = switched_audio();
+    tick(&mut host, 3_500);
+    let out = tick(&mut host, 6_500);
+    assert_eq!(waits(&out), 1);
 }
