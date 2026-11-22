@@ -77,6 +77,9 @@ pub struct Player {
     id: String,
     model: PlaybackModel,
     mounted: bool,
+    /// This player opened a film and has not been left since. A restart for the next episode
+    /// keeps it, so leaving mid-lookup still closes the film for the party.
+    opened: bool,
     /// The next episode, if this is an episode with one after it.
     next: Option<panorama_core::addons::Episode>,
     /// The line under the title naming the episode playing.
@@ -201,6 +204,7 @@ impl Player {
             id,
             model,
             mounted: false,
+            opened: false,
             next: None,
             episode_line: None,
             up_next: Default::default(),
@@ -422,6 +426,7 @@ impl Player {
             return;
         };
         self.mounted = true;
+        self.opened = true;
         self.model.title.clone_from(&selection.film.name);
         let episodes = &selection.film.episodes;
         let playing = episodes.iter().find(|ep| ep.id == selection.video_id);
@@ -579,7 +584,16 @@ impl Player {
         });
     }
 
+    /// Leaving the player closes the film for the whole party.
     fn unmount(&mut self, cx: &mut gpui::App) {
+        self.release(cx);
+        if std::mem::take(&mut self.opened) {
+            self.state.update(cx, |state, _| state.party_stop());
+        }
+    }
+
+    /// Closes what plays.
+    fn release(&mut self, cx: &mut gpui::App) {
         // Leaving while the sources are still being looked up stops the lookup.
         let id = self.id.clone();
         self.state.update(cx, |state, _| {

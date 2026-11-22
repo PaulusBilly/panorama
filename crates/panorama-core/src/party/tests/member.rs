@@ -459,3 +459,31 @@ fn a_member_hears_the_hosts_tracks_and_who_holds_the_party() {
     let out = member.handle(800, MemberInput::Leave);
     assert_eq!(heard(&out), [MemberOutput::Gate(Gate::Ready)]);
 }
+
+#[test]
+fn the_hosts_stop_closes_the_film_even_while_it_loads() {
+    let mut member = joined();
+    assert_eq!(loads(&member.handle(100, load(1, "A"))), ["A"]);
+    member.handle(200, player(MemberState::Loading, 0.0));
+    let out = member.handle(300, MemberInput::Down(Down::Stop { revision: 3 }));
+    assert!(out.contains(&MemberOutput::Stop));
+    assert!(out.contains(&MemberOutput::Gate(Gate::Lobby)));
+
+    let out = member.handle(400, state(2, true, 50.0, 0));
+    assert!(player_commands(&out).is_empty());
+}
+
+#[test]
+fn after_a_stop_the_same_film_opens_again() {
+    let mut member = joined();
+    assert_eq!(loads(&member.handle(100, load(1, "A"))), ["A"]);
+    member.handle(5_000, MemberInput::Down(Down::Stop { revision: 2 }));
+    assert_eq!(loads(&member.handle(9_000, load(3, "A"))), ["A"]);
+}
+
+#[test]
+fn a_stale_stop_is_ignored() {
+    let mut member = watching();
+    let out = member.handle(3_000, MemberInput::Down(Down::Stop { revision: 0 }));
+    assert!(!out.contains(&MemberOutput::Stop));
+}

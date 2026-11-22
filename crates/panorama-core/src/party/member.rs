@@ -65,6 +65,8 @@ pub enum MemberOutput {
     Gate(Gate),
     Roster(Vec<MemberView>),
     Notice(Notice),
+    /// The host left the film: close it and wait in the lobby.
+    Stop,
     /// The host ended the connection. The player keeps playing.
     Ended(ByeReason),
 }
@@ -292,6 +294,24 @@ impl MemberSession {
                     self.gate = Some(gate);
                     out.push(MemberOutput::Gate(gate));
                 }
+            }
+            Down::Stop { revision } => {
+                if self.stale(revision) {
+                    return;
+                }
+                self.revision = Some(revision);
+                self.media = None;
+                self.opener = Opener::default();
+                self.playback = None;
+                self.applied = None;
+                self.tracks = None;
+                self.last_seek_ms = None;
+                self.set_speed(1.0, out);
+                if self.gate != Some(Gate::Lobby) {
+                    self.gate = Some(Gate::Lobby);
+                    out.push(MemberOutput::Gate(Gate::Lobby));
+                }
+                out.push(MemberOutput::Stop);
             }
             Down::Roster { members } => out.push(MemberOutput::Roster(members)),
             Down::Notice(notice) => out.push(MemberOutput::Notice(notice)),

@@ -341,6 +341,9 @@ fn run(
         let mut properties = Properties::default();
         // A request awaits its reply; the next waits so mpv applies them in order.
         let mut pending = false;
+        // Only a refused load stops playback. A seek or property mpv refuses (a seek before
+        // the file opens, a track that is gone) leaves the film playing.
+        let mut loading = false;
         let mut batch = std::collections::VecDeque::new();
         while !stopping.load(Ordering::Acquire) {
             if !pending {
@@ -350,7 +353,18 @@ fn run(
                     incoming.try_recv().ok()
                 };
                 let result = match next {
-                    Some(Request::Command(args)) => Some(client.command(&args)),
+                    Some(Request::Command(args)) => {
+                        loading = args.first().is_some_and(|name| name == "loadfile");
+                        Some(client.command(&args))
+                    }
+                    Some(Request::Property(name, mut value)) => {
+                        loading = false;
+                        Some(client.set(&name, &mut value))
+                    }
+                    Some(Request::Properties(values)) => {
+                        batch.extend(values);
+                        continue;
+                    }
                     // `sub-add` replies only once its file has downloaded, which can take as
                     // long as the server likes, so nothing waits on it: a slow subtitle host
                     // would otherwise hold pause, seeks and track changes until it answered.
@@ -358,11 +372,6 @@ fn run(
                         if client.command_tagged(&args, SUBTITLE_REPLY).is_err() {
                             let _ = updates.send(PlayerEvent::SubtitleFailed);
                         }
-                        continue;
-                    }
-                    Some(Request::Property(name, mut value)) => Some(client.set(&name, &mut value)),
-                    Some(Request::Properties(values)) => {
-                        batch.extend(values);
                         continue;
                     }
                     None => None,
@@ -382,6 +391,7 @@ fn run(
             for event in received.events {
                 let _ = updates.send(match event {
                     PlayerEvent::Error(_) if subtitle_reply => PlayerEvent::SubtitleFailed,
+                    PlayerEvent::Error(_) if received.reply && !loading => continue,
                     event => event,
                 });
             }

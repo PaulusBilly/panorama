@@ -402,3 +402,17 @@ fn a_subtitle_that_never_arrives_does_not_hold_pause() {
     );
     close(player);
 }
+
+#[test]
+fn a_seek_mpv_refuses_is_not_a_playback_error() {
+    let (_media, video, _) = media();
+    let Some((player, events)) = player(&[]) else {
+        return;
+    };
+    player.seek(30.0, SeekMode::Absolute).unwrap();
+    player.load_at(video.to_str().unwrap(), Some(1.0)).unwrap();
+    wait(&events, |event| {
+        matches!(event, PlayerEvent::TimePos(Some(_)))
+    });
+    close(player);
+}

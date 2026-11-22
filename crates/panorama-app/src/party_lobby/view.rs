@@ -136,9 +136,10 @@ impl Render for PartyLobby {
                     .child(body),
             )
             .child(footer);
-        let label = match &self.side {
-            Side::Host(_) => "Watch party lobby",
-            Side::Member => "Watch party",
+        // A friend's player loads under the lobby; it stays hidden until the host starts.
+        let (label, backdrop) = match &self.side {
+            Side::Host(_) => ("Watch party lobby", look.theme.scrim.opacity(0.72)),
+            Side::Member => ("Watch party", look.theme.player_canvas),
         };
         div()
             .id("party-lobby")
@@ -160,13 +161,7 @@ impl Render for PartyLobby {
             .on_action(cx.listener(|lobby, _: &super::CloseLobby, window, cx| {
                 lobby.act(Command::Escape, window, cx)
             }))
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .bg(look.theme.scrim.opacity(0.72))
-                    .opacity(scrim),
-            )
+            .child(div().absolute().inset_0().bg(backdrop).opacity(scrim))
             .child(
                 div()
                     .relative()
@@ -697,7 +692,14 @@ impl PartyLobby {
                 )
             }
             Side::Member => (
-                status.child(member_status(view)),
+                status.child(member_status(
+                    view,
+                    self.state
+                        .read(cx)
+                        .party
+                        .as_ref()
+                        .is_some_and(|party| party.media().is_some()),
+                )),
                 div().child(
                     Button::glass("party-lobby-leave", "Leave party")
                         .focus(&self.leave, look.keyboard)
@@ -909,7 +911,7 @@ fn host_status(
     }
 }
 
-fn member_status(view: Option<&PartyView>) -> SharedString {
+fn member_status(view: Option<&PartyView>, has_film: bool) -> SharedString {
     let Some(view) = view else {
         return "You left the party".into();
     };
@@ -920,6 +922,7 @@ fn member_status(view: Option<&PartyView>) -> SharedString {
         .map(|row| row.member.name.clone());
     match (view.link, host) {
         (Link::Ended(_), _) => "The party has ended".into(),
+        (Link::Live, Some(host)) if !has_film => format!("{host} is choosing a film").into(),
         (Link::Live, Some(host)) => format!("{host} starts the film when everyone is ready").into(),
         _ => "Joining the party".into(),
     }

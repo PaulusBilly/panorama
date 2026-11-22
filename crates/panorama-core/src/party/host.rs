@@ -12,6 +12,9 @@ use super::{
 const HELLO_TIMEOUT_MS: i64 = 10_000;
 const READY_TIMEOUT_MS: i64 = 20_000;
 const BUFFER_GRACE_MS: i64 = 1_500;
+/// Switching audio or subtitles makes mpv reload the stream, and everyone following the host
+/// stalls with it. Stalls this soon after a switch are the switch, not a slow connection.
+const TRACK_SWITCH_GRACE_MS: i64 = 5_000;
 const WAIT_LIMIT_MS: i64 = 30_000;
 const WAITS_PER_MEDIA: u8 = 3;
 const REFRESH_MS: i64 = 5_000;
@@ -76,6 +79,8 @@ pub enum HostInput {
     },
     /// Leave the lobby: the party plays once everyone is ready. Nothing to start before media.
     Start,
+    /// The host left the film. Members close it and wait in the lobby until the next `SetMedia`.
+    Stop,
     /// The host's player changed track, or named its tracks for new media. Send it after
     /// `SetMedia`, which forgets the tracks.
     Tracks(TrackChoice),
@@ -111,6 +116,8 @@ pub struct HostSession {
     next_member: u32,
     showing: Option<Showing>,
     tracks: Option<TrackChoice>,
+    /// When the host last switched tracks mid-film.
+    switched_ms: Option<i64>,
     revision: u64,
     published: Option<Published>,
     published_ms: i64,
@@ -275,6 +282,7 @@ impl HostSession {
             next_member: HOST_ID + 1,
             showing: None,
             tracks: None,
+            switched_ms: None,
             revision: 0,
             published: None,
             published_ms: 0,
@@ -315,7 +323,14 @@ impl HostSession {
                     showing.set(now_ms, ready, showing.anchor_position, self.host.duration);
                 }
             }
-            HostInput::Tracks(tracks) => self.tracks = Some(tracks.bounded()),
+            HostInput::Stop => self.stop(&mut out),
+            HostInput::Tracks(tracks) => {
+                let tracks = tracks.bounded();
+                if self.tracks.as_ref().is_some_and(|held| *held != tracks) {
+                    self.switched_ms = Some(now_ms);
+                }
+                self.tracks = Some(tracks);
+            }
             HostInput::Settings(settings) => self.settings = settings,
             HostInput::End => {
                 self.end(&mut out);
@@ -491,9 +506,11 @@ impl HostSession {
         }
         let phase = match self.showing.as_ref().map(|showing| showing.phase) {
             None | Some(Phase::Lobby) => Phase::Lobby,
+            Some(Phase::Paused) => Phase::Paused,
             Some(_) => Phase::WaitingForReady { since: now },
         };
         self.tracks = None;
+        self.switched_ms = None;
         self.revision += 1;
         self.published = None;
         self.broadcast(
@@ -511,12 +528,43 @@ impl HostSession {
         });
     }
 
+    fn stop(&mut self, out: &mut Vec<HostOutput>) {
+        if self.showing.take().is_none() {
+            return;
+        }
+        self.host.reset();
+        for conn in self.conns.values_mut() {
+            if let Conn::Joined(member) = conn {
+                member.reset();
+            }
+        }
+        self.tracks = None;
+        self.switched_ms = None;
+        self.revision += 1;
+        self.published = None;
+        self.broadcast(
+            Down::Stop {
+                revision: self.revision,
+            },
+            out,
+        );
+    }
+
     fn apply(&mut self, now: i64, action: Action, by: String, out: &mut Vec<HostOutput>) {
+        let loading = std::iter::once(&self.host)
+            .chain(self.joined())
+            .any(|p| p.state == MemberState::Loading);
         let Some(showing) = &mut self.showing else {
             return;
         };
         let position = showing.playback().expected_at(now);
         let (phase, position, kind) = match (action, showing.phase) {
+            // A source picked while paused may still be loading for someone.
+            (Action::Play, Phase::Paused) if loading => (
+                Phase::WaitingForReady { since: now },
+                position,
+                NoticeKind::Played,
+            ),
             (Action::Play, Phase::Paused) => (Phase::Playing, position, NoticeKind::Played),
             (Action::Play, _) | (Action::Pause, Phase::Paused | Phase::Lobby) => return,
             (Action::Pause, _) => (Phase::Paused, position, NoticeKind::Paused),
@@ -557,6 +605,14 @@ impl HostSession {
                     member.late |= timed_out && member.id != HOST_ID;
                 }
                 (!held || timed_out).then_some(Phase::Playing)
+            }
+            Phase::Playing
+                if wait
+                    && self
+                        .switched_ms
+                        .is_some_and(|at| now - at < TRACK_SWITCH_GRACE_MS) =>
+            {
+                None
             }
             Phase::Playing if wait => self
                 .participants_mut()

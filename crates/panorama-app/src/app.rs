@@ -296,6 +296,12 @@ impl AppShell {
             self.invite_written =
                 crate::party::handoff::write_private(&path, invite.as_str()).is_ok();
         }
+        if self.state.read(cx).party_stopped() {
+            self.leave_party_route(window, cx);
+            if self.lobby.is_none() {
+                self.open_party_lobby_as_member(window, cx);
+            }
+        }
         let Some((film, video_id, pick)) =
             self.state.update(cx, |state, cx| state.take_ready_play(cx))
         else {

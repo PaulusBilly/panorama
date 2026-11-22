@@ -955,3 +955,194 @@ fn start_before_media_does_nothing() {
     let out = tick(&mut host, 30_000);
     assert_eq!(playing(&out, SAM), Some(false));
 }
+
+fn stops(out: &[HostOutput], to: ConnId) -> usize {
+    sent_to(out, to)
+        .iter()
+        .filter(|msg| matches!(msg, Down::Stop { .. }))
+        .count()
+}
+
+#[test]
+fn the_host_leaving_the_film_sends_everyone_back_to_the_lobby() {
+    let mut host = party();
+    let out = host.handle(5_000, HostInput::Stop);
+    assert_eq!(stops(&out, SAM), 1);
+    assert_eq!(host.gate(), Gate::Lobby);
+    assert!(states(&tick(&mut host, 20_000), SAM).is_empty());
+
+    let out = host.handle(
+        21_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 0.0,
+        },
+    );
+    assert!(
+        sent_to(&out, SAM)
+            .iter()
+            .any(|msg| matches!(msg, Down::Load { .. }))
+    );
+    assert_eq!(gate(&out, SAM), Some(Gate::Lobby));
+}
+
+#[test]
+fn stopping_twice_tells_the_party_once() {
+    let mut host = party();
+    host.handle(5_000, HostInput::Stop);
+    assert_eq!(stops(&host.handle(6_000, HostInput::Stop), SAM), 0);
+}
+
+#[test]
+fn a_friend_joining_after_the_stop_waits_in_the_lobby_with_nothing_to_load() {
+    let mut host = party();
+    host.handle(5_000, HostInput::Stop);
+    let out = join(&mut host, 6_000, KIM, "Kim");
+    let sent = sent_to(&out, KIM);
+    assert!(sent.iter().any(|msg| matches!(msg, Down::Welcome { .. })));
+    assert!(
+        !sent
+            .iter()
+            .any(|msg| matches!(msg, Down::Load { .. } | Down::State { .. }))
+    );
+}
+
+#[test]
+fn ending_after_a_stop_still_says_goodbye() {
+    let mut host = party();
+    host.handle(5_000, HostInput::Stop);
+    let out = host.handle(6_000, HostInput::End);
+    assert!(sent_to(&out, SAM).contains(&Down::Bye {
+        reason: ByeReason::HostLeft
+    }));
+}
+
+fn waits(out: &[HostOutput]) -> usize {
+    notices(out)
+        .iter()
+        .filter(|notice| notice.kind == NoticeKind::WaitingFor)
+        .count()
+}
+
+/// `party()` once the host switched audio at 1_000 and both players stalled on the reload.
+fn switched_audio() -> HostSession {
+    let mut host = party();
+    let mut french_audio = english_subtitles();
+    french_audio.audio = Some(TrackKey {
+        language: Some("fr".into()),
+        title: None,
+        codec: Some("aac".into()),
+        external: false,
+    });
+    host.handle(500, HostInput::Tracks(english_subtitles()));
+    host.handle(1_000, HostInput::Tracks(french_audio));
+    local(&mut host, 1_100, MemberState::Buffering);
+    report(&mut host, 1_300, SAM, MemberState::Buffering);
+    host
+}
+
+#[test]
+fn the_stall_after_a_track_switch_does_not_hold_the_party() {
+    let mut host = switched_audio();
+    let out = tick(&mut host, 3_500);
+    assert_eq!(waits(&out), 0);
+    local(&mut host, 3_600, MemberState::Playing);
+    report(&mut host, 3_700, SAM, MemberState::Playing);
+    assert_eq!(waits(&tick(&mut host, 8_000)), 0);
+}
+
+#[test]
+fn a_stall_that_outlasts_the_track_switch_still_holds_the_party() {
+    let mut host = switched_audio();
+    tick(&mut host, 3_500);
+    let out = tick(&mut host, 6_500);
+    assert_eq!(waits(&out), 1);
+}
+
+fn loads(out: &[HostOutput], to: ConnId) -> usize {
+    sent_to(out, to)
+        .iter()
+        .filter(|msg| matches!(msg, Down::Load { .. }))
+        .count()
+}
+
+#[test]
+fn a_source_picked_mid_film_reloads_everyone_where_the_host_is() {
+    let mut host = party();
+    let out = host.handle(
+        30_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 130.0,
+        },
+    );
+    assert_eq!(loads(&out, SAM), 1);
+    assert_eq!(playing(&out, SAM), Some(false));
+    local(&mut host, 32_000, MemberState::Ready);
+    let out = report(&mut host, 33_000, SAM, MemberState::Ready);
+    assert_eq!(playing(&out, SAM), Some(true));
+    let (_, playback, _) = *states(&out, SAM).last().unwrap();
+    assert_eq!(playback.anchor_position, 130.0);
+}
+
+#[test]
+fn a_source_picked_while_paused_stays_paused() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Pause));
+    host.handle(
+        30_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 110.0,
+        },
+    );
+    local(&mut host, 32_000, MemberState::Ready);
+    report(&mut host, 33_000, SAM, MemberState::Ready);
+    let out = tick(&mut host, 60_000);
+    assert_ne!(playing(&out, SAM), Some(true));
+    assert_eq!(host.gate(), Gate::Ready);
+}
+
+#[test]
+fn resuming_before_everyone_loaded_the_new_source_waits_for_them() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Pause));
+    host.handle(
+        30_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 110.0,
+        },
+    );
+    local(&mut host, 31_000, MemberState::Ready);
+    let out = host.handle(32_000, HostInput::Local(Action::Play));
+    assert_ne!(playing(&out, SAM), Some(true));
+    let out = report(&mut host, 34_000, SAM, MemberState::Ready);
+    assert_eq!(playing(&out, SAM), Some(true));
+}
+
+#[test]
+fn new_media_ends_the_track_switch_grace() {
+    let mut host = switched_audio();
+    host.handle(
+        1_500,
+        HostInput::SetMedia {
+            media: media(),
+            at: 0.0,
+        },
+    );
+    local(&mut host, 1_600, MemberState::Ready);
+    report(&mut host, 1_700, SAM, MemberState::Ready);
+    tick(&mut host, 1_800);
+    report(&mut host, 2_000, SAM, MemberState::Buffering);
+    assert_eq!(waits(&tick(&mut host, 4_000)), 1);
+}
+
+#[test]
+fn resuming_while_a_friend_buffers_plays_at_once() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Pause));
+    report(&mut host, 10_500, SAM, MemberState::Buffering);
+    let out = host.handle(11_000, HostInput::Local(Action::Play));
+    assert_eq!(playing(&out, SAM), Some(true));
+}

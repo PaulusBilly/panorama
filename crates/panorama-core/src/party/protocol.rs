@@ -69,6 +69,10 @@ pub enum Down {
         members: Vec<MemberView>,
     },
     Notice(Notice),
+    /// The host left the film: everyone closes it and waits in the lobby for the next one.
+    Stop {
+        revision: u64,
+    },
     Bye {
         reason: ByeReason,
     },
@@ -310,7 +314,7 @@ impl Down {
                 check(name_of(&notice.by)? == notice.by, "name")?;
                 check(notice.at.is_none_or(is_position), "position")?;
             }
-            Self::Welcome { .. } | Self::Bye { .. } => {}
+            Self::Welcome { .. } | Self::Stop { .. } | Self::Bye { .. } => {}
         }
         Ok(self)
     }
