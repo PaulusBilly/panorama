@@ -46,6 +46,9 @@ impl Runner {
             Command::SetVolume(volume) => self.emit(HostEvent::Volume(volume)),
             Command::SetMuted(muted) => self.emit(HostEvent::Muted(muted)),
             Command::Seek(seconds) => {
+                if !self.model.seeking() {
+                    self.left_at = self.position;
+                }
                 self.position = seconds;
                 self.emit(HostEvent::Seeked(seconds));
                 self.sample(true).await;
@@ -92,6 +95,10 @@ impl Runner {
                 && *seconds > self.position + MAX_LEAP
             {
                 continue;
+            }
+            // A refused seek leaves playback where it was.
+            if matches!(event, PlayerEvent::SeekRefused) && self.model.seeking() {
+                self.position = self.left_at;
             }
             // Until a seek lands, mpv may still report where it was: the seek's target holds.
             let settled = !self.model.seeking();

@@ -126,6 +126,8 @@ struct Runner {
     resume: Option<f64>,
     awaiting_resume: Option<f64>,
     position: f64,
+    /// Where playback was before the seek now pending, for when mpv refuses it.
+    left_at: f64,
     begun: bool,
     last_presence: Option<Instant>,
     last_link: Option<Instant>,
@@ -169,6 +171,7 @@ impl Runner {
             resume: None,
             awaiting_resume: None,
             position: 0.0,
+            left_at: 0.0,
             begun: false,
             last_presence: None,
             last_link: None,

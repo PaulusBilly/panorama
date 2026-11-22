@@ -210,3 +210,34 @@ async fn pausing_mid_seek_does_not_record_where_it_was() {
     let calls = lock(&progress.calls).clone();
     assert!(calls.iter().all(|call| call != "sample:100.5"), "{calls:?}");
 }
+
+#[tokio::test]
+async fn a_refused_seek_keeps_the_position_it_left() {
+    let (mut runner, backend, _) = setup();
+    lock(&backend.scripts).extend([
+        Script {
+            events: vec![
+                PlayerEvent::Duration(Some(600.0)),
+                PlayerEvent::TimePos(Some(300.0)),
+                PlayerEvent::SeekRefused,
+                PlayerEvent::TimePos(Some(300.5)),
+            ],
+            ..Default::default()
+        },
+        Script::default(),
+    ]);
+    let mut selection = selection();
+    selection.start = StartMode::Resume(300.0);
+    runner.control(Command::Headless(Box::new(selection))).await;
+    let (generation, result) = runner.pending.next().await.unwrap();
+    runner.opened(generation, result).await;
+    runner.control(Command::Seek(100.0)).await;
+    runner.tick().await;
+    runner.control(Command::Retry).await;
+    resolve(&mut runner).await;
+    assert!(
+        lock(&backend.log).iter().any(|entry| entry == "load@300.5"),
+        "{:?}",
+        lock(&backend.log)
+    );
+}
