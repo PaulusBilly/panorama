@@ -3,6 +3,9 @@ pub use super::selection::SourceRef;
 pub use super::torrent_ui::TorrentHealth;
 use panorama_mpv::{EndReason, MpvError, PlayerEvent, TrackKind};
 
+/// A seek has played on from its target once the position moves past it by less than this.
+const SEEK_LANDS: f64 = 5.0;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Stage {
     ResolvingSource,
@@ -224,6 +227,11 @@ impl PlaybackModel {
         self.moved
     }
 
+    /// A seek has not played on from its target yet.
+    pub fn seeking(&self) -> bool {
+        self.seek_from.is_some()
+    }
+
     pub fn apply(&mut self, event: HostEvent) {
         match event {
             HostEvent::Resolving => {
@@ -269,6 +277,8 @@ impl PlaybackModel {
             HostEvent::Seeked(seconds) => {
                 self.seek_from = Some(seconds);
                 self.time = finite(Some(seconds));
+                // What was cached ahead of the old spot says nothing about the new one.
+                self.cache_seconds = Some(0.0);
                 if self.known_file && self.time.is_some() && self.status == Status::Ended {
                     self.status = Status::Ready;
                 }
@@ -296,7 +306,12 @@ impl PlaybackModel {
                     if now != before {
                         self.moved = true;
                     }
-                    if self.seek_from.is_some_and(|from| now > from + 0.25) {
+                    // Only playing on from the target ends a seek; a position mpv sent before
+                    // the seek, far past a backward one, does not.
+                    if self
+                        .seek_from
+                        .is_some_and(|from| (from + 0.25..from + SEEK_LANDS).contains(&now))
+                    {
                         self.seek_from = None;
                     }
                 }
@@ -335,6 +350,14 @@ impl PlaybackModel {
                     self.status = Status::Ready;
                 }
             }
+            // mpv may still describe the cache around the spot a seek left; it reads from
+            // `cache_end - buffered`, so a snapshot that reads elsewhere is not the new spot's.
+            PlayerEvent::DemuxerCacheState(cache)
+                if self.seek_from.is_some_and(|target| {
+                    finite(cache.cache_end_seconds)
+                        .zip(finite(cache.buffered_seconds))
+                        .is_none_or(|(end, ahead)| (end - ahead - target).abs() > 2.0)
+                }) => {}
             PlayerEvent::DemuxerCacheState(cache) => {
                 self.buffered_until = finite(cache.cache_end_seconds);
                 self.cache_seconds = finite(cache.buffered_seconds);

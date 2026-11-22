@@ -221,7 +221,8 @@ pub fn member_state(model: &PlaybackModel) -> Option<(MemberState, f64, Option<f
         Status::Ready if model.paused => MemberState::Paused,
         // mpv calls a file ready before its first frames play; until the position moves the
         // party treats it as buffering, so the timeline waits for it.
-        Status::Ready if !model.advancing() => MemberState::Buffering,
+        // So does a seek, still fetching its new spot while mpv calls it ready.
+        Status::Ready if !model.advancing() || model.seeking() => MemberState::Buffering,
         Status::Ready => MemberState::Playing,
         Status::Ended => MemberState::Paused,
         Status::NoPeers | Status::Error(_) => MemberState::Failed,

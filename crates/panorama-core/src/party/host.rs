@@ -222,8 +222,12 @@ impl Participant {
         self.reported_ms = now;
     }
 
+    /// A player told to wait paused still reporting `Playing` has not heard yet.
     fn holds_start(&self) -> bool {
-        matches!(self.state, MemberState::Loading | MemberState::Buffering)
+        matches!(
+            self.state,
+            MemberState::Loading | MemberState::Buffering | MemberState::Playing
+        )
     }
 
     fn can_hold(&self) -> bool {
@@ -568,10 +572,26 @@ impl HostSession {
             (Action::Play, Phase::Paused) => (Phase::Playing, position, NoticeKind::Played),
             (Action::Play, _) | (Action::Pause, Phase::Paused | Phase::Lobby) => return,
             (Action::Pause, _) => (Phase::Paused, position, NoticeKind::Paused),
+            // Everyone stalls fetching the new spot: hold the party there until all are ready.
+            (
+                Action::Seek { to },
+                Phase::Playing | Phase::WaitingFor { .. } | Phase::WaitingForReady { .. },
+            ) if self.settings.wait_for_everyone => (
+                Phase::WaitingForReady { since: now },
+                to,
+                NoticeKind::Seeked,
+            ),
             (Action::Seek { to }, phase) => (phase, to, NoticeKind::Seeked),
         };
         showing.set(now, phase, position, self.host.duration);
         let at = showing.anchor_position;
+        if kind == NoticeKind::Seeked && matches!(phase, Phase::WaitingForReady { .. }) {
+            for p in self.participants_mut() {
+                if p.state != MemberState::Failed {
+                    p.state = MemberState::Loading;
+                }
+            }
+        }
         self.notify(kind, by, Some(at), out);
     }
 

@@ -53,6 +53,66 @@ fn release_of(group: &StreamGroup) -> PartyRelease {
 }
 
 #[test]
+fn a_seek_reads_as_buffering_until_the_picture_moves_on() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::PlayerEvent;
+    let mut model = model(Status::Ready, false, Some(10.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(10.5))));
+    model.apply(HostEvent::Seeked(200.0));
+    // mpv keeps calling a stalled seek ready, frozen at its target.
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.0))));
+    assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.5))));
+    assert_eq!(member_state(&model).unwrap().0, MemberState::Playing);
+}
+
+#[test]
+fn a_paused_seek_is_not_ready_on_the_old_spots_cache() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::{CacheState, PlayerEvent};
+    let cache = |end, ahead| {
+        HostEvent::Mpv(PlayerEvent::DemuxerCacheState(CacheState {
+            cache_end_seconds: Some(end),
+            buffered_seconds: Some(ahead),
+            ..Default::default()
+        }))
+    };
+    for target in [200.0, 110.0] {
+        let mut model = model(Status::Ready, true, Some(140.0));
+        model.apply(cache(154.0, 14.0));
+        model.apply(HostEvent::Seeked(target));
+        assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
+        // A snapshot still about the spot the seek left, sent before the seek.
+        model.apply(cache(150.0, 9.8));
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Buffering,
+            "{target}"
+        );
+        // A position from before the seek does not end it.
+        model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(140.0))));
+        model.apply(cache(150.0, 9.8));
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Buffering,
+            "{target}"
+        );
+        // Nor does a snapshot that does not say where it reads from.
+        model.apply(HostEvent::Mpv(PlayerEvent::DemuxerCacheState(CacheState {
+            buffered_seconds: Some(9.8),
+            ..Default::default()
+        })));
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Buffering,
+            "{target}"
+        );
+        model.apply(cache(target + 10.0, 10.0));
+        assert_eq!(member_state(&model).unwrap().0, MemberState::Paused);
+    }
+}
+
+#[test]
 fn the_player_reports_what_it_is_doing() {
     let report = |status, paused| member_state(&model(status, paused, Some(42.5))).unwrap().0;
     assert_eq!(member_state(&model(Status::Idle, false, None)), None);
