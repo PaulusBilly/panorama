@@ -139,7 +139,7 @@ impl Render for PartyLobby {
         // A friend's player loads under the lobby; it stays hidden until the host starts.
         let (label, backdrop) = match &self.side {
             Side::Host(_) => ("Watch party lobby", look.theme.scrim.opacity(0.72)),
-            Side::Member => ("Watch party", look.theme.player_canvas.into()),
+            Side::Member => ("Watch party", look.theme.player_canvas),
         };
         div()
             .id("party-lobby")
