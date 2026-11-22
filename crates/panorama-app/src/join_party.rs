@@ -111,8 +111,7 @@ impl AppShell {
         let input = match &self.join.input {
             Some(input) => input.clone(),
             None => {
-                let input =
-                    cx.new(|cx| InputState::new(window, cx).placeholder("Paste the invite link"));
+                let input = cx.new(|cx| InputState::new(window, cx).placeholder("Invite link"));
                 self.join._events = Some(cx.subscribe_in(
                     &input,
                     window,
