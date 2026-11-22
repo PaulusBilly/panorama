@@ -1102,3 +1102,38 @@ fn a_source_picked_while_paused_stays_paused() {
     assert_ne!(playing(&out, SAM), Some(true));
     assert_eq!(host.gate(), Gate::Ready);
 }
+
+#[test]
+fn resuming_before_everyone_loaded_the_new_source_waits_for_them() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Pause));
+    host.handle(
+        30_000,
+        HostInput::SetMedia {
+            media: media(),
+            at: 110.0,
+        },
+    );
+    local(&mut host, 31_000, MemberState::Ready);
+    let out = host.handle(32_000, HostInput::Local(Action::Play));
+    assert_ne!(playing(&out, SAM), Some(true));
+    let out = report(&mut host, 34_000, SAM, MemberState::Ready);
+    assert_eq!(playing(&out, SAM), Some(true));
+}
+
+#[test]
+fn new_media_ends_the_track_switch_grace() {
+    let mut host = switched_audio();
+    host.handle(
+        1_500,
+        HostInput::SetMedia {
+            media: media(),
+            at: 0.0,
+        },
+    );
+    local(&mut host, 1_600, MemberState::Ready);
+    report(&mut host, 1_700, SAM, MemberState::Ready);
+    tick(&mut host, 1_800);
+    report(&mut host, 2_000, SAM, MemberState::Buffering);
+    assert_eq!(waits(&tick(&mut host, 4_000)), 1);
+}

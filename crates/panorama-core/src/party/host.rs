@@ -510,6 +510,7 @@ impl HostSession {
             Some(_) => Phase::WaitingForReady { since: now },
         };
         self.tracks = None;
+        self.switched_ms = None;
         self.revision += 1;
         self.published = None;
         self.broadcast(
@@ -538,6 +539,7 @@ impl HostSession {
             }
         }
         self.tracks = None;
+        self.switched_ms = None;
         self.revision += 1;
         self.published = None;
         self.broadcast(
@@ -549,11 +551,20 @@ impl HostSession {
     }
 
     fn apply(&mut self, now: i64, action: Action, by: String, out: &mut Vec<HostOutput>) {
+        let loading = std::iter::once(&self.host)
+            .chain(self.joined())
+            .any(Participant::holds_start);
         let Some(showing) = &mut self.showing else {
             return;
         };
         let position = showing.playback().expected_at(now);
         let (phase, position, kind) = match (action, showing.phase) {
+            // A source picked while paused may still be loading for someone.
+            (Action::Play, Phase::Paused) if loading => (
+                Phase::WaitingForReady { since: now },
+                position,
+                NoticeKind::Played,
+            ),
             (Action::Play, Phase::Paused) => (Phase::Playing, position, NoticeKind::Played),
             (Action::Play, _) | (Action::Pause, Phase::Paused | Phase::Lobby) => return,
             (Action::Pause, _) => (Phase::Paused, position, NoticeKind::Paused),
