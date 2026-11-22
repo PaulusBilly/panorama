@@ -13,13 +13,14 @@ impl AppShell {
         cx.notify();
     }
     /// Quit into the downloaded update; Velopack's updater reopens Panorama once it's applied.
+    /// If the updater can't start, Panorama stays open and still tries again when it quits.
     pub fn restart_to_update(&mut self, cx: &mut Context<Self>) {
-        let ready = self.state.update(cx, |state, _| {
-            state.update_restarting = true;
-            state.update.clone()
-        });
-        if let Some(ready) = ready {
-            crate::updater::apply_after_exit(&ready, true);
+        let Some(ready) = self.state.read(cx).update.clone() else {
+            return;
+        };
+        if crate::updater::apply_after_exit(&ready, true) {
+            self.state
+                .update(cx, |state, _| state.update_restarting = true);
             cx.quit();
         }
     }

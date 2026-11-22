@@ -41,7 +41,7 @@ To give Panorama to someone on Windows, build the installer with [Velopack](http
 pwsh scripts/package-windows-installer.ps1
 ```
 
-It writes `target/velopack/Panorama-win-Setup.exe` and the update feed beside it. The installer needs no administrator rights, installs to `%LocalAppData%\Panorama`, and adds Start menu and desktop shortcuts. Panorama registers `panorama://` watch party invite links itself on launch.
+It writes `target/velopack/PanoramaApp-win-Setup.exe` and the update feed beside it. The installer needs no administrator rights, installs to `%LocalAppData%\PanoramaApp` (apart from the user data in `%LocalAppData%\Panorama`), and adds Start menu and desktop shortcuts. Panorama registers `panorama://` watch party invite links itself on launch.
 
 Installed copies update themselves from GitHub Releases: at launch Panorama checks for a newer release and downloads it in the background, the account menu offers **Restart to update**, and otherwise the update is applied when Panorama quits. Pushing a version tag such as `v0.1.3` runs `.github/workflows/release.yml`, which builds the installer and publishes it with the feed to that tag's release.
 

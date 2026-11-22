@@ -1,5 +1,6 @@
-//! Updates from GitHub Releases through Velopack, on Windows installs made by `Panorama-win-Setup.exe`.
-//! A zip or dev build has no Velopack install around it, so every call here is a quiet no-op.
+//! Updates from GitHub Releases through Velopack, on Windows installs made by
+//! `PanoramaApp-win-Setup.exe`. A zip or dev build has no Velopack install around it, so every
+//! call here is a quiet no-op.
 use crate::app_state::AppState;
 use gpui::{App, Entity};
 
@@ -13,7 +14,7 @@ pub struct Ready {
     pub version: String,
     /// Absent on a preview, which shows the prompt and applies nothing.
     #[cfg(target_os = "windows")]
-    inner: Option<std::sync::Arc<(velopack::UpdateManager, velopack::UpdateInfo)>>,
+    inner: Option<std::sync::Arc<(velopack::UpdateManager, velopack::VelopackAsset)>>,
 }
 
 impl Ready {
@@ -66,6 +67,15 @@ fn find_and_download() -> Option<Ready> {
     let log = |message: String| crate::debug::log(format!("Update: {message}"));
     // Fails outside a Velopack install, which is the normal case for zips and dev builds.
     let manager = UpdateManager::new(GithubSource::new(REPO, None, false), None, None).ok()?;
+    let ready = |manager: UpdateManager, asset: velopack::VelopackAsset| Ready {
+        version: asset.Version.clone(),
+        inner: Some(std::sync::Arc::new((manager, asset))),
+    };
+    // An update downloaded on an earlier run is still on disk: offer it without the network.
+    if let Some(asset) = manager.get_update_pending_restart() {
+        log(format!("{} already downloaded", asset.Version));
+        return Some(ready(manager, asset));
+    }
     let info = match manager.check_for_updates() {
         Ok(UpdateCheck::UpdateAvailable(info)) => *info,
         Ok(_) => return None,
@@ -80,32 +90,34 @@ fn find_and_download() -> Option<Ready> {
         return None;
     }
     log(format!("{version} downloaded"));
-    Some(Ready {
-        version,
-        inner: Some(std::sync::Arc::new((manager, info))),
-    })
+    Some(ready(manager, info.TargetFullRelease))
 }
 
 /// Hands `ready` to Velopack's updater, which waits for this process to exit, swaps in the new
-/// version and, with `restart`, opens it. The caller still has to quit.
-pub fn apply_after_exit(ready: &Ready, restart: bool) {
+/// version and, with `restart`, opens it. Returns whether the updater started; only then should
+/// the caller quit for it.
+pub fn apply_after_exit(ready: &Ready, restart: bool) -> bool {
     #[cfg(target_os = "windows")]
     {
-        let Some(inner) = &ready.inner else { return };
-        let (manager, info) = &**inner;
+        let Some(inner) = &ready.inner else {
+            return false;
+        };
+        let (manager, asset) = &**inner;
         let silent = !restart;
-        if let Err(error) = manager.wait_exit_then_apply_updates(
-            &info.TargetFullRelease,
-            silent,
-            restart,
-            Vec::<String>::new(),
-        ) {
-            crate::debug::log(format!(
-                "Update: apply of {} failed: {error}",
-                ready.version
-            ));
+        match manager.wait_exit_then_apply_updates(asset, silent, restart, Vec::<String>::new()) {
+            Ok(()) => true,
+            Err(error) => {
+                crate::debug::log(format!(
+                    "Update: apply of {} failed: {error}",
+                    ready.version
+                ));
+                false
+            }
         }
     }
     #[cfg(not(target_os = "windows"))]
-    let _ = (ready, restart);
+    {
+        let _ = (ready, restart);
+        false
+    }
 }

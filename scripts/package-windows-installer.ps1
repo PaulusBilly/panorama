@@ -1,6 +1,6 @@
 #requires -Version 7
 # Builds the Velopack release under target/velopack/ from the verified folder that
-# package-windows.ps1 assembles: Panorama-win-Setup.exe, the full .nupkg, a delta from the
+# package-windows.ps1 assembles: PanoramaApp-win-Setup.exe, the full .nupkg, a delta from the
 # previous release when one is there, and releases.win.json, the feed the app updates from.
 # Needs vpk at the same version as the velopack crate:
 #   dotnet tool install -g vpk --version 1.3.39-g8d2844f
@@ -34,7 +34,9 @@ if ($Publish) {
     if ($LASTEXITCODE) { throw "vpk download failed ($LASTEXITCODE)" }
 }
 
-vpk pack --packId Panorama --packVersion $version --packTitle Panorama --packAuthors Panorama `
+# The pack id names the install folder, %LocalAppData%\<packId>, which uninstall deletes whole.
+# It must not be "Panorama": that folder holds panorama.db, the user's sign-in and history.
+vpk pack --packId PanoramaApp --packVersion $version --packTitle Panorama --packAuthors Panorama `
     --packDir $stage --mainExe panorama.exe --icon $icon --runtime win-x64 --outputDir $out
 if ($LASTEXITCODE) { throw "vpk pack failed ($LASTEXITCODE)" }
 
@@ -44,5 +46,5 @@ if ($Publish) {
     if ($LASTEXITCODE) { throw "vpk upload failed ($LASTEXITCODE)" }
 }
 
-$setup = Join-Path $out 'Panorama-win-Setup.exe'
+$setup = Join-Path $out 'PanoramaApp-win-Setup.exe'
 Write-Host "Installer: $setup ($((Get-Item $setup).Length) bytes)"
