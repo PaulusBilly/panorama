@@ -3,6 +3,9 @@ pub use super::selection::SourceRef;
 pub use super::torrent_ui::TorrentHealth;
 use panorama_mpv::{EndReason, MpvError, PlayerEvent, TrackKind};
 
+/// A seek has played on from its target once the position moves past it by less than this.
+const SEEK_LANDS: f64 = 5.0;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Stage {
     ResolvingSource,
@@ -303,7 +306,12 @@ impl PlaybackModel {
                     if now != before {
                         self.moved = true;
                     }
-                    if self.seek_from.is_some_and(|from| now > from + 0.25) {
+                    // Only playing on from the target ends a seek; a position mpv sent before
+                    // the seek, far past a backward one, does not.
+                    if self
+                        .seek_from
+                        .is_some_and(|from| (from + 0.25..from + SEEK_LANDS).contains(&now))
+                    {
                         self.seek_from = None;
                     }
                 }
@@ -348,7 +356,7 @@ impl PlaybackModel {
                 if self.seek_from.is_some_and(|target| {
                     finite(cache.cache_end_seconds)
                         .zip(finite(cache.buffered_seconds))
-                        .is_some_and(|(end, ahead)| (end - ahead - target).abs() > 2.0)
+                        .is_none_or(|(end, ahead)| (end - ahead - target).abs() > 2.0)
                 }) => {}
             PlayerEvent::DemuxerCacheState(cache) => {
                 self.buffered_until = finite(cache.cache_end_seconds);

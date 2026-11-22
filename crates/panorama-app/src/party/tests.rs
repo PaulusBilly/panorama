@@ -89,6 +89,24 @@ fn a_paused_seek_is_not_ready_on_the_old_spots_cache() {
             MemberState::Buffering,
             "{target}"
         );
+        // A position from before the seek does not end it.
+        model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(140.0))));
+        model.apply(cache(150.0, 9.8));
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Buffering,
+            "{target}"
+        );
+        // Nor does a snapshot that does not say where it reads from.
+        model.apply(HostEvent::Mpv(PlayerEvent::DemuxerCacheState(CacheState {
+            buffered_seconds: Some(9.8),
+            ..Default::default()
+        })));
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Buffering,
+            "{target}"
+        );
         model.apply(cache(target + 10.0, 10.0));
         assert_eq!(member_state(&model).unwrap().0, MemberState::Paused);
     }
