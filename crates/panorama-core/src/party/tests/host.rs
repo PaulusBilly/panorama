@@ -595,8 +595,44 @@ fn last_request_wins() {
     host.handle(1_050, HostInput::Local(Action::Play));
     let out = host.handle(1_100, HostInput::Local(Action::Seek { to: 30.0 }));
     let (_, playback, _) = states(&out, SAM)[0];
-    assert!(playback.playing);
     assert_eq!(playback.anchor_position, 30.0);
+    local(&mut host, 1_200, MemberState::Paused);
+    let out = report(&mut host, 1_300, SAM, MemberState::Paused);
+    assert_eq!(playing(&out, SAM), Some(true));
+}
+
+#[test]
+fn a_seek_holds_everyone_at_the_new_spot_until_they_are_ready_there() {
+    let mut host = party();
+    let out = host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    let (_, playback, _) = states(&out, SAM)[0];
+    assert!(!playback.playing);
+    assert_eq!(playback.anchor_position, 500.0);
+    // Reports sent before the seek reached them, and players still fetching the new spot.
+    report(&mut host, 10_050, SAM, MemberState::Playing);
+    local(&mut host, 10_100, MemberState::Buffering);
+    assert_ne!(playing(&tick(&mut host, 13_000), SAM), Some(true));
+    local(&mut host, 13_500, MemberState::Paused);
+    assert_ne!(playing(&tick(&mut host, 13_600), SAM), Some(true));
+    let out = report(&mut host, 14_000, SAM, MemberState::Paused);
+    let (_, playback, _) = states(&out, SAM)[0];
+    assert!(playback.playing);
+    assert_eq!(playback.anchor_position, 500.0);
+    assert_eq!(playback.anchor_host_ms, 14_000);
+}
+
+#[test]
+fn a_seek_without_waiting_for_everyone_keeps_playing() {
+    let mut host = party();
+    host.handle(
+        0,
+        HostInput::Settings(HostSettings {
+            wait_for_everyone: false,
+            anyone_controls: false,
+        }),
+    );
+    let out = host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    assert_eq!(playing(&out, SAM), Some(true));
 }
 
 #[test]

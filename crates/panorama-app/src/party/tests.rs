@@ -53,6 +53,20 @@ fn release_of(group: &StreamGroup) -> PartyRelease {
 }
 
 #[test]
+fn a_seek_reads_as_buffering_until_the_picture_moves_on() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::PlayerEvent;
+    let mut model = model(Status::Ready, false, Some(10.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(10.5))));
+    model.apply(HostEvent::Seeked(200.0));
+    // mpv keeps calling a stalled seek ready, frozen at its target.
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.0))));
+    assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.5))));
+    assert_eq!(member_state(&model).unwrap().0, MemberState::Playing);
+}
+
+#[test]
 fn the_player_reports_what_it_is_doing() {
     let report = |status, paused| member_state(&model(status, paused, Some(42.5))).unwrap().0;
     assert_eq!(member_state(&model(Status::Idle, false, None)), None);

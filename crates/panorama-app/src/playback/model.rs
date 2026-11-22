@@ -224,6 +224,11 @@ impl PlaybackModel {
         self.moved
     }
 
+    /// A seek has not played on from its target yet.
+    pub fn seeking(&self) -> bool {
+        self.seek_from.is_some()
+    }
+
     pub fn apply(&mut self, event: HostEvent) {
         match event {
             HostEvent::Resolving => {
