@@ -1,14 +1,14 @@
 //! The party's network side, on the services runtime. One task owns the endpoint and the
 //! session; each connection has a reader task and a writer task. The GPUI side talks to it
 //! through [`Input`] and hears back through [`Event`]. Dropping the inputs leaves the party.
-use super::{EndReason, InviteLink, Link, PartyView, Role, RosterRow, trace};
+use super::{EndReason, InviteLink, Link, PartySync, PartyView, Role, RosterRow, trace};
 use crate::playback::host::Command;
 use futures::channel::mpsc as gpui_mpsc;
 use panorama_core::{
     party::{
         Action, ConnId, Down, HostInput, HostOutput, HostSession, HostSettings, MAX_MEMBERS,
         MemberInput, MemberOutput, MemberSession, MemberState, MemberView, Notice, NoticeKind,
-        PartyMedia, PlaybackState, decode_down, decode_up, encode,
+        PartyMedia, PlaybackState, TrackChoice, decode_down, decode_up, encode,
         transport::{
             Invite, PartyConn, PartyEndpoint, PartyPath, PartyReceiver, PartySecret, PartySender,
             TransportError,
@@ -68,6 +68,9 @@ pub(super) enum Input {
     /// Member: the player opened a new file.
     Reopened,
     Settings(HostSettings),
+    /// Host: the local player's audio and subtitle tracks.
+    Tracks(TrackChoice),
+    Sync(PartySync),
 }
 
 /// To the GPUI side.
@@ -77,6 +80,8 @@ pub(super) enum Event {
     Player(Command),
     /// Member: open this media.
     Load(PartyMedia),
+    /// Member: the host's track choice.
+    Tracks(TrackChoice),
 }
 
 pub(super) struct Spawned {
@@ -89,9 +94,10 @@ pub(super) fn host(
     store: Option<Arc<Store>>,
     name: String,
     settings: HostSettings,
+    sync: PartySync,
 ) -> Spawned {
     spawn(runtime, move |inputs, events| async move {
-        Host::run(store, name, settings, inputs, events).await
+        Host::run(store, name, settings, sync, inputs, events).await
     })
 }
 
@@ -100,9 +106,10 @@ pub(super) fn member(
     store: Option<Arc<Store>>,
     name: String,
     invite: Invite,
+    sync: PartySync,
 ) -> Spawned {
     spawn(runtime, move |inputs, events| async move {
-        run_member(store, name, invite, inputs, events).await
+        run_member(store, name, invite, sync, inputs, events).await
     })
 }
 
@@ -336,6 +343,7 @@ impl Host {
         store: Option<Arc<Store>>,
         name: String,
         settings: HostSettings,
+        sync: PartySync,
         mut inputs: UnboundedReceiver<Input>,
         mut events: Events,
     ) {
@@ -347,6 +355,7 @@ impl Host {
             Link::Starting,
         );
         view.anyone_controls = settings.anyone_controls;
+        view.sync = sync;
         events.view(&view);
         let started = async {
             let endpoint = bind(store.as_deref()).await?;
@@ -481,6 +490,11 @@ impl Host {
                 self.view.anyone_controls = settings.anyone_controls;
                 self.handle(HostInput::Settings(settings));
             }
+            Input::Tracks(tracks) => {
+                trace(|| format!("host tracks {tracks:?}"));
+                self.handle(HostInput::Tracks(tracks));
+            }
+            Input::Sync(sync) => self.view.sync = sync,
             Input::Release { .. } | Input::Reopened => {}
         }
     }
@@ -573,10 +587,12 @@ async fn run_member(
     store: Option<Arc<Store>>,
     name: String,
     invite: Invite,
+    sync: PartySync,
     mut inputs: UnboundedReceiver<Input>,
     mut events: Events,
 ) {
     let mut view = PartyView::new(Role::Member, Link::Starting);
+    view.sync = sync;
     events.view(&view);
     let secret = invite.secret.clone();
     let connected = async {
@@ -691,7 +707,8 @@ impl Member {
                 trace(|| "member reopened".into());
                 self.handle(MemberInput::Reopened);
             }
-            Input::Media { .. } | Input::Settings(_) => {}
+            Input::Sync(sync) => self.view.sync = sync,
+            Input::Media { .. } | Input::Settings(_) | Input::Tracks(_) => {}
         }
     }
 
@@ -724,7 +741,10 @@ impl Member {
                 MemberOutput::Controls { anyone_controls } => {
                     self.view.anyone_controls = anyone_controls;
                 }
-                MemberOutput::Tracks(tracks) => trace(|| format!("member tracks {tracks:?}")),
+                MemberOutput::Tracks(tracks) => {
+                    trace(|| format!("member tracks {tracks:?}"));
+                    self.events.send(Event::Tracks(tracks));
+                }
                 MemberOutput::Gate(gate) => trace(|| format!("member gate {gate:?}")),
                 MemberOutput::Roster(members) => {
                     self.view.roster = members

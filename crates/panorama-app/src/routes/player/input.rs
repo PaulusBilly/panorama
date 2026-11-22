@@ -424,12 +424,7 @@ impl Player {
     /// Activate a row: select an audio track, or switch source and close the panel.
     pub(super) fn select_row(&mut self, key: RowKey, window: &mut Window, cx: &mut Context<Self>) {
         match key {
-            RowKey::Audio(id) => {
-                for track in &mut self.model.audio {
-                    track.selected = track.id == id;
-                }
-                self.send(Command::SelectAudio(id), cx);
-            }
+            RowKey::Audio(id) => self.choose_audio(id, cx),
             RowKey::Language(choice) => self.choose_language(choice, cx),
             RowKey::Subtitle(id) => self.choose_subtitle(id, cx),
             RowKey::Source(source) => {
@@ -443,6 +438,13 @@ impl Player {
             }
         }
         cx.notify();
+    }
+
+    pub(super) fn choose_audio(&mut self, id: i64, cx: &mut Context<Self>) {
+        for track in &mut self.model.audio {
+            track.selected = track.id == id;
+        }
+        self.send(Command::SelectAudio(id), cx);
     }
 
     /// A trigger activation.

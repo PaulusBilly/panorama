@@ -559,6 +559,7 @@ pub(super) fn preview(kind: &str) -> PartyView {
             },
             at: Instant::now(),
         }],
+        sync: crate::party::PartySync::default(),
     }
 }
 

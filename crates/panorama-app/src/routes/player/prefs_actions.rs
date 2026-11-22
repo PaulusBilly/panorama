@@ -241,6 +241,19 @@ impl Player {
         cx.notify();
     }
 
+    /// Follow the host's pick. Unlike choosing, this keeps the viewer's own remembered language
+    /// and source for films watched alone.
+    pub(super) fn follow_subtitle(&mut self, id: Option<i64>, cx: &mut Context<Self>) {
+        match id {
+            Some(id) => self.ui.subs.choose_track(id, &self.model.subtitles),
+            None => {
+                self.ui.subs.choose(Choice::Off, &self.model.subtitles);
+            }
+        }
+        self.select_subtitle(id, cx);
+        cx.notify();
+    }
+
     fn select_subtitle(&mut self, id: Option<i64>, cx: &mut Context<Self>) {
         for track in &mut self.model.subtitles {
             track.selected = Some(track.id) == id;
