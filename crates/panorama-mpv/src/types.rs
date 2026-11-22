@@ -139,6 +139,9 @@ pub struct Track {
     pub forced: bool,
     /// Loaded from an external source.
     pub external: bool,
+    /// A fingerprint of an external track's file URL, the same on every machine that loads
+    /// the same file. Never the URL itself, which can carry addon credentials.
+    pub source: Option<u64>,
     /// Accessibility subtitle flag.
     pub hearing_impaired: bool,
     /// Currently selected stream.

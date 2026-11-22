@@ -369,6 +369,7 @@ fn track(id: i64, lang: &str, label: &str, external: bool, selected: bool) -> Tr
         codec: Some("subrip".into()),
         selected,
         external,
+        source: None,
     }
 }
 
@@ -519,6 +520,28 @@ fn a_closer_subtitle_turning_up_later_replaces_the_first_match() {
         track(11, "eng", "OpenSubtitles", true, false),
     ];
     assert_eq!(followed.step(&[], &own), Follow::default());
+}
+
+#[test]
+fn a_friend_picks_the_hosts_own_file_among_alike_addon_subtitles() {
+    // OpenSubtitles offers many English files, all named alike, timed for different cuts.
+    let file = |id, source, selected| Track {
+        source: Some(source),
+        ..track(id, "eng", "OpenSubtitles v3", true, selected)
+    };
+    let choice = choice_of(&[], &[file(2, 0xa, false), file(3, 0xb, true)]).unwrap();
+    // The friend's list holds the same files in another order.
+    let friend = [file(5, 0xb, false), file(4, 0xa, true)];
+    assert_eq!(
+        follow(
+            PartySync::default(),
+            &choice,
+            &[],
+            &[friend[1].clone(), friend[0].clone()]
+        )
+        .subtitle,
+        Some(Some(5))
+    );
 }
 
 fn hosts_release(torrent: Option<TorrentRef>) -> PartyRelease {

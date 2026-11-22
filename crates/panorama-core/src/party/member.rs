@@ -21,6 +21,8 @@ const CONTINUOUS: f64 = 0.25;
 /// Each load sets off a details fetch and a stream lookup across every addon.
 const LOAD_EVERY_MS: i64 = 2_000;
 
+// ponytail: one input lives per message and goes at once; boxing `Down` buys nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberInput {
     /// Send `hello`; the connection to the host is open.

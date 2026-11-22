@@ -40,6 +40,7 @@ fn english_subtitles() -> TrackChoice {
             title: Some("English [SDH]".into()),
             codec: Some("subrip".into()),
             external: true,
+            source: None,
         }),
     }
 }

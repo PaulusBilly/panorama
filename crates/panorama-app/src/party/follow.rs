@@ -26,6 +26,7 @@ pub fn key_of(track: &Track) -> TrackKey {
         title: Some(title),
         codec: track.codec.clone(),
         external: track.external,
+        source: track.source,
     }
 }
 
@@ -159,8 +160,8 @@ fn best(tracks: &[Track], key: &TrackKey) -> Option<(u8, i64)> {
         })
 }
 
-/// How well `track` matches `key`, or `None` when it is a different language. Where the track
-/// comes from outranks its title, which outranks its codec.
+/// How well `track` matches `key`, or `None` when it is a different language. The same file
+/// outranks where the track comes from, which outranks its title, then its codec.
 fn fit(track: &Track, key: &TrackKey) -> Option<u8> {
     let mine = key_of(track).bounded();
     let same_language = match (&mine.language, &key.language) {
@@ -168,8 +169,11 @@ fn fit(track: &Track, key: &TrackKey) -> Option<u8> {
         (None, None) => mine.title == key.title,
         _ => false,
     };
+    // The very file outranks all else: an addon names many of its files alike.
+    let same_file = mine.source.is_some() && mine.source == key.source;
     same_language.then(|| {
-        4 * u8::from(mine.external == key.external)
+        8 * u8::from(same_file)
+            + 4 * u8::from(mine.external == key.external)
             + 2 * u8::from(mine.title == key.title)
             + u8::from(mine.codec == key.codec)
     })

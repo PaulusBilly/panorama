@@ -267,6 +267,7 @@ fn a_track_choice_round_trips() {
             title: None,
             codec: Some("eac3".into()),
             external: false,
+            source: None,
         }),
         ..english_subtitles()
     };

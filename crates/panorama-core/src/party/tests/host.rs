@@ -1069,6 +1069,7 @@ fn switched_audio() -> HostSession {
         title: None,
         codec: Some("aac".into()),
         external: false,
+        source: None,
     });
     host.handle(500, HostInput::Tracks(english_subtitles()));
     host.handle(1_000, HostInput::Tracks(french_audio));

@@ -9,6 +9,7 @@ fn track(id: i64, lang: Option<&str>, label: &str, codec: &str, selected: bool) 
         codec: Some(codec.into()),
         selected,
         external: false,
+        source: None,
     }
 }
 

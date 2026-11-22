@@ -90,6 +90,8 @@ pub struct Track {
     pub selected: bool,
     /// Added from a file (an addon's subtitles), not part of the video.
     pub external: bool,
+    /// Which file an added track came from, as a fingerprint the same on every machine.
+    pub source: Option<u64>,
 }
 
 impl std::fmt::Debug for Track {
