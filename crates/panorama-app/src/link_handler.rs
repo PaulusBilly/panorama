@@ -5,9 +5,10 @@ use std::path::Path;
 #[cfg(any(target_os = "windows", test))]
 const SCHEME_KEY: &str = r"Software\Classes\panorama";
 
-/// The shell command that opens `exe` with the clicked link as its one argument.
+/// The shell command that opens `exe` with the clicked link as its only argument, behind a marker
+/// so a crafted link is never read as a flag.
 pub fn command_for(exe: &Path) -> String {
-    format!("\"{}\" \"%1\"", exe.display())
+    format!("\"{}\" --open-url \"%1\"", exe.display())
 }
 
 /// Registers the running executable for `panorama://` links when the keys are missing or point
@@ -142,7 +143,10 @@ mod tests {
     #[test]
     fn the_command_quotes_the_exe_and_passes_the_link() {
         let command = command_for(Path::new(r"C:\Program Files\Panorama\panorama.exe"));
-        assert_eq!(command, r#""C:\Program Files\Panorama\panorama.exe" "%1""#);
+        assert_eq!(
+            command,
+            r#""C:\Program Files\Panorama\panorama.exe" --open-url "%1""#
+        );
         assert!(SCHEME_KEY.ends_with("panorama"));
     }
 
@@ -156,6 +160,11 @@ mod tests {
         assert!(registry::ensure(&key, &here).unwrap());
         assert!(!registry::ensure(&key, &here).unwrap());
         assert_eq!(registry::command(&key).as_deref(), Some(here.as_str()));
+        assert!(registry::ensure(&key, &moved).unwrap());
+        assert_eq!(registry::command(&key).as_deref(), Some(moved.as_str()));
+        let old = r#""C:\b\panorama.exe" "%1""#;
+        assert_ne!(old, moved);
+        assert!(registry::ensure(&key, old).unwrap());
         assert!(registry::ensure(&key, &moved).unwrap());
         assert_eq!(registry::command(&key).as_deref(), Some(moved.as_str()));
         registry::remove(&key);

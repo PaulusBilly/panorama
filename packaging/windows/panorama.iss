@@ -57,7 +57,7 @@ Name: "{autodesktop}\Panorama"; Filename: "{app}\panorama.exe"; IconFilename: "{
 Root: HKCU; Subkey: "Software\Classes\panorama"; ValueType: string; ValueName: ""; ValueData: "URL:Panorama watch party"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\panorama"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\panorama\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\panorama.ico"
-Root: HKCU; Subkey: "Software\Classes\panorama\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\panorama.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\panorama\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\panorama.exe"" --open-url ""%1"""
 
 [Run]
 Filename: "{app}\panorama.exe"; Description: "Open Panorama"; Flags: nowait postinstall skipifsilent
