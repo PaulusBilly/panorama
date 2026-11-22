@@ -102,9 +102,10 @@ pub fn is_ready(state: MemberState) -> bool {
 /// the host's player is still opening it, the friend waits here rather than on a paused frame.
 pub fn host_started(view: &PartyView) -> bool {
     view.gate.is_some_and(|gate| gate != Gate::Lobby)
-        && !view.roster.iter().any(|row| {
+        // Only a listed host counts: a friend joining mid-start hears the state first.
+        && view.roster.iter().any(|row| {
             row.member.is_host
-                && matches!(
+                && !matches!(
                     row.member.state,
                     MemberState::Loading | MemberState::Buffering
                 )

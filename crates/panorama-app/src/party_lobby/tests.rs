@@ -188,3 +188,12 @@ fn a_friends_lobby_waits_for_the_hosts_film_to_load() {
         "a host who can't play does not hold friends here"
     );
 }
+
+#[test]
+fn a_friend_joining_mid_start_waits_for_the_roster() {
+    // Joining while the host loads: the state can arrive before anyone is listed.
+    let mut view = preview(false);
+    view.gate = Some(Gate::Ready);
+    view.roster.clear();
+    assert!(!host_started(&view));
+}
