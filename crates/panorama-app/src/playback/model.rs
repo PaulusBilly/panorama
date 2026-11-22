@@ -274,6 +274,8 @@ impl PlaybackModel {
             HostEvent::Seeked(seconds) => {
                 self.seek_from = Some(seconds);
                 self.time = finite(Some(seconds));
+                // What was cached ahead of the old spot says nothing about the new one.
+                self.cache_seconds = Some(0.0);
                 if self.known_file && self.time.is_some() && self.status == Status::Ended {
                     self.status = Status::Ready;
                 }
