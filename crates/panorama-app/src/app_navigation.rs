@@ -137,6 +137,12 @@ impl AppShell {
         self.navigate(Route::Film { id, kind }, window, cx);
     }
     pub fn navigate(&mut self, route: Route, window: &mut Window, cx: &mut Context<Self>) {
+        // Playing a film moves it to the front of Home, so the card it grew from is elsewhere.
+        if let Route::Player { id } = &route
+            && self.returning.as_ref().is_some_and(|r| r.film.id == *id)
+        {
+            self.returning = None;
+        }
         if self.history.push(route) {
             self.changed(window, cx);
         }
