@@ -26,6 +26,8 @@ if ($LASTEXITCODE) { throw "package-windows.ps1 failed ($LASTEXITCODE)" }
 if ($LASTEXITCODE) { throw "verify-windows-package.ps1 failed ($LASTEXITCODE)" }
 
 $version = (Select-String -Path (Join-Path $repo 'crates/panorama-app/Cargo.toml') -Pattern '^\s*version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+# vpk refuses to pack a version at or below one already in the folder, so start clean.
+Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $out | Out-Null
 
 if ($Publish) {
