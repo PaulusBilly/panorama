@@ -154,7 +154,10 @@ impl Player {
             .party
             .as_ref()
             .and_then(|party| party.media());
-        let picked = self.party.picked.take() == Some(self.model.source);
+        let picked = self.party.picked == Some(self.model.source);
+        if picked {
+            self.party.picked = None;
+        }
         if !picked
             && announced.is_some_and(|media| {
                 media.film_id == selection.film.id && media.video_id == selection.video_id

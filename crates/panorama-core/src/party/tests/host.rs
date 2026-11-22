@@ -1137,3 +1137,12 @@ fn new_media_ends_the_track_switch_grace() {
     report(&mut host, 2_000, SAM, MemberState::Buffering);
     assert_eq!(waits(&tick(&mut host, 4_000)), 1);
 }
+
+#[test]
+fn resuming_while_a_friend_buffers_plays_at_once() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Pause));
+    report(&mut host, 10_500, SAM, MemberState::Buffering);
+    let out = host.handle(11_000, HostInput::Local(Action::Play));
+    assert_eq!(playing(&out, SAM), Some(true));
+}

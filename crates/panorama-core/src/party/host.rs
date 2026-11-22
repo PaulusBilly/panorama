@@ -553,7 +553,7 @@ impl HostSession {
     fn apply(&mut self, now: i64, action: Action, by: String, out: &mut Vec<HostOutput>) {
         let loading = std::iter::once(&self.host)
             .chain(self.joined())
-            .any(Participant::holds_start);
+            .any(|p| p.state == MemberState::Loading);
         let Some(showing) = &mut self.showing else {
             return;
         };

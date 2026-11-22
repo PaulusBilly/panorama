@@ -411,6 +411,8 @@ fn a_seek_mpv_refuses_is_not_a_playback_error() {
     };
     player.seek(30.0, SeekMode::Absolute).unwrap();
     player.load_at(video.to_str().unwrap(), Some(1.0)).unwrap();
-    wait(&events, |event| matches!(event, PlayerEvent::TimePos(Some(_))));
+    wait(&events, |event| {
+        matches!(event, PlayerEvent::TimePos(Some(_)))
+    });
     close(player);
 }
