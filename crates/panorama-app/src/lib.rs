@@ -24,6 +24,7 @@ pub mod fixtures;
 pub mod hero;
 pub mod home_layout;
 pub mod image_cache;
+pub mod join_party;
 pub mod login;
 pub mod party;
 pub mod party_lobby;

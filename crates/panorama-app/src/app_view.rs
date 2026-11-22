@@ -35,8 +35,9 @@ impl Render for AppShell {
         if self.viewport != window.viewport_size() {
             self.viewport = window.viewport_size();
             self.menu.dismiss();
+            self.join.dismiss();
         }
-        let moving = !self.reduced_motion && self.menu.moving(false);
+        let moving = !self.reduced_motion && (self.menu.moving(false) || self.join.moving(false));
         let real_playback =
             self.args.play_file.is_some() || self.args.play_url.is_some() || self.args.play_torrent;
         let playback_ready = !real_playback
@@ -86,25 +87,28 @@ impl Render for AppShell {
         };
         let route = self.history.current();
         let account = self.state.read(cx).account.clone();
+        let in_party =
+            (self.state.read(cx).party.as_ref()).is_some_and(|party| party.view.ended().is_none());
         let sidebar = route.has_sidebar().then(|| {
             self.sidebar.render(
                 route.destination(),
                 &account,
-                self.menu.open,
+                crate::sidebar::SidebarStatus {
+                    account_menu: self.menu.open,
+                    join: self.join.open,
+                    in_party,
+                },
                 view,
                 window,
                 cx,
             )
         });
-        let menu = self.menu.visible(self.reduced_motion).then(|| {
-            let party = self
-                .state
-                .read(cx)
-                .party
-                .as_ref()
-                .map(|party| party.view.clone());
-            self.menu.render(view, &account, party.as_ref(), window, cx)
-        });
+        let menu = self
+            .menu
+            .visible(self.reduced_motion)
+            .then(|| self.menu.render(view, &account, window, cx));
+        let join = (route.has_sidebar() && self.join.visible(self.reduced_motion))
+            .then(|| self.join_popover(view, in_party, window, cx));
         div()
             .id("panorama-shell")
             .relative()
@@ -174,8 +178,9 @@ impl Render for AppShell {
             }))
             .on_key_down(cx.listener(Self::key_down))
             .on_scroll_wheel(cx.listener(|shell, _, _, cx| {
-                if shell.menu.open {
+                if shell.menu.open || shell.join.open {
                     shell.menu.dismiss();
+                    shell.join.dismiss();
                     cx.notify();
                 }
             }))
@@ -199,6 +204,8 @@ impl Render for AppShell {
             .children(sidebar)
             .when(self.menu.open, |shell| shell.child(self.menu.catcher(cx)))
             .children(menu)
+            .when(self.join.open, |shell| shell.child(self.join_catcher(cx)))
+            .children(join)
             .children(
                 self.zoom
                     .as_ref()

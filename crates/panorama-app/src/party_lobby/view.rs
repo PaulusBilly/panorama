@@ -11,7 +11,7 @@ use crate::{
     },
 };
 use gpui::{
-    Animation, AnimationExt, BoxShadow, ClipboardItem, Context, Div, FocusHandle, Render,
+    Animation, AnimationExt, BoxShadow, ClipboardItem, Context, Div, FocusHandle, Render, Rgba,
     SharedString, Stateful, Transformation, Window, div, linear_color_stop, linear_gradient, point,
     prelude::*, px, relative, svg,
 };
@@ -213,20 +213,14 @@ impl PartyLobby {
             })
         });
         self.art = art;
-        let fade = |share: f32, alpha: f32| {
-            div()
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .w_full()
-                .h(relative(share))
-                .bg(linear_gradient(
-                    180.0,
-                    linear_color_stop(theme.surface.opacity(0.0), 0.0),
-                    linear_color_stop(theme.surface.opacity(alpha), 1.0),
-                ))
+        let scrim = |from: Rgba, to: Rgba, start: f32, end: f32| {
+            div().absolute().inset_0().bg(linear_gradient(
+                180.0,
+                linear_color_stop(from, start),
+                linear_color_stop(to, end),
+            ))
         };
-        let shade = theme.scrim.opacity(0.58);
+        let shade = theme.canvas.opacity(0.58);
         div()
             .relative()
             .h(px(HEADER))
@@ -237,21 +231,8 @@ impl PartyLobby {
                 let opacity = crate::film_card::fade_in(&image, look.reduced);
                 header.child(crate::hero::cover(image.image, bounds, poster, 1.0).opacity(opacity))
             })
-            .child(
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .left_0()
-                    .w_full()
-                    .h(relative(0.7))
-                    .bg(linear_gradient(
-                        180.0,
-                        linear_color_stop(shade.opacity(0.0), 0.0),
-                        linear_color_stop(shade, 1.0),
-                    )),
-            )
-            .child(fade(0.75, 0.8))
-            .child(fade(0.3, 1.0))
+            .child(scrim(shade.opacity(0.0), shade, 0.3, 0.62))
+            .child(scrim(theme.surface.opacity(0.0), theme.surface, 0.62, 1.0))
             .child(
                 div()
                     .absolute()

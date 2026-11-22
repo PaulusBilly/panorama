@@ -127,43 +127,12 @@ impl Player {
                 } else {
                     "Resolving source".into()
                 };
-                center.child(
-                    div()
-                        .id("player-buffering")
-                        .body()
-                        .flex()
-                        .items_center()
-                        .gap(px(12.0))
-                        .py(px(12.0))
-                        .px(px(20.0))
-                        .bg(theme.player_canvas.opacity(0.75))
-                        .role(gpui::Role::Status)
-                        .aria_label(match &caption {
-                            Some(caption) => format!("{label}, {caption}"),
-                            None => label.to_string(),
-                        })
-                        .child(
-                            svg()
-                                .path("player-loader-2.svg")
-                                .size(px(22.0))
-                                .text_color(theme.ink)
-                                .when(!reduced, |icon| {
-                                    icon.with_transformation(Transformation::rotate(gpui::radians(
-                                        self.launched.elapsed().as_secs_f32()
-                                            * std::f32::consts::TAU,
-                                    )))
-                                }),
-                        )
-                        .child(div().child(label).when_some(caption, |column, caption| {
-                            column.child(
-                                div()
-                                    .caption()
-                                    .text_color(theme.ink.opacity(0.65))
-                                    .child(caption),
-                            )
-                        })),
-                )
+                center.child(self.buffering_pill(label, caption, theme, reduced))
             }
+            Status::Ready => match self.party_waiting(cx) {
+                Some(waiting) => center.child(self.buffering_pill(waiting, None, theme, reduced)),
+                None => div(),
+            },
             Status::NoPeers => center.bg(theme.player_canvas.opacity(0.75)).child(
                 div()
                     .id("player-no-peers")
@@ -200,6 +169,49 @@ impl Player {
             ),
             _ => div(),
         }
+    }
+
+    /// The spinner pill: this player loading or buffering, or the party waiting for someone.
+    fn buffering_pill(
+        &self,
+        label: String,
+        caption: Option<String>,
+        theme: Theme,
+        reduced: bool,
+    ) -> Stateful<Div> {
+        div()
+            .id("player-buffering")
+            .body()
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .py(px(12.0))
+            .px(px(20.0))
+            .bg(theme.player_canvas.opacity(0.75))
+            .role(gpui::Role::Status)
+            .aria_label(match &caption {
+                Some(caption) => format!("{label}, {caption}"),
+                None => label.clone(),
+            })
+            .child(
+                svg()
+                    .path("player-loader-2.svg")
+                    .size(px(22.0))
+                    .text_color(theme.ink)
+                    .when(!reduced, |icon| {
+                        icon.with_transformation(Transformation::rotate(gpui::radians(
+                            self.launched.elapsed().as_secs_f32() * std::f32::consts::TAU,
+                        )))
+                    }),
+            )
+            .child(div().child(label).when_some(caption, |column, caption| {
+                column.child(
+                    div()
+                        .caption()
+                        .text_color(theme.ink.opacity(0.65))
+                        .child(caption),
+                )
+            }))
     }
 
     fn text_button(

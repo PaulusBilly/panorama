@@ -205,6 +205,7 @@ impl AppShell {
 
     pub(super) fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.menu.dismiss();
+        self.join.dismiss();
         self.zoom = None;
         window.focus(&self.focus, cx);
         self.present(window, cx);
@@ -266,6 +267,7 @@ impl AppShell {
                 self.sidebar.account.focus(window, cx);
                 cx.notify();
             }
+            "escape" if self.join.open => self.close_join(window, cx),
             "left" if modifiers.alt => self.back(window, cx),
             "right" if modifiers.alt => self.forward(window, cx),
             "backspace"

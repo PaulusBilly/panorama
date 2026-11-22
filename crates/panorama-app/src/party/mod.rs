@@ -44,7 +44,7 @@ pub struct PartyView {
     pub sync: PartySync,
     /// Member: this person's roster id, once the host welcomed them.
     pub me: Option<u32>,
-    /// Member: what holds the party's timeline, once the host said.
+    /// What holds the party's timeline, once the host has said.
     pub gate: Option<Gate>,
 }
 

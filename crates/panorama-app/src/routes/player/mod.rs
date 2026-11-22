@@ -396,8 +396,9 @@ impl Player {
 
     fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(kind) = self.args.party_preview.clone() {
-            let view = party_view::preview(&kind);
+            let mut view = party_view::preview(&kind);
             self.state.update(cx, |state, _| {
+                view.sync = state.party_sync();
                 state.party = Some(crate::party::Party::preview(view));
             });
         }

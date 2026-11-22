@@ -534,6 +534,7 @@ impl Host {
                 }
             }
         }
+        self.view.gate = Some(self.session.gate());
         for conn in stalled_peers {
             if self.peers.contains_key(&conn) {
                 self.drop_peer(conn);
