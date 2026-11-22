@@ -2,6 +2,7 @@
 use crate::{
     account_menu::popover_shadow,
     app::AppShell,
+    assets::Weighted,
     button::Button,
     home_layout::ViewSettings,
     sidebar::{SIDEBAR_WIDTH, join_bounds},
@@ -9,8 +10,8 @@ use crate::{
     transition::Tween,
 };
 use gpui::{
-    Context, Div, Entity, FocusHandle, FontWeight, MouseDownEvent, ScrollWheelEvent, Stateful,
-    Subscription, Window, div, prelude::*, px, relative,
+    Context, Div, Entity, FocusHandle, Focusable, FontWeight, MouseDownEvent, ScrollWheelEvent,
+    Stateful, Subscription, Window, div, prelude::*, px, relative,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use panorama_core::party::transport::{InviteError, parse_invite};

@@ -104,6 +104,9 @@ impl Sidebar {
         cx: &mut Context<AppShell>,
     ) -> Stateful<Div> {
         let theme = view.theme;
+        let party =
+            PartyEntry::for_session(matches!(account, Account::SignedIn(_)), status.in_party)
+                .map(|entry| self.party_item(entry, status.join, view, window, cx));
         let items = Destination::ALL
             .iter()
             .zip(&self.items)
@@ -168,9 +171,6 @@ impl Sidebar {
         };
         let diameter = f32::from(avatar.size.width);
         let menu_open = status.account_menu;
-        let party =
-            PartyEntry::for_session(matches!(account, Account::SignedIn(_)), status.in_party)
-                .map(|entry| self.party_item(entry, status.join, view, window, cx));
         div()
             .id("sidebar")
             .role(gpui::Role::Navigation)
@@ -259,7 +259,7 @@ impl Sidebar {
         view: ViewSettings,
         window: &Window,
         cx: &mut Context<AppShell>,
-    ) -> impl IntoElement {
+    ) -> Div {
         let theme = view.theme;
         let at = join_bounds(window.viewport_size());
         let watching = entry == PartyEntry::Watch;
