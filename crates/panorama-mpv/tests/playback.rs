@@ -410,6 +410,8 @@ fn a_seek_mpv_refuses_is_not_a_playback_error() {
         return;
     };
     player.seek(30.0, SeekMode::Absolute).unwrap();
+    // Nothing is open to seek in: mpv refuses, and says so, without failing playback.
+    wait(&events, |event| matches!(event, PlayerEvent::SeekRefused));
     player.load_at(video.to_str().unwrap(), Some(1.0)).unwrap();
     wait(&events, |event| {
         matches!(event, PlayerEvent::TimePos(Some(_)))

@@ -81,6 +81,7 @@ pub struct Film {
     primary: FocusHandle,
     watchlist: FocusHandle,
     watch_together: FocusHandle,
+    start_over: FocusHandle,
     retry_details: FocusHandle,
     launched: Instant,
     /// When everything was in, or the wait ran out; the page holds on its banner until then.
@@ -213,6 +214,7 @@ impl Film {
             primary: cx.focus_handle(),
             watchlist: cx.focus_handle(),
             watch_together: cx.focus_handle(),
+            start_over: cx.focus_handle(),
             retry_details: cx.focus_handle(),
             launched: Instant::now(),
             revealed: None,

@@ -62,11 +62,26 @@ fn start_anyway_is_offered_while_someone_loads() {
 }
 
 #[test]
-fn escape_closes_the_lobby_and_leaves_the_party() {
-    let readiness = Readiness::of(&roster(&[("Sam", MemberState::Loading)]));
-    for host in [true, false] {
-        assert_eq!(decide(host, &readiness, Command::Escape), Some(Exit::Leave));
-    }
+fn escape_keeps_a_party_friends_joined_and_leaves_an_empty_one() {
+    let joined = Readiness::of(&roster(&[("Sam", MemberState::Loading)]));
+    assert_eq!(decide(true, &joined, Command::Escape), Some(Exit::Browse));
+    assert_eq!(decide(false, &joined, Command::Escape), Some(Exit::Leave));
+    let alone = Readiness::of(&roster(&[]));
+    assert_eq!(decide(true, &alone, Command::Escape), Some(Exit::Leave));
+}
+
+#[test]
+fn the_host_picks_another_film_or_ends_the_party() {
+    let joined = Readiness::of(&roster(&[("Sam", MemberState::Ready)]));
+    assert_eq!(
+        decide(true, &joined, Command::PickAnotherFilm),
+        Some(Exit::Browse)
+    );
+    assert_eq!(decide(false, &joined, Command::PickAnotherFilm), None);
+    assert_eq!(
+        decide(true, &joined, Command::LeaveParty),
+        Some(Exit::Leave)
+    );
 }
 
 #[test]
@@ -115,4 +130,33 @@ fn the_party_plays_the_hosts_selected_release() {
         media_of(&empty).is_none(),
         "an addon with no sources plays nothing"
     );
+}
+
+#[test]
+fn a_friend_who_cannot_play_is_named_apart_from_the_loading() {
+    let readiness = Readiness::of(&roster(&[
+        ("Sam", MemberState::Failed),
+        ("Rina", MemberState::Ready),
+    ]));
+    assert_eq!(readiness.waiting, ["Sam"]);
+    assert_eq!(readiness.failed, ["Sam"]);
+    assert!(readiness.offers_start_anyway());
+}
+
+#[test]
+fn a_friends_lobby_says_why_the_party_ended() {
+    use crate::party::{EndReason, Link};
+    use panorama_core::party::ByeReason;
+    let mut view = preview(false);
+    let said = |view: &PartyView| view::member_status(Some(view), true).to_string();
+    view.link = Link::Ended(EndReason::Bye(ByeReason::VersionMismatch));
+    assert!(
+        said(&view).contains("different versions"),
+        "{}",
+        said(&view)
+    );
+    view.link = Link::Ended(EndReason::Bye(ByeReason::HostLeft));
+    assert_eq!(said(&view), "The host ended the party.");
+    view.link = Link::Ended(EndReason::Lost);
+    assert_eq!(said(&view), "Lost the connection to the host.");
 }

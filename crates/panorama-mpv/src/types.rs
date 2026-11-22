@@ -234,6 +234,8 @@ pub enum PlayerEvent {
     Error(MpvError),
     /// A subtitle file could not be added; playback is unaffected.
     SubtitleFailed,
+    /// mpv refused a seek: playback stays where it was, and no restart follows.
+    SeekRefused,
     /// mpv is destroyed; the retained child lease has been released.
     /// On timeout this arrives later, after actual destruction.
     Shutdown,

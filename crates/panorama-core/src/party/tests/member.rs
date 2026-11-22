@@ -487,3 +487,16 @@ fn a_stale_stop_is_ignored() {
     let out = member.handle(3_000, MemberInput::Down(Down::Stop { revision: 0 }));
     assert!(!out.contains(&MemberOutput::Stop));
 }
+
+#[test]
+fn a_paused_member_reports_a_jump() {
+    let mut member = joined();
+    member.handle(1_000, player(MemberState::Paused, 10.0));
+    // A seek that lands without the player ever reading as anything but paused.
+    let out = member.handle(2_000, player(MemberState::Paused, 500.0));
+    assert!(matches!(
+        reports(&out)[..],
+        [Up::Report { position, .. }] if position == 500.0
+    ));
+    assert!(reports(&member.handle(2_500, player(MemberState::Paused, 500.0))).is_empty());
+}

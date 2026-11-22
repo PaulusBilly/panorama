@@ -32,6 +32,9 @@ pub enum Command {
     Escape,
     StartWatching,
     StartAnyway,
+    /// Host: back to browsing for another film, keeping the party.
+    PickAnotherFilm,
+    /// Leave the party, or as the host, end it for everyone.
     LeaveParty,
     /// Member: the host started the party.
     HostStarted,
@@ -44,6 +47,8 @@ pub enum Exit {
     Start,
     /// Leave the party, or as the host, end it for everyone.
     Leave,
+    /// Host: the lobby closes and the party waits, with friends told a film is being chosen.
+    Browse,
     /// Member: the party began, so the player under the lobby shows.
     Started,
 }
@@ -52,6 +57,8 @@ pub enum Exit {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Readiness {
     pub waiting: Vec<String>,
+    /// Those waited for whose player can't play the source: only Change or Start anyway helps.
+    pub failed: Vec<String>,
     pub friends: usize,
 }
 
@@ -61,7 +68,12 @@ impl Readiness {
         Self {
             friends: friends.clone().count(),
             waiting: friends
+                .clone()
                 .filter(|row| !is_ready(row.member.state))
+                .map(|row| row.member.name.clone())
+                .collect(),
+            failed: friends
+                .filter(|row| row.member.state == MemberState::Failed)
                 .map(|row| row.member.name.clone())
                 .collect(),
         }
@@ -89,7 +101,10 @@ pub fn is_ready(state: MemberState) -> bool {
 /// What `command` does from this side, given who is ready. `None` leaves the lobby open.
 pub fn decide(host: bool, readiness: &Readiness, command: Command) -> Option<Exit> {
     match command {
+        // A host with friends in keeps them: closing goes back to choosing a film.
+        Command::Escape if host && readiness.friends > 0 => Some(Exit::Browse),
         Command::Escape | Command::LeaveParty => Some(Exit::Leave),
+        Command::PickAnotherFilm if host => Some(Exit::Browse),
         Command::StartWatching if host && readiness.can_start() => Some(Exit::Start),
         Command::StartAnyway if host && readiness.offers_start_anyway() => Some(Exit::Start),
         Command::HostStarted if !host => Some(Exit::Started),
@@ -108,6 +123,7 @@ pub struct PartyLobby {
     close: FocusHandle,
     copy: FocusHandle,
     change: FocusHandle,
+    pick_film: FocusHandle,
     sources: Vec<FocusHandle>,
     subtitles: FocusHandle,
     audio: FocusHandle,
@@ -156,6 +172,7 @@ impl PartyLobby {
             close: cx.focus_handle(),
             copy: cx.focus_handle(),
             change: cx.focus_handle(),
+            pick_film: cx.focus_handle(),
             sources: Vec::new(),
             subtitles: cx.focus_handle(),
             audio: cx.focus_handle(),
@@ -266,6 +283,7 @@ impl PartyLobby {
                 let shell = self.shell.clone();
                 let _ = shell.update(cx, |shell, cx| shell.leave_party_route(window, cx));
             }
+            Exit::Browse => self.state.update(cx, |state, _| state.party_stop()),
             Exit::Started => {}
         }
         self.dismiss(cx);
@@ -312,6 +330,8 @@ impl PartyLobby {
                 if self.changing {
                     order.extend(self.sources.iter().cloned());
                 }
+                order.push(self.pick_film.clone());
+                order.push(self.leave.clone());
                 let readiness = self.readiness(cx);
                 if readiness.offers_start_anyway() {
                     order.push(self.start_anyway.clone());

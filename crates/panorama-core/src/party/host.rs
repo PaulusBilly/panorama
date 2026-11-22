@@ -29,6 +29,8 @@ const HOST_DRIFT: f64 = 0.5;
 const SETTLE_MS: i64 = 1_500;
 /// A tick: however often members' reports move the roster, everyone hears it at most this often.
 const ROSTER_EVERY_MS: i64 = 250;
+/// How far from the party's spot a paused player may report and still count as there.
+const OFF_SPOT: f64 = 3.0;
 const HOST_ID: u32 = 0;
 
 /// A connection, numbered by the transport.
@@ -228,6 +230,11 @@ impl Participant {
             self.state,
             MemberState::Loading | MemberState::Buffering | MemberState::Playing
         )
+    }
+
+    /// Paused away from where the party waits: a report from before the party moved.
+    fn paused_elsewhere(&self, anchor: f64) -> bool {
+        self.state == MemberState::Paused && (self.position - anchor).abs() > OFF_SPOT
     }
 
     fn can_hold(&self) -> bool {
@@ -619,8 +626,12 @@ impl HostSession {
         let next = match phase {
             Phase::WaitingForReady { since } => {
                 let timed_out = now - since > READY_TIMEOUT_MS;
+                let anchor = self.showing.as_ref().map(|showing| showing.anchor_position);
                 let mut held = false;
-                for member in self.participants_mut().filter(|p| p.holds_start()) {
+                for member in self
+                    .participants_mut()
+                    .filter(|p| p.holds_start() || anchor.is_some_and(|at| p.paused_elsewhere(at)))
+                {
                     held = true;
                     member.late |= timed_out && member.id != HOST_ID;
                 }

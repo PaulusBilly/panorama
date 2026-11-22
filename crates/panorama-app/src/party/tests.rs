@@ -53,7 +53,7 @@ fn release_of(group: &StreamGroup) -> PartyRelease {
 }
 
 #[test]
-fn a_seek_reads_as_buffering_until_the_picture_moves_on() {
+fn a_seek_reads_as_buffering_until_it_lands() {
     use crate::playback::model::HostEvent;
     use panorama_mpv::PlayerEvent;
     let mut model = model(Status::Ready, false, Some(10.0));
@@ -62,6 +62,7 @@ fn a_seek_reads_as_buffering_until_the_picture_moves_on() {
     // mpv keeps calling a stalled seek ready, frozen at its target.
     model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.0))));
     assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
+    model.apply(HostEvent::Mpv(PlayerEvent::PlaybackRestart));
     model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(200.5))));
     assert_eq!(member_state(&model).unwrap().0, MemberState::Playing);
 }
@@ -77,27 +78,14 @@ fn a_paused_seek_is_not_ready_on_the_old_spots_cache() {
             ..Default::default()
         }))
     };
-    for target in [200.0, 110.0] {
+    for target in [200.0, 136.0, 110.0] {
         let mut model = model(Status::Ready, true, Some(140.0));
         model.apply(cache(154.0, 14.0));
         model.apply(HostEvent::Seeked(target));
         assert_eq!(member_state(&model).unwrap().0, MemberState::Buffering);
-        // A snapshot still about the spot the seek left, sent before the seek.
-        model.apply(cache(150.0, 9.8));
-        assert_eq!(
-            member_state(&model).unwrap().0,
-            MemberState::Buffering,
-            "{target}"
-        );
-        // A position from before the seek does not end it.
+        // Events mpv sent before the seek, about the spot it left.
         model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(140.0))));
         model.apply(cache(150.0, 9.8));
-        assert_eq!(
-            member_state(&model).unwrap().0,
-            MemberState::Buffering,
-            "{target}"
-        );
-        // Nor does a snapshot that does not say where it reads from.
         model.apply(HostEvent::Mpv(PlayerEvent::DemuxerCacheState(CacheState {
             buffered_seconds: Some(9.8),
             ..Default::default()
@@ -107,9 +95,60 @@ fn a_paused_seek_is_not_ready_on_the_old_spots_cache() {
             MemberState::Buffering,
             "{target}"
         );
+        model.apply(HostEvent::Mpv(PlayerEvent::PlaybackRestart));
+        model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(target))));
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Buffering,
+            "{target}"
+        );
         model.apply(cache(target + 10.0, 10.0));
-        assert_eq!(member_state(&model).unwrap().0, MemberState::Paused);
+        assert_eq!(
+            member_state(&model).unwrap().0,
+            MemberState::Paused,
+            "{target}"
+        );
     }
+}
+
+#[test]
+fn a_seek_landing_on_a_cached_spot_reads_ready_at_once() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::{CacheState, PlayerEvent};
+    let mut model = model(Status::Ready, true, Some(140.0));
+    model.apply(HostEvent::Seeked(110.0));
+    // mpv reads the new spot before it says the seek landed, then nothing changes.
+    model.apply(HostEvent::Mpv(PlayerEvent::DemuxerCacheState(CacheState {
+        cache_end_seconds: Some(130.0),
+        buffered_seconds: Some(20.0),
+        ..Default::default()
+    })));
+    model.apply(HostEvent::Mpv(PlayerEvent::PlaybackRestart));
+    assert_eq!(member_state(&model).unwrap().0, MemberState::Paused);
+}
+
+#[test]
+fn a_refused_seek_ends_without_landing() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::PlayerEvent;
+    let mut model = model(Status::Ready, false, Some(100.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(100.5))));
+    model.apply(HostEvent::Seeked(300.0));
+    model.apply(HostEvent::Mpv(PlayerEvent::SeekRefused));
+    assert!(!model.seeking());
+}
+
+#[test]
+fn reports_creeping_on_from_before_a_seek_do_not_end_it() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::PlayerEvent;
+    let mut model = model(Status::Ready, false, Some(109.5));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(110.0))));
+    model.apply(HostEvent::Seeked(100.0));
+    for stale in [110.0, 110.5, 111.0, 100.5, 101.0] {
+        model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(stale))));
+    }
+    assert!(model.seeking());
 }
 
 #[test]

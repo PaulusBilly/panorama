@@ -5,6 +5,9 @@ const MAX_FALLBACKS: u8 = 3;
 /// How long a source may go without a first frame before the next one is tried.
 const STUCK_AFTER: Duration = Duration::from_secs(45);
 
+/// The furthest one position report may move past the last one without a seek.
+const MAX_LEAP: f64 = 30.0;
+
 impl Runner {
     pub(super) async fn player_command(&mut self, command: Command) {
         if matches!(command, Command::Seek(value) | Command::SeekRelative(value) | Command::SetSpeed(value) if !value.is_finite())
@@ -43,6 +46,9 @@ impl Runner {
             Command::SetVolume(volume) => self.emit(HostEvent::Volume(volume)),
             Command::SetMuted(muted) => self.emit(HostEvent::Muted(muted)),
             Command::Seek(seconds) => {
+                if !self.model.seeking() {
+                    self.left_at = self.position;
+                }
                 self.position = seconds;
                 self.emit(HostEvent::Seeked(seconds));
                 self.sample(true).await;
@@ -60,7 +66,9 @@ impl Runner {
             return;
         }
         let sample = PlaybackSample {
-            time_secs: self.model.time.unwrap_or(0.0),
+            // Until a seek lands the player may still read as where it was: the seek's target
+            // is where it is going.
+            time_secs: self.model.seek_target().or(self.model.time).unwrap_or(0.0),
             duration_secs: self.model.duration.unwrap_or(0.0),
             paused: self.model.paused,
         };
@@ -80,7 +88,22 @@ impl Runner {
             .map(|active| active.events())
             .unwrap_or_default();
         for event in events {
+            // Once playing, the position only creeps forward, and a seek sets it itself: a
+            // leap is mpv calling a stream that died its end, and goes nowhere.
             if let PlayerEvent::TimePos(Some(seconds)) = &event
+                && self.model.advancing()
+                && *seconds > self.position + MAX_LEAP
+            {
+                continue;
+            }
+            // A refused seek leaves playback where it was.
+            if matches!(event, PlayerEvent::SeekRefused) && self.model.seeking() {
+                self.position = self.left_at;
+            }
+            // Until a seek lands, mpv may still report where it was: the seek's target holds.
+            let settled = !self.model.seeking();
+            if let PlayerEvent::TimePos(Some(seconds)) = &event
+                && settled
                 && seconds.is_finite()
                 && *seconds >= 0.0
                 && self.resume.is_none()
@@ -101,7 +124,7 @@ impl Runner {
                     self.model.duration,
                 );
             }
-            let time = matches!(event, PlayerEvent::TimePos(Some(_)));
+            let time = settled && matches!(event, PlayerEvent::TimePos(Some(_)));
             let pause = matches!(event, PlayerEvent::Pause(_));
             let was_ended = self.model.status == Status::Ended;
             let shutdown = matches!(event, PlayerEvent::Shutdown);

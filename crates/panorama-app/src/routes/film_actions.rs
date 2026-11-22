@@ -19,15 +19,30 @@ impl Film {
             return;
         }
         if let Some(selection) = self.selection() {
-            let route = crate::router::Route::Player {
-                id: self.id.clone(),
-            };
-            self.state
-                .update(cx, |state, _| state.playback = Some(selection));
-            let _ = self
-                .shell
-                .update(cx, |shell, cx| shell.navigate(route, window, cx));
+            self.open_player(selection, window, cx);
         }
+    }
+    /// Play what Play would, from its beginning instead of where it was left.
+    fn start_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mut selection) = self.selection() {
+            selection.start = crate::playback::selection::StartMode::Restart;
+            self.open_player(selection, window, cx);
+        }
+    }
+    fn open_player(
+        &mut self,
+        selection: crate::playback::selection::PlaybackSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let route = crate::router::Route::Player {
+            id: self.id.clone(),
+        };
+        self.state
+            .update(cx, |state, _| state.playback = Some(selection));
+        let _ = self
+            .shell
+            .update(cx, |shell, cx| shell.navigate(route, window, cx));
     }
     /// What Play would play now: the selected source of the film or the target episode.
     fn selection(&self) -> Option<crate::playback::selection::PlaybackSelection> {
@@ -150,12 +165,24 @@ impl Film {
             .focus(&self.watch_together, view.keyboard)
             .tab_stop(view.active)
             .on_click(cx.listener(|film, _, window, cx| film.watch_together(window, cx)));
+        // Only beside a Continue: with nothing to resume, Play already starts at the beginning.
+        let start_over = remaining.is_some().then(|| {
+            let name = match &episode {
+                Some(code) => format!("Start {code} over"),
+                None => "Start over".to_owned(),
+            };
+            Button::round("film-start-over", Icon::StartOver, name)
+                .focus(&self.start_over, view.keyboard)
+                .tab_stop(view.active)
+                .on_click(cx.listener(|film, _, window, cx| film.start_over(window, cx)))
+        });
         div()
             .flex()
             .flex_wrap()
             .items_center()
             .gap(px(12.0))
             .child(button)
+            .children(start_over)
             .child(watchlist)
             .child(together)
             .child(crate::a11y::status("film-primary-status", label))
