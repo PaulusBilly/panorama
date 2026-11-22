@@ -70,7 +70,9 @@ impl Render for Player {
         crate::window_controls::set_opacity(window, fade);
         self.sync_emphasis(window, now);
         self.schedule_chrome_wake(now, cx);
-        let animated = preparing || matches!(status, Status::Preparing(_) | Status::Buffering);
+        let animated = preparing
+            || matches!(status, Status::Preparing(_) | Status::Buffering)
+            || (status == Status::Ready && self.party_waiting(cx).is_some());
         if (!reduced && animated)
             || self.motion.iter().any(|motion| motion.moving(now, reduced))
             || self.emphasis.iter().any(|tween| tween.moving(now, reduced))

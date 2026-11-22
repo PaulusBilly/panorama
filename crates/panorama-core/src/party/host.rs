@@ -392,7 +392,8 @@ impl HostSession {
         });
     }
 
-    fn gate(&self) -> Gate {
+    /// What holds the party's timeline now.
+    pub fn gate(&self) -> Gate {
         match self.showing.as_ref().map(|showing| showing.phase) {
             None | Some(Phase::Lobby) => Gate::Lobby,
             Some(Phase::WaitingFor { member, .. }) => Gate::Waiting(member),

@@ -43,6 +43,8 @@ pub struct Args {
     pub focus_first_card: bool,
     /// Open the account popup before capture.
     pub open_account_menu: bool,
+    /// Open the sidebar's Join watch party field before capture.
+    pub open_join: bool,
     /// Open the sign-in dialog before capture.
     pub open_sign_in: bool,
     /// Open the watch party lobby over a made-up party: `true` as its host, `false` as a friend.
@@ -118,6 +120,7 @@ impl Args {
             open_trailer_card: false,
             focus_first_card: false,
             open_account_menu: false,
+            open_join: false,
             open_sign_in: false,
             open_party_lobby: None,
             bench_scroll: false,
@@ -282,6 +285,7 @@ impl Args {
                 }
                 "--focus-first-card" => result.focus_first_card = true,
                 "--open-account-menu" => result.open_account_menu = true,
+                "--open-join" => result.open_join = true,
                 "--open-sign-in" => result.open_sign_in = true,
                 "--open-party-lobby" => {
                     result.open_party_lobby = Some(

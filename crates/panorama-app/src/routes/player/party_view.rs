@@ -5,12 +5,12 @@ use super::{
     time::format_time,
 };
 use crate::{
-    party::{EndReason, Link, PartyView, Role, RosterRow},
+    party::{EndReason, Link, PartySync, PartyView, Role, RosterRow},
     theme::{Theme, Typography, focus_ring},
 };
 use gpui::{AnyElement, ClipboardItem, Div, SharedString, Stateful, Window, div, prelude::*, px};
 use panorama_core::party::{
-    ByeReason, HostSettings, MemberState, Notice, NoticeKind, transport::PathKind,
+    ByeReason, Gate, HostSettings, MemberState, Notice, NoticeKind, transport::PathKind,
 };
 use std::time::{Duration, Instant};
 
@@ -286,6 +286,54 @@ impl Player {
                 .child(helper(
                     "Anyone can play, pause or seek. Otherwise only you can.".into(),
                 ));
+        } else {
+            let sync = view.sync;
+            body = body
+                .child(section("Follow the host"))
+                .child(self.checkbox(
+                    "party-follow-subtitles",
+                    slot::PARTY_FOLLOW_SUBTITLES,
+                    "Subtitles",
+                    sync.subtitles,
+                    false,
+                    theme,
+                    keyboard,
+                    window,
+                    move |player, cx| {
+                        player.set_party_sync(
+                            PartySync {
+                                subtitles: !sync.subtitles,
+                                ..sync
+                            },
+                            cx,
+                        )
+                    },
+                    cx,
+                ))
+                .child(self.checkbox(
+                    "party-follow-audio",
+                    slot::PARTY_FOLLOW_AUDIO,
+                    "Audio",
+                    sync.audio,
+                    false,
+                    theme,
+                    keyboard,
+                    window,
+                    move |player, cx| {
+                        player.set_party_sync(
+                            PartySync {
+                                audio: !sync.audio,
+                                ..sync
+                            },
+                            cx,
+                        )
+                    },
+                    cx,
+                ))
+                .child(helper(
+                    "Uses the host's subtitles and audio language. Turn off to choose your own."
+                        .into(),
+                ));
         }
         body.child(self.party_row(
             "party-leave",
@@ -305,6 +353,21 @@ impl Player {
     fn set_party_settings(&mut self, settings: HostSettings, cx: &mut gpui::Context<Self>) {
         self.state
             .update(cx, |state, cx| state.set_party_settings(settings, cx));
+    }
+
+    fn set_party_sync(&mut self, sync: PartySync, cx: &mut gpui::Context<Self>) {
+        self.state
+            .update(cx, |state, cx| state.set_party_sync(sync, cx));
+    }
+
+    /// Shows the Watch party page, as the sidebar's Watch party asks.
+    pub fn open_party_panel(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.show_panel(super::panel::PanelId::Party, window, cx);
+    }
+
+    /// "Waiting for <name>" while the party holds everyone for someone else.
+    pub(super) fn party_waiting(&self, cx: &gpui::App) -> Option<String> {
+        waiting_text(&self.state.read(cx).party.as_ref()?.view)
     }
 
     fn copy_invite(&mut self, cx: &mut gpui::Context<Self>) {
@@ -451,6 +514,22 @@ fn status_line(view: &PartyView) -> String {
     }
 }
 
+/// Who the party is paused for, by the name the roster gives them.
+fn waiting_text(view: &PartyView) -> Option<String> {
+    let Some(Gate::Waiting(id)) = view.gate else {
+        return None;
+    };
+    if view.ended().is_some() {
+        return None;
+    }
+    let name = view
+        .roster
+        .iter()
+        .find(|row| row.member.member_id == id)
+        .map_or("someone", |row| row.member.name.as_str());
+    Some(format!("Waiting for {name}"))
+}
+
 fn ended_text(reason: EndReason, host: bool) -> &'static str {
     match reason {
         EndReason::Left if host => "You ended the party. Everyone keeps watching on their own.",
@@ -559,9 +638,9 @@ pub(super) fn preview(kind: &str) -> PartyView {
             },
             at: Instant::now(),
         }],
-        sync: crate::party::PartySync::default(),
+        sync: PartySync::default(),
         me: None,
-        gate: None,
+        gate: (kind != "ended").then_some(Gate::Waiting(2)),
     }
 }
 
@@ -591,6 +670,22 @@ mod tests {
             notice_text(&notice(NoticeKind::WaitingFor, None)),
             "Waiting for Sam"
         );
+    }
+
+    #[test]
+    fn waiting_pill_names_the_member_the_party_waits_for() {
+        let mut view = preview("member");
+        view.gate = Some(Gate::Waiting(2));
+        assert_eq!(waiting_text(&view).as_deref(), Some("Waiting for Sam"));
+        view.gate = Some(Gate::Waiting(9));
+        assert_eq!(waiting_text(&view).as_deref(), Some("Waiting for someone"));
+        view.gate = Some(Gate::Ready);
+        assert_eq!(waiting_text(&view), None);
+        view.gate = None;
+        assert_eq!(waiting_text(&view), None);
+        let mut ended = preview("ended");
+        ended.gate = Some(Gate::Waiting(2));
+        assert_eq!(waiting_text(&ended), None);
     }
 
     #[test]

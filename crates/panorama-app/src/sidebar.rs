@@ -23,13 +23,57 @@ pub const LOGO_CENTER: f32 = LOGO_TOP + LOGO_HEIGHT * 0.5;
 
 pub struct Sidebar {
     items: [FocusHandle; Destination::ALL.len()],
+    pub(crate) join: FocusHandle,
     pub(crate) account: FocusHandle,
+}
+
+/// The sidebar's watch party action, declared beside the avatar it sits above.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PartyEntry {
+    /// Opens the field for an invite link.
+    Join,
+    /// In a party: opens its panel.
+    Watch,
+}
+
+impl PartyEntry {
+    /// Joining plays the host's film, which needs an account, so signed out there is none.
+    pub fn for_session(signed_in: bool, in_party: bool) -> Option<Self> {
+        match (signed_in, in_party) {
+            (_, true) => Some(Self::Watch),
+            (true, false) => Some(Self::Join),
+            (false, false) => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Join => "Join watch party",
+            Self::Watch => "Watch party",
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Join => "link.svg",
+            Self::Watch => crate::button::Icon::Users.path(),
+        }
+    }
+}
+
+/// What the sidebar's bottom controls show: which popover is open, and whether a party is on.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SidebarStatus {
+    pub account_menu: bool,
+    pub join: bool,
+    pub in_party: bool,
 }
 
 impl Sidebar {
     pub fn new(cx: &mut Context<AppShell>) -> Self {
         Self {
             items: std::array::from_fn(|_| cx.focus_handle()),
+            join: cx.focus_handle(),
             account: cx.focus_handle(),
         }
     }
@@ -54,7 +98,7 @@ impl Sidebar {
         &self,
         active: Option<Destination>,
         account: &Account,
-        menu_open: bool,
+        status: SidebarStatus,
         view: ViewSettings,
         window: &Window,
         cx: &mut Context<AppShell>,
@@ -123,6 +167,10 @@ impl Sidebar {
             _ => None,
         };
         let diameter = f32::from(avatar.size.width);
+        let menu_open = status.account_menu;
+        let party =
+            PartyEntry::for_session(matches!(account, Account::SignedIn(_)), status.in_party)
+                .map(|entry| self.party_item(entry, status.join, view, window, cx));
         div()
             .id("sidebar")
             .role(gpui::Role::Navigation)
@@ -153,6 +201,7 @@ impl Sidebar {
                     .gap(px(8.0))
                     .children(items),
             )
+            .children(party)
             .child(focus_ring(
                 div()
                     .id("sidebar-account")
@@ -201,6 +250,88 @@ impl Sidebar {
     }
 }
 
+impl Sidebar {
+    /// Join watch party, or in a party, Watch party with a live dot, just above the avatar.
+    fn party_item(
+        &self,
+        entry: PartyEntry,
+        open: bool,
+        view: ViewSettings,
+        window: &Window,
+        cx: &mut Context<AppShell>,
+    ) -> impl IntoElement {
+        let theme = view.theme;
+        let at = join_bounds(window.viewport_size());
+        let watching = entry == PartyEntry::Watch;
+        div()
+            .absolute()
+            .left(at.origin.x)
+            .top(at.origin.y)
+            .child(focus_ring(
+                div()
+                    .id("sidebar-party")
+                    .relative()
+                    .size(px(ITEM))
+                    .rounded_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .when(open, |item| item.bg(theme.glass))
+                    .hover(|style| style.bg(theme.glass))
+                    .role(gpui::Role::Button)
+                    .aria_label(entry.label())
+                    .when(!watching, |item| item.aria_expanded(open))
+                    .on_click(cx.listener(move |shell, _, window, cx| match entry {
+                        PartyEntry::Join => shell.toggle_join(window, cx),
+                        PartyEntry::Watch => shell.open_party_panel(window, cx),
+                    }))
+                    .child(svg().path(entry.icon()).size(px(GLYPH)).text_color(
+                        if open || watching {
+                            theme.ink
+                        } else {
+                            theme.ink_muted
+                        },
+                    ))
+                    .when(watching, |item| {
+                        item.child(
+                            div()
+                                .absolute()
+                                .top(px(10.0))
+                                .right(px(9.0))
+                                .size(px(8.0))
+                                .rounded_full()
+                                .border_1()
+                                .border_color(theme.canvas)
+                                .bg(theme.accent),
+                        )
+                    }),
+                &self.join,
+                theme,
+                view.active,
+                view.keyboard,
+                ITEM * 0.5,
+                window,
+            ))
+    }
+}
+
+/// Gap between the party item and the avatar under it.
+const PARTY_GAP: f32 = 8.0;
+
+/// Where the party item sits: one item's height above the avatar, centred in the sidebar.
+/// The join popover anchors to it.
+pub fn join_bounds(viewport: Size<Pixels>) -> Bounds<Pixels> {
+    let avatar = avatar_bounds(viewport);
+    bounds(
+        point(
+            px((SIDEBAR_WIDTH - ITEM) * 0.5),
+            avatar.origin.y - px(PARTY_GAP + ITEM),
+        ),
+        size(px(ITEM), px(ITEM)),
+    )
+}
+
 /// Gap between the avatar and the window's bottom edge.
 pub const AVATAR_INSET: f32 = 24.0;
 
@@ -226,5 +357,25 @@ mod tests {
         assert_eq!(avatar.origin, point(px(20.0), px(736.0)));
         assert_eq!(avatar.size, size(px(40.0), px(40.0)));
         assert_eq!(avatar.bottom(), px(776.0));
+    }
+
+    #[test]
+    fn the_party_item_joins_signed_in_and_reads_watch_party_in_a_party() {
+        assert_eq!(PartyEntry::for_session(false, false), None);
+        assert_eq!(PartyEntry::for_session(true, false), Some(PartyEntry::Join));
+        assert_eq!(PartyEntry::for_session(true, true), Some(PartyEntry::Watch));
+        assert_eq!(PartyEntry::Join.label(), "Join watch party");
+        assert_eq!(PartyEntry::Watch.label(), "Watch party");
+    }
+
+    #[test]
+    fn the_party_item_sits_just_above_the_avatar() {
+        let viewport = size(px(1280.0), px(800.0));
+        let item = join_bounds(viewport);
+        assert_eq!(
+            item.bottom() + px(PARTY_GAP),
+            avatar_bounds(viewport).origin.y
+        );
+        assert_eq!(item.center().x, avatar_bounds(viewport).center().x);
     }
 }

@@ -22,7 +22,9 @@ pub(super) mod slot {
     pub const PARTY_WAIT: usize = 45;
     pub const PARTY_CONTROL: usize = 46;
     pub const PARTY_EXIT: usize = 47;
-    pub const COUNT: usize = 48;
+    pub const PARTY_FOLLOW_SUBTITLES: usize = 48;
+    pub const PARTY_FOLLOW_AUDIO: usize = 49;
+    pub const COUNT: usize = 50;
 }
 
 /// The text colour presets (`textColors`).

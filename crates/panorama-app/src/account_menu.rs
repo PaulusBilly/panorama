@@ -16,9 +16,6 @@ const WIDTH: f32 = 224.0;
 /// One row of the account popup.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuEntry {
-    /// Joins the watch party whose invite link is on the clipboard, or leaves the one this
-    /// window is in.
-    Party,
     /// Ends the session.
     LogOut,
     /// Opens the sign-in dialog.
@@ -27,10 +24,8 @@ pub enum MenuEntry {
 
 impl MenuEntry {
     /// Visible and accessible label.
-    pub fn label(self, in_party: bool) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
-            Self::Party if in_party => "Leave watch party",
-            Self::Party => "Join watch party",
             Self::LogOut => "Sign out",
             Self::LogIn => "Sign in",
         }
@@ -64,11 +59,11 @@ pub fn popover_shadow() -> Vec<BoxShadow> {
     ]
 }
 
-/// Entries in display order: the sidebar already has Addons, so the party and the session
-/// remain. Joining plays the host's film, which needs an account.
+/// Entries in display order: the sidebar already has Addons and the watch party, so the
+/// session remains.
 pub fn entries(signed_in: bool) -> &'static [MenuEntry] {
     if signed_in {
-        &[MenuEntry::Party, MenuEntry::LogOut]
+        &[MenuEntry::LogOut]
     } else {
         &[MenuEntry::LogIn]
     }
@@ -80,8 +75,6 @@ pub struct AccountMenu {
     pub open: bool,
     presence: Tween,
     focus: Vec<FocusHandle>,
-    /// The last Join found no invite link on the clipboard.
-    pub no_invite: bool,
 }
 impl AccountMenu {
     /// Allocate the popup's single action.
@@ -89,17 +82,12 @@ impl AccountMenu {
         Self {
             open: false,
             presence: Tween::fixed(0.0),
-            focus: vec![
-                cx.focus_handle().tab_stop(false),
-                cx.focus_handle().tab_stop(false),
-            ],
-            no_invite: false,
+            focus: vec![cx.focus_handle().tab_stop(false)],
         }
     }
     /// Reverse popup presence from its current pose.
     pub fn set_open(&mut self, open: bool) {
         self.open = open;
-        self.no_invite = false;
         self.presence.retarget(
             if open { 1.0 } else { 0.0 },
             if open { MENU_ENTER } else { MENU_EXIT },
@@ -147,7 +135,6 @@ impl AccountMenu {
         &self,
         view: crate::home_layout::ViewSettings,
         account: &Account,
-        party: Option<&crate::party::PartyView>,
         window: &Window,
         cx: &mut Context<AppShell>,
     ) -> Stateful<Div> {
@@ -197,24 +184,13 @@ impl AccountMenu {
             })
             .children(entries(email_present(account)).iter().zip(&self.focus).map(
                 |(&entry, focus)| {
-                    let in_party = party.is_some_and(|party| party.ended().is_none());
-                    let label = entry.label(in_party);
-                    let detail = (entry == MenuEntry::Party).then_some({
-                        if in_party {
-                            ("You can keep watching on your own.", false)
-                        } else if self.no_invite {
-                            ("Copy an invite link first, then try again.", true)
-                        } else {
-                            ("Uses the invite link you copied.", false)
-                        }
-                    });
+                    let label = entry.label();
                     focus_ring(
                         div()
                             .id(("account-entry", entry as usize))
                             .w_full()
                             .min_h(px(40.0))
                             .px(px(12.0))
-                            .py(px(if detail.is_some() { 8.0 } else { 0.0 }))
                             .flex()
                             .flex_col()
                             .justify_center()
@@ -224,24 +200,6 @@ impl AccountMenu {
                             .aria_label(label)
                             .on_click(cx.listener(move |shell, _, window, cx| {
                                 match entry {
-                                    MenuEntry::Party if in_party => {
-                                        shell.menu.set_open(false);
-                                        shell.state.update(cx, |state, cx| state.leave_party(cx));
-                                    }
-                                    MenuEntry::Party => {
-                                        let invite = cx
-                                            .read_from_clipboard()
-                                            .and_then(|item| item.text())
-                                            .unwrap_or_default();
-                                        let joined = shell.state.update(cx, |state, cx| {
-                                            state.join_party(&invite, None, cx).is_ok()
-                                        });
-                                        if joined {
-                                            shell.menu.set_open(false);
-                                        } else {
-                                            shell.menu.no_invite = true;
-                                        }
-                                    }
                                     MenuEntry::LogOut => {
                                         shell.menu.set_open(false);
                                         shell.state.update(cx, |state, cx| state.sign_out(cx));
@@ -254,19 +212,7 @@ impl AccountMenu {
                                 }
                                 cx.notify();
                             }))
-                            .child(div().label().child(label))
-                            .when_some(detail, |row, (text, problem)| {
-                                row.child(
-                                    div()
-                                        .caption()
-                                        .text_color(if problem {
-                                            theme.danger
-                                        } else {
-                                            theme.ink_muted
-                                        })
-                                        .child(text),
-                                )
-                            }),
+                            .child(div().label().child(label)),
                         focus,
                         theme,
                         self.open,
@@ -288,9 +234,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn one_session_entry_per_account_state() {
+    fn the_account_menu_has_no_party_entry() {
         assert_eq!(entries(false), [MenuEntry::LogIn]);
-        assert_eq!(entries(true), [MenuEntry::Party, MenuEntry::LogOut]);
-        assert_eq!(MenuEntry::Party.label(true), "Leave watch party");
+        assert_eq!(entries(true), [MenuEntry::LogOut]);
+        for entry in entries(true).iter().chain(entries(false)) {
+            assert!(!entry.label().contains("party"), "{entry:?}");
+        }
     }
 }

@@ -4,6 +4,7 @@ use crate::{
     app_state::{Account, AppState},
     args::Args,
     assets, debug,
+    join_party::JoinParty,
     login::LoginDialog,
     router::{Destination, History, Route},
     routes,
@@ -48,6 +49,8 @@ pub struct AppShell {
     pub state: Entity<AppState>,
     /// Account popup retained during its exit animation.
     pub menu: AccountMenu,
+    /// The sidebar's Join watch party popover.
+    pub(crate) join: JoinParty,
     pub(crate) sidebar: Sidebar,
     login: Option<Entity<LoginDialog>>,
     lobby: Option<Entity<crate::party_lobby::PartyLobby>>,
@@ -116,6 +119,7 @@ impl AppShell {
             keyboard_navigation: false,
             state: state.clone(),
             menu: AccountMenu::new(cx),
+            join: JoinParty::new(cx),
             sidebar: Sidebar::new(cx),
             login: None,
             lobby: None,
@@ -163,19 +167,22 @@ impl AppShell {
         if args.open_account_menu {
             shell.menu.set_open(true);
         }
+        if args.open_join {
+            shell.toggle_join(window, cx);
+        }
         if args.open_sign_in {
             shell.open_login(window, cx);
         }
         let mut joined = false;
+        if let Some(invite) = &args.party_join {
+            match shell.join_party_from_invite(invite, args.party_name.clone(), window, cx) {
+                Ok(()) => joined = true,
+                Err(error) => crate::debug::log(format!("party join refused: {error}")),
+            }
+        }
         shell.state.update(cx, |state, cx| {
             if args.party_host {
                 state.start_party(args.party_name.clone(), cx);
-            }
-            if let Some(invite) = &args.party_join {
-                match state.join_party(invite, args.party_name.clone(), cx) {
-                    Ok(()) => joined = true,
-                    Err(error) => crate::debug::log(format!("party join refused: {error}")),
-                }
             }
             if let Some((kind, id)) = args.party_play.clone() {
                 state.play_by_id(kind, id.clone(), id, Default::default());
@@ -212,6 +219,46 @@ impl AppShell {
 }
 
 impl AppShell {
+    /// Joins the party an invite link names. Every way in comes through here: the sidebar's
+    /// field, an opened invite link, and a second launch's handoff.
+    pub(crate) fn join_party_from_invite(
+        &mut self,
+        invite: &str,
+        name: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), panorama_core::party::transport::InviteError> {
+        self.state
+            .update(cx, |state, cx| state.join_party(invite, name, cx))?;
+        self.menu.set_open(false);
+        if self.join.open {
+            self.close_join(window, cx);
+        }
+        Ok(())
+    }
+
+    /// The sidebar's Watch party: back to the party's film with its panel open. Before the
+    /// party has opened a film, the popover says so and offers a way out.
+    pub(crate) fn open_party_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) =
+            (self.state.read(cx).playback.as_ref()).map(|playing| playing.film.id.clone())
+        else {
+            self.toggle_join(window, cx);
+            return;
+        };
+        self.join.dismiss();
+        self.navigate(Route::Player { id }, window, cx);
+        if let Some(player) = self.mounted.as_ref().and_then(|mounted| {
+            mounted
+                .view
+                .clone()
+                .downcast::<routes::player::Player>()
+                .ok()
+        }) {
+            player.update(cx, |player, cx| player.open_party_panel(window, cx));
+        }
+    }
+
     /// Joins a party whose link a second launch handed over, as "Join watch party" does.
     fn take_handoff(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(dir) = self
@@ -227,11 +274,10 @@ impl AppShell {
         let Some(invite) = crate::party::handoff::take(&dir, std::time::SystemTime::now()) else {
             return;
         };
-        let joined = self
-            .state
-            .update(cx, |state, cx| state.join_party(&invite, None, cx).is_ok());
-        if joined {
-            self.menu.set_open(false);
+        if self
+            .join_party_from_invite(&invite, None, window, cx)
+            .is_ok()
+        {
             self.open_party_lobby_as_member(window, cx);
             cx.activate(true);
             window.activate_window();
