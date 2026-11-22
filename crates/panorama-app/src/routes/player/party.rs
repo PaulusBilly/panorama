@@ -20,7 +20,7 @@ const REPORT_EVERY: Duration = Duration::from_millis(250);
 
 #[derive(Default)]
 pub(super) struct PartyTap {
-    reported: Option<(MemberState, Instant)>,
+    reported: Option<(MemberState, f64, Instant)>,
     /// The player was opening a file; the next ready frame is a reopen.
     opening: bool,
     /// Host: the tracks the party last heard.
@@ -132,12 +132,14 @@ impl Player {
             return;
         };
         let now = Instant::now();
-        let due = self.party.reported.is_none_or(|(last, at)| {
+        let due = self.party.reported.is_none_or(|(last, at_position, at)| {
             last != state
                 || (state == MemberState::Playing && now.duration_since(at) >= REPORT_EVERY)
+                // A seek can land without the state changing; the party waits on where.
+                || (state != MemberState::Playing && (position - at_position).abs() > 1.0)
         });
         if due {
-            self.party.reported = Some((state, now));
+            self.party.reported = Some((state, position, now));
             self.state.read(cx).party_report(state, position, duration);
         }
     }

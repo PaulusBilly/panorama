@@ -596,8 +596,8 @@ fn last_request_wins() {
     let out = host.handle(1_100, HostInput::Local(Action::Seek { to: 30.0 }));
     let (_, playback, _) = states(&out, SAM)[0];
     assert_eq!(playback.anchor_position, 30.0);
-    local(&mut host, 1_200, MemberState::Paused);
-    let out = report(&mut host, 1_300, SAM, MemberState::Paused);
+    local_paused_at(&mut host, 1_200, 30.0);
+    let out = report_at(&mut host, 1_300, SAM, MemberState::Paused, 30.0);
     assert_eq!(playing(&out, SAM), Some(true));
 }
 
@@ -612,9 +612,9 @@ fn a_seek_holds_everyone_at_the_new_spot_until_they_are_ready_there() {
     report(&mut host, 10_050, SAM, MemberState::Playing);
     local(&mut host, 10_100, MemberState::Buffering);
     assert_ne!(playing(&tick(&mut host, 13_000), SAM), Some(true));
-    local(&mut host, 13_500, MemberState::Paused);
+    local_paused_at(&mut host, 13_500, 500.0);
     assert_ne!(playing(&tick(&mut host, 13_600), SAM), Some(true));
-    let out = report(&mut host, 14_000, SAM, MemberState::Paused);
+    let out = report_at(&mut host, 14_000, SAM, MemberState::Paused, 500.0);
     let (_, playback, _) = states(&out, SAM)[0];
     assert!(playback.playing);
     assert_eq!(playback.anchor_position, 500.0);
@@ -1181,4 +1181,48 @@ fn resuming_while_a_friend_buffers_plays_at_once() {
     report(&mut host, 10_500, SAM, MemberState::Buffering);
     let out = host.handle(11_000, HostInput::Local(Action::Play));
     assert_eq!(playing(&out, SAM), Some(true));
+}
+
+fn report_at(
+    host: &mut HostSession,
+    now: i64,
+    conn: ConnId,
+    state: MemberState,
+    position: f64,
+) -> Vec<HostOutput> {
+    host.handle(
+        now,
+        HostInput::Message {
+            conn,
+            msg: Up::Report {
+                state,
+                position,
+                duration: Some(LENGTH),
+                release_matched: true,
+            },
+        },
+    )
+}
+
+#[test]
+fn a_paused_report_from_before_a_seek_does_not_release_it() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    local_paused_at(&mut host, 10_100, 500.0);
+    // Sent before Sam heard of the seek, from where Sam was.
+    let out = report_at(&mut host, 10_150, SAM, MemberState::Paused, 110.0);
+    assert_ne!(playing(&out, SAM), Some(true));
+    let out = report_at(&mut host, 12_000, SAM, MemberState::Paused, 500.0);
+    assert_eq!(playing(&out, SAM), Some(true));
+}
+
+fn local_paused_at(host: &mut HostSession, now: i64, position: f64) -> Vec<HostOutput> {
+    host.handle(
+        now,
+        HostInput::LocalReport {
+            state: MemberState::Paused,
+            position,
+            duration: Some(LENGTH),
+        },
+    )
 }

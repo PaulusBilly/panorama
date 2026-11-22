@@ -14,6 +14,8 @@ const SLOW_PING_MS: i64 = 10_000;
 /// Pings run fast for this long after joining or after the clock went stale.
 const FAST_PING_WINDOW_MS: i64 = 10_000;
 const REPORT_EVERY_MS: i64 = 1_000;
+/// A paused or waiting player whose position moves this far reports again.
+const JUMP: f64 = 1.0;
 /// A new timeline this close to the one already playing continues it without a seek.
 const CONTINUOUS: f64 = 0.25;
 /// Each load sets off a details fetch and a stream lookup across every addon.
@@ -147,6 +149,7 @@ impl Opener {
 #[derive(Clone, Copy, Debug)]
 struct Reported {
     state: MemberState,
+    position: f64,
     release_matched: bool,
     at_ms: i64,
 }
@@ -404,6 +407,9 @@ impl MemberSession {
                 last.state != player.state
                     || last.release_matched != self.release_matched
                     || (player.state == MemberState::Playing && now - last.at_ms >= REPORT_EVERY_MS)
+                    // A seek can land without the state changing; the host waits on where.
+                    || (player.state != MemberState::Playing
+                        && (player.position - last.position).abs() > JUMP)
             }
         };
         if due {
@@ -415,6 +421,7 @@ impl MemberSession {
             }));
             self.reported = Some(Reported {
                 state: player.state,
+                position: player.position,
                 release_matched: self.release_matched,
                 at_ms: now,
             });
