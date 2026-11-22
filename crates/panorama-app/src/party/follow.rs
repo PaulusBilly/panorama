@@ -97,6 +97,8 @@ pub struct Followed {
     /// How closely the subtitle followed so far matched the host's: an addon's file arrives
     /// after the video's own, so a closer one may turn up once the first is on.
     subtitle_fit: Option<u8>,
+    /// A closer subtitle replaced the first match; nothing moves it again.
+    subtitle_moved: bool,
 }
 
 impl Followed {
@@ -107,6 +109,7 @@ impl Followed {
             audio_done: false,
             subtitles_done: false,
             subtitle_fit: None,
+            subtitle_moved: false,
         }
     }
 
@@ -129,9 +132,10 @@ impl Followed {
         {
             // Once settled, only a strictly closer match moves it, once: the friend's own
             // pick after that stays.
-            let closer = self.subtitle_fit.is_some_and(|had| fit > had);
+            let closer = !self.subtitle_moved && self.subtitle_fit.is_some_and(|had| fit > had);
             if closer && !is_on(subtitles, id) {
                 plan.subtitle = Some(Some(id));
+                self.subtitle_moved = true;
             }
             if self.subtitles_done && (closer || self.subtitle_fit.is_none()) {
                 self.subtitle_fit = Some(fit);
@@ -164,16 +168,18 @@ fn best(tracks: &[Track], key: &TrackKey) -> Option<(u8, i64)> {
 /// outranks where the track comes from, which outranks its title, then its codec.
 fn fit(track: &Track, key: &TrackKey) -> Option<u8> {
     let mine = key_of(track).bounded();
+    // The very file outranks all else: an addon names many of its files alike, and may not
+    // tag each one's language the same way.
+    if mine.source.is_some() && mine.source == key.source {
+        return Some(8 + 4 + 2 + 1);
+    }
     let same_language = match (&mine.language, &key.language) {
         (Some(mine), Some(theirs)) => same_language(mine, theirs),
         (None, None) => mine.title == key.title,
         _ => false,
     };
-    // The very file outranks all else: an addon names many of its files alike.
-    let same_file = mine.source.is_some() && mine.source == key.source;
     same_language.then(|| {
-        8 * u8::from(same_file)
-            + 4 * u8::from(mine.external == key.external)
+        4 * u8::from(mine.external == key.external)
             + 2 * u8::from(mine.title == key.title)
             + u8::from(mine.codec == key.codec)
     })

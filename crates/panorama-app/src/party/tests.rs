@@ -544,6 +544,56 @@ fn a_friend_picks_the_hosts_own_file_among_alike_addon_subtitles() {
     );
 }
 
+#[test]
+fn only_the_first_closer_subtitle_replaces_the_followed_one() {
+    let host_subs = [Track {
+        source: Some(0xc),
+        ..track(8, "eng", "OpenSubtitles", true, true)
+    }];
+    let choice = choice_of(&[], &host_subs).unwrap();
+    let mut followed = Followed::new(choice, PartySync::default());
+    let embedded = track(3, "eng", "English PGS", false, true);
+    assert_eq!(
+        followed.step(&[], std::slice::from_ref(&embedded)),
+        Follow::default()
+    );
+    let alike = track(11, "eng", "OpenSubtitles", true, false);
+    assert_eq!(
+        followed
+            .step(&[], &[embedded.clone(), alike.clone()])
+            .subtitle,
+        Some(Some(11))
+    );
+    // The friend went back to the video's own; the host's very file turning up now leaves it.
+    let exact = Track {
+        source: Some(0xc),
+        ..track(12, "eng", "OpenSubtitles", true, false)
+    };
+    assert_eq!(
+        followed.step(&[], &[embedded, alike, exact]),
+        Follow::default()
+    );
+}
+
+#[test]
+fn the_hosts_very_file_is_followed_whatever_language_it_names() {
+    let host_subs = [Track {
+        source: Some(0xd),
+        ..track(8, "eng", "OpenSubtitles", true, true)
+    }];
+    let choice = choice_of(&[], &host_subs).unwrap();
+    let untagged = Track {
+        lang: None,
+        source: Some(0xd),
+        ..track(5, "eng", "OpenSubtitles", true, false)
+    };
+    let other = track(6, "eng", "OpenSubtitles", true, false);
+    assert_eq!(
+        follow(PartySync::default(), &choice, &[], &[other, untagged]).subtitle,
+        Some(Some(5))
+    );
+}
+
 fn hosts_release(torrent: Option<TorrentRef>) -> PartyRelease {
     PartyRelease {
         addon: "com.host.addon".into(),
