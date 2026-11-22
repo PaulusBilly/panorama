@@ -75,6 +75,21 @@ fn main() -> ExitCode {
                     Some("PanoramaLogin"),
                 ),
                 gpui::KeyBinding::new("enter", panorama_app::login::Submit, Some("PanoramaLogin")),
+                gpui::KeyBinding::new(
+                    "tab",
+                    panorama_app::party_lobby::NextControl,
+                    Some("PanoramaLobby"),
+                ),
+                gpui::KeyBinding::new(
+                    "shift-tab",
+                    panorama_app::party_lobby::PreviousControl,
+                    Some("PanoramaLobby"),
+                ),
+                gpui::KeyBinding::new(
+                    "escape",
+                    panorama_app::party_lobby::CloseLobby,
+                    Some("PanoramaLobby"),
+                ),
             ]);
             if let Err(error) = assets::register_fonts(cx) {
                 let _ = startup_outcome.send(Err(error));

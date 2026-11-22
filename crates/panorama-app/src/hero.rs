@@ -237,17 +237,6 @@ pub fn render(
 /// original-language title when it differs, then director, origin and year. The credit rows keep
 /// their height while empty, so details arriving after the catalog card never move the title.
 pub fn byline(film: &panorama_core::addons::FilmDetails) -> Div {
-    let line = |style: TypeStyle| px(style.size * style.line_height);
-    let year = crate::film_card::first_year(film);
-    let country = film
-        .origin_country
-        .as_deref()
-        .and_then(panorama_core::addons::country_name);
-    let place = [country.as_deref(), year.as_deref()]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(", ");
     let original = film
         .original_name
         .as_deref()
@@ -267,14 +256,37 @@ pub fn byline(film: &panorama_core::addons::FilmDetails) -> Div {
     div()
         .flex()
         .flex_col()
+        .font_features(FontFeatures(Arc::new(vec![
+            ("tnum".into(), 1),
+            ("kern".into(), 1),
+        ])))
         .children(original)
+        .child(credits(film, credits_gap))
+}
+
+/// Director, then origin and year, `gap` under whatever sits above them.
+pub fn credits(film: &panorama_core::addons::FilmDetails, gap: f32) -> Div {
+    let line = |style: TypeStyle| px(style.size * style.line_height);
+    let year = crate::film_card::first_year(film);
+    let country = film
+        .origin_country
+        .as_deref()
+        .and_then(panorama_core::addons::country_name);
+    let place = [country.as_deref(), year.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(", ");
+    div()
+        .flex()
+        .flex_col()
         .font_features(FontFeatures(Arc::new(vec![
             ("tnum".into(), 1),
             ("kern".into(), 1),
         ])))
         .child(
             div()
-                .mt(px(credits_gap))
+                .mt(px(gap))
                 .min_h(line(CREDIT_NAME))
                 .flex()
                 .items_baseline()

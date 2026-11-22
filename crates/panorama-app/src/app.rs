@@ -50,6 +50,7 @@ pub struct AppShell {
     pub menu: AccountMenu,
     pub(crate) sidebar: Sidebar,
     login: Option<Entity<LoginDialog>>,
+    lobby: Option<Entity<crate::party_lobby::PartyLobby>>,
     args: Args,
     viewport: gpui::Size<gpui::Pixels>,
     _state: gpui::Subscription,
@@ -117,6 +118,7 @@ impl AppShell {
             menu: AccountMenu::new(cx),
             sidebar: Sidebar::new(cx),
             login: None,
+            lobby: None,
             args: args.clone(),
             viewport: window.viewport_size(),
             _state: state_observer,
@@ -164,20 +166,28 @@ impl AppShell {
         if args.open_sign_in {
             shell.open_login(window, cx);
         }
+        let mut joined = false;
         shell.state.update(cx, |state, cx| {
             if args.party_host {
                 state.start_party(args.party_name.clone(), cx);
             }
-            if let Some(invite) = &args.party_join
-                && let Err(error) = state.join_party(invite, args.party_name.clone(), cx)
-            {
-                crate::debug::log(format!("party join refused: {error}"));
+            if let Some(invite) = &args.party_join {
+                match state.join_party(invite, args.party_name.clone(), cx) {
+                    Ok(()) => joined = true,
+                    Err(error) => crate::debug::log(format!("party join refused: {error}")),
+                }
             }
             if let Some((kind, id)) = args.party_play.clone() {
                 state.play_by_id(kind, id.clone(), id, Default::default());
                 cx.notify();
             }
         });
+        if joined {
+            shell.open_party_lobby_as_member(window, cx);
+        }
+        if let Some(host) = args.open_party_lobby {
+            shell.open_party_lobby_preview(host, window, cx);
+        }
         if args.play_hero && args.fixtures {
             cx.defer_in(window, |shell, window, cx| {
                 let Some(film) = crate::fixtures::films().into_iter().next() else {
@@ -222,6 +232,7 @@ impl AppShell {
             .update(cx, |state, cx| state.join_party(&invite, None, cx).is_ok());
         if joined {
             self.menu.set_open(false);
+            self.open_party_lobby_as_member(window, cx);
             cx.activate(true);
             window.activate_window();
         }

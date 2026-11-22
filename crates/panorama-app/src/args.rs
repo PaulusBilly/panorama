@@ -45,6 +45,8 @@ pub struct Args {
     pub open_account_menu: bool,
     /// Open the sign-in dialog before capture.
     pub open_sign_in: bool,
+    /// Open the watch party lobby over a made-up party: `true` as its host, `false` as a friend.
+    pub open_party_lobby: Option<bool>,
     /// Measure five seconds of scrolling with 200 fixture cards.
     pub bench_scroll: bool,
     /// Present the fixture account as signed out.
@@ -117,6 +119,7 @@ impl Args {
             focus_first_card: false,
             open_account_menu: false,
             open_sign_in: false,
+            open_party_lobby: None,
             bench_scroll: false,
             signed_out: false,
             no_sources: false,
@@ -280,6 +283,15 @@ impl Args {
                 "--focus-first-card" => result.focus_first_card = true,
                 "--open-account-menu" => result.open_account_menu = true,
                 "--open-sign-in" => result.open_sign_in = true,
+                "--open-party-lobby" => {
+                    result.open_party_lobby = Some(
+                        match args.next().as_deref().and_then(|value| value.to_str()) {
+                            Some("host") => true,
+                            Some("member") => false,
+                            _ => return Err("--open-party-lobby needs host or member".into()),
+                        },
+                    );
+                }
                 "--signed-out" => result.signed_out = true,
                 "--no-sources" => result.no_sources = true,
                 "--film-loading" => result.film_loading = true,
@@ -502,6 +514,24 @@ mod tests {
         }
         assert!(parse(&["--runtime-problem", "gone"]).is_err());
         assert!(parse(&["--runtime-problem"]).is_err());
+    }
+    #[test]
+    fn open_party_lobby_takes_a_side() {
+        assert_eq!(
+            parse(&["--open-party-lobby", "host"])
+                .unwrap()
+                .open_party_lobby,
+            Some(true)
+        );
+        assert_eq!(
+            parse(&["--open-party-lobby", "member"])
+                .unwrap()
+                .open_party_lobby,
+            Some(false)
+        );
+        assert_eq!(parse(&[]).unwrap().open_party_lobby, None);
+        assert!(parse(&["--open-party-lobby"]).is_err());
+        assert!(parse(&["--open-party-lobby", "guest"]).is_err());
     }
     #[test]
     fn data_dir_takes_a_path() {

@@ -253,7 +253,7 @@ impl AppShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.login.is_some() {
+        if self.login.is_some() || self.lobby.is_some() {
             return;
         }
         let key = event.keystroke.key.as_str();

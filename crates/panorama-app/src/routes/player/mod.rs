@@ -1,5 +1,5 @@
 mod chrome;
-mod content;
+pub(crate) mod content;
 mod controls;
 mod cue_view;
 mod edit;

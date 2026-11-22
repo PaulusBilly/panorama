@@ -13,7 +13,7 @@ use crate::playback::{
 use panorama_core::{
     addons::{StreamGroup, StreamSource},
     party::{
-        Action, ByeReason, HostSettings, MemberState, MemberView, Notice, PartyRelease,
+        Action, ByeReason, Gate, HostSettings, MemberState, MemberView, Notice, PartyRelease,
         is_hidden_char,
         transport::{PathKind, TransportError},
     },
@@ -42,6 +42,10 @@ pub struct PartyView {
     pub notices: Vec<NoticeEntry>,
     /// Which of the host's track choices this person follows.
     pub sync: PartySync,
+    /// Member: this person's roster id, once the host welcomed them.
+    pub me: Option<u32>,
+    /// Member: what holds the party's timeline, once the host said.
+    pub gate: Option<Gate>,
 }
 
 /// Whether this person's subtitles and audio follow the host's. Kept per install.
@@ -166,6 +170,8 @@ impl PartyView {
             anyone_controls: false,
             notices: Vec::new(),
             sync: PartySync::default(),
+            me: None,
+            gate: None,
         }
     }
 

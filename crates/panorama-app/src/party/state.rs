@@ -243,6 +243,14 @@ impl AppState {
         }
     }
 
+    /// Host: leave the lobby. The party plays once everyone is ready, or after the host's
+    /// wait runs out.
+    pub fn party_start(&self) {
+        if let Some(party) = self.party.as_ref().filter(|party| party.view.is_host()) {
+            party.send(Input::Start);
+        }
+    }
+
     /// Member: whether the source now playing is the host's release.
     pub fn party_release(&self, matched: bool) {
         if let Some(party) = &self.party {
