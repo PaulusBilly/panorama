@@ -66,6 +66,7 @@ impl AssetSource for Assets {
             "addons.svg" => Some(include_bytes!("../assets/icons/addons.svg")),
             "person.svg" => Some(include_bytes!("../assets/icons/person.svg")),
             "refresh.svg" => Some(include_bytes!("../assets/icons/refresh.svg")),
+            "rotate.svg" => Some(include_bytes!("../assets/icons/rotate.svg")),
             "back.svg" => Some(include_bytes!("../assets/back.svg")),
             "minimize.svg" => Some(include_bytes!("../assets/minimize.svg")),
             "maximize.svg" => Some(include_bytes!("../assets/maximize.svg")),
