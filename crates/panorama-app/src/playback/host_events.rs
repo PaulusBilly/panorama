@@ -63,7 +63,9 @@ impl Runner {
             return;
         }
         let sample = PlaybackSample {
-            time_secs: self.model.time.unwrap_or(0.0),
+            // Until a seek lands the player may still read as where it was: the seek's target
+            // is where it is going.
+            time_secs: self.model.seek_target().or(self.model.time).unwrap_or(0.0),
             duration_secs: self.model.duration.unwrap_or(0.0),
             paused: self.model.paused,
         };

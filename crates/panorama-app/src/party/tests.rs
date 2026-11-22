@@ -141,6 +141,19 @@ fn a_seek_mpv_never_lands_ends_once_playback_moves_on() {
 }
 
 #[test]
+fn reports_creeping_on_from_before_a_seek_do_not_end_it() {
+    use crate::playback::model::HostEvent;
+    use panorama_mpv::PlayerEvent;
+    let mut model = model(Status::Ready, false, Some(109.5));
+    model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(110.0))));
+    model.apply(HostEvent::Seeked(100.0));
+    for stale in [110.0, 110.5, 111.0] {
+        model.apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(stale))));
+    }
+    assert!(model.seeking());
+}
+
+#[test]
 fn the_player_reports_what_it_is_doing() {
     let report = |status, paused| member_state(&model(status, paused, Some(42.5))).unwrap().0;
     assert_eq!(member_state(&model(Status::Idle, false, None)), None);

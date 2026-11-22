@@ -236,6 +236,11 @@ impl PlaybackModel {
         self.seek_pending.is_some()
     }
 
+    /// Where a seek that has not landed is going.
+    pub fn seek_target(&self) -> Option<f64> {
+        self.seek_pending
+    }
+
     pub fn apply(&mut self, event: HostEvent) {
         match event {
             HostEvent::Resolving => {
@@ -317,11 +322,12 @@ impl PlaybackModel {
                     if self.seek_from.is_some_and(|from| now > from + 0.25) {
                         self.seek_from = None;
                     }
-                    // A seek mpv refused never restarts playback; playing on past its target
-                    // ends it all the same. Playing creeps forward, where a report from before
-                    // the seek jumps.
+                    // A seek mpv refused never restarts playback; playing on from its target
+                    // ends it all the same. Playing creeps forward from there, where reports
+                    // from before the seek start somewhere else.
                     if self.seek_pending.is_some_and(|target| {
-                        now > target + 0.25 && (0.0..1.0).contains(&(now - before))
+                        (target + 0.25..target + 5.0).contains(&now)
+                            && (0.0..1.0).contains(&(now - before))
                     }) {
                         self.seek_pending = None;
                         self.held_cache = None;

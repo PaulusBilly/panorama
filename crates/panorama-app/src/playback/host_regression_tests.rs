@@ -186,3 +186,27 @@ async fn a_position_from_before_a_seek_does_not_move_the_resume_point() {
         lock(&backend.log)
     );
 }
+
+#[tokio::test]
+async fn pausing_mid_seek_does_not_record_where_it_was() {
+    let (mut runner, backend, progress) = setup();
+    lock(&backend.scripts).push_back(Script {
+        events: vec![
+            PlayerEvent::Duration(Some(600.0)),
+            PlayerEvent::TimePos(Some(100.0)),
+        ],
+        ..Default::default()
+    });
+    let mut selection = selection();
+    selection.start = StartMode::Resume(100.0);
+    runner.control(Command::Headless(Box::new(selection))).await;
+    resolve(&mut runner).await;
+    runner.control(Command::Seek(300.0)).await;
+    // A position mpv sent before it heard of the seek, then a pause.
+    runner
+        .model
+        .apply(HostEvent::Mpv(PlayerEvent::TimePos(Some(100.5))));
+    runner.sample(false).await;
+    let calls = lock(&progress.calls).clone();
+    assert!(calls.iter().all(|call| call != "sample:100.5"), "{calls:?}");
+}
