@@ -136,9 +136,10 @@ impl Render for PartyLobby {
                     .child(body),
             )
             .child(footer);
-        let label = match &self.side {
-            Side::Host(_) => "Watch party lobby",
-            Side::Member => "Watch party",
+        // A friend's player loads under the lobby; it stays hidden until the host starts.
+        let (label, backdrop) = match &self.side {
+            Side::Host(_) => ("Watch party lobby", look.theme.scrim.opacity(0.72)),
+            Side::Member => ("Watch party", look.theme.player_canvas.into()),
         };
         div()
             .id("party-lobby")
@@ -164,7 +165,7 @@ impl Render for PartyLobby {
                 div()
                     .absolute()
                     .inset_0()
-                    .bg(look.theme.scrim.opacity(0.72))
+                    .bg(backdrop)
                     .opacity(scrim),
             )
             .child(
