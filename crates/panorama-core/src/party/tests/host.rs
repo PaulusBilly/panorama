@@ -326,7 +326,6 @@ fn play_starts_after_20s_even_if_not_ready() {
     assert_ne!(playing(&tick(&mut host, 20_000), SAM), Some(true));
     let out = tick(&mut host, 20_001);
     assert_eq!(playing(&out, SAM), Some(true));
-    let out = tick(&mut host, 20_250);
     let sam = roster(&out).unwrap().into_iter().find(|m| m.name == "Sam");
     assert!(sam.unwrap().late);
 }
@@ -1069,6 +1068,7 @@ fn switched_audio() -> HostSession {
         title: None,
         codec: Some("aac".into()),
         external: false,
+        source: None,
     });
     host.handle(500, HostInput::Tracks(english_subtitles()));
     host.handle(1_000, HostInput::Tracks(french_audio));
@@ -1175,11 +1175,13 @@ fn new_media_ends_the_track_switch_grace() {
 }
 
 #[test]
-fn resuming_while_a_friend_buffers_plays_at_once() {
+fn resuming_waits_for_a_friend_still_buffering() {
     let mut host = party();
     host.handle(10_000, HostInput::Local(Action::Pause));
-    report(&mut host, 10_500, SAM, MemberState::Buffering);
+    report_at(&mut host, 10_500, SAM, MemberState::Buffering, 110.0);
     let out = host.handle(11_000, HostInput::Local(Action::Play));
+    assert_ne!(playing(&out, SAM), Some(true));
+    let out = report_at(&mut host, 12_000, SAM, MemberState::Paused, 110.0);
     assert_eq!(playing(&out, SAM), Some(true));
 }
 
@@ -1225,4 +1227,46 @@ fn local_paused_at(host: &mut HostSession, now: i64, position: f64) -> Vec<HostO
             duration: Some(LENGTH),
         },
     )
+}
+
+#[test]
+fn the_roster_reaches_friends_before_the_party_starts() {
+    let mut host = host();
+    join(&mut host, 0, SAM, "Sam");
+    host.handle(
+        0,
+        HostInput::SetMedia {
+            media: media(),
+            at: 0.0,
+        },
+    );
+    local(&mut host, 100, MemberState::Ready);
+    report(&mut host, 100, SAM, MemberState::Ready);
+    tick(&mut host, 400);
+    // The host's player starts opening the film just as it starts the party.
+    local(&mut host, 450, MemberState::Loading);
+    let out = host.handle(450, HostInput::Start);
+    let sent = sent_to(&out, SAM);
+    let roster = sent
+        .iter()
+        .position(|msg| matches!(msg, Down::Roster { .. }));
+    let state = sent
+        .iter()
+        .position(|msg| matches!(msg, Down::State { .. }));
+    assert!(roster.is_some() && roster < state, "{sent:?}");
+}
+
+#[test]
+fn a_friend_still_buffering_when_the_start_times_out_holds_no_more() {
+    let mut host = party();
+    host.handle(1_000, HostInput::Local(Action::Pause));
+    report_at(&mut host, 1_100, SAM, MemberState::Buffering, 101.0);
+    host.handle(1_200, HostInput::Local(Action::Play));
+    let out = tick(&mut host, 21_300);
+    assert_eq!(playing(&out, SAM), Some(true), "the wait gives up");
+    assert_ne!(playing(&tick(&mut host, 23_500), SAM), Some(false));
+    // Buffering afresh later is a new stall, and gets the usual wait.
+    report_at(&mut host, 30_000, SAM, MemberState::Playing, 110.0);
+    report_at(&mut host, 31_000, SAM, MemberState::Buffering, 111.0);
+    assert_eq!(playing(&tick(&mut host, 33_000), SAM), Some(false));
 }

@@ -13,8 +13,8 @@ use crate::playback::{
 use panorama_core::{
     addons::{StreamGroup, StreamSource},
     party::{
-        Action, ByeReason, Gate, HostSettings, MemberState, MemberView, Notice, PartyRelease,
-        is_hidden_char,
+        Action, ByeReason, Gate, HostSettings, MemberState, MemberView, Notice, PartyMedia,
+        PartyRelease, is_hidden_char,
         transport::{PathKind, TransportError},
     },
     store::{Key, Store},
@@ -239,6 +239,16 @@ fn thin_cache(model: &PlaybackModel) -> bool {
         .zip(model.duration)
         .is_some_and(|(time, duration)| duration - time <= READY_CACHE);
     model.cache_seconds.is_some_and(|ahead| ahead < READY_CACHE) && !near_end
+}
+
+/// Member: `next` is the host switching to another source of what plays now, not a new film
+/// or episode.
+pub fn switched_source(playing: Option<&PartyMedia>, next: &PartyMedia) -> bool {
+    playing.is_some_and(|playing| {
+        playing.film_id == next.film_id
+            && playing.video_id == next.video_id
+            && playing.release != next.release
+    })
 }
 
 /// A user's play, pause or seek as the absolute action the party decides on. Anything else is

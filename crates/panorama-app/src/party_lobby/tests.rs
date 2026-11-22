@@ -160,3 +160,40 @@ fn a_friends_lobby_says_why_the_party_ended() {
     view.link = Link::Ended(EndReason::Lost);
     assert_eq!(said(&view), "Lost the connection to the host.");
 }
+
+#[test]
+fn a_friends_lobby_waits_for_the_hosts_film_to_load() {
+    let mut view = preview(false);
+    let set_host = |view: &mut PartyView, state| {
+        view.roster
+            .iter_mut()
+            .find(|row| row.member.is_host)
+            .unwrap()
+            .member
+            .state = state;
+    };
+    assert!(!host_started(&view), "still in the lobby");
+    view.gate = Some(Gate::Ready);
+    set_host(&mut view, MemberState::Loading);
+    assert!(!host_started(&view), "the host's film is still opening");
+    assert_eq!(
+        view::member_status(Some(&view), true).to_string(),
+        "Billy is loading the film"
+    );
+    set_host(&mut view, MemberState::Paused);
+    assert!(host_started(&view));
+    set_host(&mut view, MemberState::Failed);
+    assert!(
+        host_started(&view),
+        "a host who can't play does not hold friends here"
+    );
+}
+
+#[test]
+fn a_friend_joining_mid_start_waits_for_the_roster() {
+    // Joining while the host loads: the state can arrive before anyone is listed.
+    let mut view = preview(false);
+    view.gate = Some(Gate::Ready);
+    view.roster.clear();
+    assert!(!host_started(&view));
+}

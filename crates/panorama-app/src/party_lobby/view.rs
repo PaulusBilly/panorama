@@ -15,7 +15,10 @@ use gpui::{
     SharedString, Stateful, Transformation, Window, div, linear_color_stop, linear_gradient, point,
     prelude::*, px, relative, svg,
 };
-use panorama_core::{addons::FilmDetails, party::MemberState};
+use panorama_core::{
+    addons::FilmDetails,
+    party::{Gate, MemberState},
+};
 use std::time::{Duration, Instant};
 
 const WIDTH: f32 = 560.0;
@@ -971,6 +974,9 @@ pub(super) fn member_status(view: Option<&PartyView>, has_film: bool) -> SharedS
     match (view.link, host) {
         (Link::Ended(reason), _) => crate::party::lobby_ended_text(reason, false).into(),
         (Link::Live, Some(host)) if !has_film => format!("{host} is choosing a film").into(),
+        (Link::Live, Some(host)) if view.gate.is_some_and(|gate| gate != Gate::Lobby) => {
+            format!("{host} is loading the film").into()
+        }
         (Link::Live, Some(host)) => format!("{host} starts the film when everyone is ready").into(),
         _ => "Joining the party".into(),
     }

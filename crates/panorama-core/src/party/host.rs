@@ -562,16 +562,16 @@ impl HostSession {
     }
 
     fn apply(&mut self, now: i64, action: Action, by: String, out: &mut Vec<HostOutput>) {
-        let loading = std::iter::once(&self.host)
+        // Still opening or filling its cache: resuming now would only stop again for them.
+        let unready = std::iter::once(&self.host)
             .chain(self.joined())
-            .any(|p| p.state == MemberState::Loading);
+            .any(|p| matches!(p.state, MemberState::Loading | MemberState::Buffering));
         let Some(showing) = &mut self.showing else {
             return;
         };
         let position = showing.playback().expected_at(now);
         let (phase, position, kind) = match (action, showing.phase) {
-            // A source picked while paused may still be loading for someone.
-            (Action::Play, Phase::Paused) if loading => (
+            (Action::Play, Phase::Paused) if unready => (
                 Phase::WaitingForReady { since: now },
                 position,
                 NoticeKind::Played,
@@ -634,6 +634,10 @@ impl HostSession {
                 {
                     held = true;
                     member.late |= timed_out && member.id != HOST_ID;
+                    // Given up on: the stall it is still in holds nothing more. A new one does.
+                    if timed_out {
+                        member.buffering_since = None;
+                    }
                 }
                 (!held || timed_out).then_some(Phase::Playing)
             }
@@ -719,28 +723,42 @@ impl HostSession {
     /// Sends the party's state whenever it changes, and every 5 s as a refresh; and the roster
     /// when someone joins or leaves, and when only reports moved it, at most once a tick.
     fn publish(&mut self, now: i64, out: &mut Vec<HostOutput>) {
-        if let Some(showing) = &self.showing {
-            let current = self.published_of(showing);
-            let changed = self.published.as_ref() != Some(&current);
-            if changed {
-                self.revision += 1;
-                if self.published.as_ref().map(|published| published.playback)
-                    != Some(current.playback)
-                {
-                    out.push(HostOutput::Apply(current.playback));
-                }
-                self.published = Some(current.clone());
+        let current = self
+            .showing
+            .as_ref()
+            .map(|showing| self.published_of(showing));
+        let changed = current
+            .as_ref()
+            .is_some_and(|current| self.published.as_ref() != Some(current));
+        // Who is where goes out first whenever the party moves, so a friend never reads the
+        // party as started while its roster still shows the host before it began loading.
+        self.publish_roster(now, changed, out);
+        let Some(current) = current else {
+            return;
+        };
+        if changed {
+            self.revision += 1;
+            if self.published.as_ref().map(|published| published.playback) != Some(current.playback)
+            {
+                out.push(HostOutput::Apply(current.playback));
             }
-            if changed || now - self.published_ms >= REFRESH_MS {
-                self.published_ms = now;
-                self.broadcast(current.state(self.revision), out);
-            }
+            self.published = Some(current.clone());
         }
+        if changed || now - self.published_ms >= REFRESH_MS {
+            self.published_ms = now;
+            self.broadcast(current.state(self.revision), out);
+        }
+    }
+
+    /// The roster when someone joins or leaves, when `now_due`, and when only reports moved
+    /// it, at most once a tick.
+    fn publish_roster(&mut self, now: i64, now_due: bool, out: &mut Vec<HostOutput>) {
         let roster = std::iter::once(self.host.view(true))
             .chain(self.joined().map(|member| member.view(false)))
             .collect::<Vec<_>>();
         let ids = |roster: &[MemberView]| roster.iter().map(|m| m.member_id).collect::<Vec<_>>();
-        let due = ids(&roster) != ids(&self.roster)
+        let due = now_due
+            || ids(&roster) != ids(&self.roster)
             || self
                 .roster_ms
                 .is_none_or(|at| now.saturating_sub(at) >= ROSTER_EVERY_MS);

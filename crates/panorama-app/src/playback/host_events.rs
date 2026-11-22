@@ -96,6 +96,19 @@ impl Runner {
             {
                 continue;
             }
+            // mpv failing to open the source before any frame is the source's failure, the
+            // same as the host failing to reach it: another source may play.
+            if let PlayerEvent::Error(error)
+            | PlayerEvent::EndFile {
+                reason: panorama_mpv::EndReason::Error(error),
+                ..
+            } = &event
+                && self.model.status != Status::NoPeers
+                && self.can_fall_back(PlaybackError::from(*error))
+            {
+                self.fallback_due = Some(PlaybackError::from(*error));
+                continue;
+            }
             // A refused seek leaves playback where it was.
             if matches!(event, PlayerEvent::SeekRefused) && self.model.seeking() {
                 self.position = self.left_at;

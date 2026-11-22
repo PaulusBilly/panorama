@@ -73,6 +73,10 @@ pub(crate) fn tracks(node: &Node) -> Vec<Track> {
                 default: entry.get("default").flag(),
                 forced: entry.get("forced").flag(),
                 external: entry.get("external").flag(),
+                source: entry
+                    .get("external-filename")
+                    .string()
+                    .map(|url| fingerprint(&url)),
                 hearing_impaired: entry.get("hearing-impaired").flag(),
                 selected: entry.get("selected").flag(),
             })
@@ -153,6 +157,13 @@ impl Properties {
     }
 }
 
+/// FNV-1a: stable across platforms and builds, unlike the standard hasher.
+fn fingerprint(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +198,7 @@ mod tests {
                 default: true,
                 forced: false,
                 external: true,
+                source: None,
                 hearing_impaired: true,
                 selected: true
             }]

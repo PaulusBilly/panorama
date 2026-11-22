@@ -50,6 +50,7 @@ mod tests {
             codec: None,
             selected: true,
             external: false,
+            source: None,
         });
         assert!(!ShellPlayerState::update(&mut state, &model, true));
         model.fullscreen = true;

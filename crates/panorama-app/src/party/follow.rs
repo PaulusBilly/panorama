@@ -26,6 +26,7 @@ pub fn key_of(track: &Track) -> TrackKey {
         title: Some(title),
         codec: track.codec.clone(),
         external: track.external,
+        source: track.source,
     }
 }
 
@@ -93,6 +94,11 @@ pub struct Followed {
     sync: PartySync,
     audio_done: bool,
     subtitles_done: bool,
+    /// How closely the subtitle followed so far matched the host's: an addon's file arrives
+    /// after the video's own, so a closer one may turn up once the first is on.
+    subtitle_fit: Option<u8>,
+    /// A closer subtitle replaced the first match; nothing moves it again.
+    subtitle_moved: bool,
 }
 
 impl Followed {
@@ -102,6 +108,8 @@ impl Followed {
             sync,
             audio_done: false,
             subtitles_done: false,
+            subtitle_fit: None,
+            subtitle_moved: false,
         }
     }
 
@@ -115,10 +123,24 @@ impl Followed {
             audio: self.sync.audio && !self.audio_done,
             subtitles: self.sync.subtitles && !self.subtitles_done,
         };
-        let plan = follow(pending, &self.choice, audio, subtitles);
+        let mut plan = follow(pending, &self.choice, audio, subtitles);
         let settled = settled(pending, &self.choice, audio, subtitles);
         self.audio_done |= settled.audio;
         self.subtitles_done |= settled.subtitles;
+        if let (true, Some(key)) = (self.sync.subtitles, &self.choice.subtitle)
+            && let Some((fit, id)) = best(subtitles, key)
+        {
+            // Once settled, only a strictly closer match moves it, once: the friend's own
+            // pick after that stays.
+            let closer = !self.subtitle_moved && self.subtitle_fit.is_some_and(|had| fit > had);
+            if closer && !is_on(subtitles, id) {
+                plan.subtitle = Some(Some(id));
+                self.subtitle_moved = true;
+            }
+            if self.subtitles_done && (closer || self.subtitle_fit.is_none()) {
+                self.subtitle_fit = Some(fit);
+            }
+        }
         plan
     }
 }
@@ -128,6 +150,11 @@ fn is_on(tracks: &[Track], id: i64) -> bool {
 }
 
 fn find(tracks: &[Track], key: &TrackKey) -> Option<i64> {
+    best(tracks, key).map(|(_, id)| id)
+}
+
+/// The closest match to `key` among `tracks`, with how close it is.
+fn best(tracks: &[Track], key: &TrackKey) -> Option<(u8, i64)> {
     tracks
         .iter()
         .filter_map(|track| fit(track, key).map(|score| (score, track.id)))
@@ -135,13 +162,17 @@ fn find(tracks: &[Track], key: &TrackKey) -> Option<i64> {
             Some(best) if best.0 >= found.0 => Some(best),
             _ => Some(found),
         })
-        .map(|(_, id)| id)
 }
 
-/// How well `track` matches `key`, or `None` when it is a different language. Where the track
-/// comes from outranks its title, which outranks its codec.
+/// How well `track` matches `key`, or `None` when it is a different language. The same file
+/// outranks where the track comes from, which outranks its title, then its codec.
 fn fit(track: &Track, key: &TrackKey) -> Option<u8> {
     let mine = key_of(track).bounded();
+    // The very file outranks all else: an addon names many of its files alike, and may not
+    // tag each one's language the same way.
+    if mine.source.is_some() && mine.source == key.source {
+        return Some(8 + 4 + 2 + 1);
+    }
     let same_language = match (&mine.language, &key.language) {
         (Some(mine), Some(theirs)) => same_language(mine, theirs),
         (None, None) => mine.title == key.title,

@@ -251,6 +251,7 @@ fn track(id: i64, kind: TrackKind, title: &str, lang: &str, codec: &str, selecte
         default: selected,
         forced: false,
         external: false,
+        source: None,
         hearing_impaired: false,
         selected,
     }

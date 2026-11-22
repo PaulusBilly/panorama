@@ -98,6 +98,20 @@ pub fn is_ready(state: MemberState) -> bool {
     )
 }
 
+/// Member: the party left the lobby and the host's film is open, so the friend's shows. While
+/// the host's player is still opening it, the friend waits here rather than on a paused frame.
+pub fn host_started(view: &PartyView) -> bool {
+    view.gate.is_some_and(|gate| gate != Gate::Lobby)
+        // Only a listed host counts: a friend joining mid-start hears the state first.
+        && view.roster.iter().any(|row| {
+            row.member.is_host
+                && !matches!(
+                    row.member.state,
+                    MemberState::Loading | MemberState::Buffering
+                )
+        })
+}
+
 /// What `command` does from this side, given who is ready. `None` leaves the lobby open.
 pub fn decide(host: bool, readiness: &Readiness, command: Command) -> Option<Exit> {
     match command {
@@ -249,10 +263,7 @@ impl PartyLobby {
     }
 
     fn follow_party(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let started = self
-            .party(cx)
-            .and_then(|view| view.gate)
-            .is_some_and(|gate| gate != Gate::Lobby);
+        let started = self.party(cx).is_some_and(host_started);
         if self.state.read(cx).party.is_none() {
             self.leave_quietly(window, cx);
         } else if started {

@@ -30,6 +30,8 @@ pub(super) struct PartyUi {
     /// A party started from the lobby was copied there, so a film opening later leaves the
     /// clipboard alone.
     copy_pending: bool,
+    /// The host's source switches already seen, so each toasts once.
+    switches: Option<u32>,
     ended: bool,
     toast: Option<(SharedString, Instant)>,
 }
@@ -72,6 +74,19 @@ impl Player {
             }
             toast = Some("Invite link copied. Send it to your friends.".into());
         }
+        if self
+            .party_ui
+            .switches
+            .is_some_and(|seen| party.switches > seen)
+        {
+            let host = view
+                .roster
+                .iter()
+                .find(|row| row.member.is_host)
+                .map_or("The host", |row| row.member.name.as_str());
+            toast = Some(format!("{host} switched the source"));
+        }
+        self.party_ui.switches = Some(party.switches);
         if !self.party_ui.ended && view.ended().is_some() {
             self.party_ui.ended = true;
             toast = Some("Party ended".into());

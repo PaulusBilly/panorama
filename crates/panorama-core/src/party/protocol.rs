@@ -170,6 +170,10 @@ pub struct TrackKey {
     pub codec: Option<String>,
     /// Loaded from outside the media file, such as an addon subtitle.
     pub external: bool,
+    /// Which file, for one loaded from outside: a fingerprint of where it came from, so two
+    /// files an addon names alike tell apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<u64>,
 }
 
 impl fmt::Debug for TrackKey {
@@ -377,6 +381,7 @@ impl TrackKey {
             title: cut(self.title, MAX_TITLE),
             codec: cut(self.codec, MAX_CODEC),
             external: self.external,
+            source: self.source,
         }
     }
 

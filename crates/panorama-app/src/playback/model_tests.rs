@@ -189,6 +189,7 @@ fn track_labels_and_cache_measurements() {
         default: false,
         forced: false,
         external: false,
+        source: None,
         hearing_impaired: false,
         selected: id == 1,
     };
