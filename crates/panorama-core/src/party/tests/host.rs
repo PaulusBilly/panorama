@@ -1175,11 +1175,13 @@ fn new_media_ends_the_track_switch_grace() {
 }
 
 #[test]
-fn resuming_while_a_friend_buffers_plays_at_once() {
+fn resuming_waits_for_a_friend_still_buffering() {
     let mut host = party();
     host.handle(10_000, HostInput::Local(Action::Pause));
-    report(&mut host, 10_500, SAM, MemberState::Buffering);
+    report_at(&mut host, 10_500, SAM, MemberState::Buffering, 110.0);
     let out = host.handle(11_000, HostInput::Local(Action::Play));
+    assert_ne!(playing(&out, SAM), Some(true));
+    let out = report_at(&mut host, 12_000, SAM, MemberState::Paused, 110.0);
     assert_eq!(playing(&out, SAM), Some(true));
 }
 

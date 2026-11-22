@@ -241,3 +241,27 @@ async fn a_refused_seek_keeps_the_position_it_left() {
         lock(&backend.log)
     );
 }
+
+#[tokio::test]
+async fn a_source_mpv_cannot_open_falls_back_to_the_next() {
+    let (mut runner, backend, _) = setup();
+    lock(&backend.scripts).extend([
+        Script {
+            // A dead link: mpv opens nothing and says so, before any frame.
+            events: vec![PlayerEvent::EndFile {
+                reason: panorama_mpv::EndReason::Error(panorama_mpv::MpvError::Loading),
+                playlist_entry_id: 1,
+            }],
+            ..Default::default()
+        },
+        Script::default(),
+    ]);
+    runner
+        .control(Command::Headless(Box::new(selection())))
+        .await;
+    resolve(&mut runner).await;
+    runner.fall_back().await;
+    assert_eq!(runner.model.source.stream, 1);
+    resolve(&mut runner).await;
+    assert_eq!(runner.model.status, Status::Ready);
+}

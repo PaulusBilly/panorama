@@ -562,16 +562,16 @@ impl HostSession {
     }
 
     fn apply(&mut self, now: i64, action: Action, by: String, out: &mut Vec<HostOutput>) {
-        let loading = std::iter::once(&self.host)
+        // Still opening or filling its cache: resuming now would only stop again for them.
+        let unready = std::iter::once(&self.host)
             .chain(self.joined())
-            .any(|p| p.state == MemberState::Loading);
+            .any(|p| matches!(p.state, MemberState::Loading | MemberState::Buffering));
         let Some(showing) = &mut self.showing else {
             return;
         };
         let position = showing.playback().expected_at(now);
         let (phase, position, kind) = match (action, showing.phase) {
-            // A source picked while paused may still be loading for someone.
-            (Action::Play, Phase::Paused) if loading => (
+            (Action::Play, Phase::Paused) if unready => (
                 Phase::WaitingForReady { since: now },
                 position,
                 NoticeKind::Played,

@@ -30,6 +30,9 @@ pub struct Party {
     media: Option<PartyMedia>,
     /// Member: the host's latest track choice, once it has named its tracks.
     host_tracks: Option<TrackChoice>,
+    /// Member: how many times the host switched the source of what plays, for the player to
+    /// say so.
+    pub switches: u32,
     _events: Task<()>,
 }
 
@@ -42,6 +45,7 @@ impl Party {
             inputs,
             media: None,
             host_tracks: None,
+            switches: 0,
             _events: Task::ready(()),
         }
     }
@@ -373,6 +377,7 @@ impl AppState {
             inputs: spawned.inputs,
             media: None,
             host_tracks: None,
+            switches: 0,
             _events: task,
         });
         cx.notify();
@@ -402,6 +407,9 @@ impl AppState {
                 self.drop_party_play();
             }
             Event::Load(media) => {
+                if super::switched_source(party.media.as_ref(), &media) {
+                    party.switches += 1;
+                }
                 party.host_tracks = None;
                 party.media = Some(media.clone());
                 self.play_by_id(

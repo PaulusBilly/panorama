@@ -494,6 +494,33 @@ fn a_subtitle_that_turns_up_later_is_followed_once() {
     assert_eq!(followed.step(&[], &early), Follow::default());
 }
 
+#[test]
+fn a_closer_subtitle_turning_up_later_replaces_the_first_match() {
+    // The host reads an addon's English; the friend's file has its own English (an image
+    // subtitle) from the start, and the addon's arrives once downloaded.
+    let host_subs = [
+        track(3, "eng", "English PGS", false, false),
+        track(8, "eng", "OpenSubtitles", true, true),
+    ];
+    let choice = choice_of(&[], &host_subs).unwrap();
+    let mut followed = Followed::new(choice, PartySync::default());
+    let embedded_only = [track(3, "eng", "English PGS", false, false)];
+    assert_eq!(followed.step(&[], &embedded_only).subtitle, Some(Some(3)));
+    let on_embedded = [track(3, "eng", "English PGS", false, true)];
+    assert_eq!(followed.step(&[], &on_embedded), Follow::default());
+    let arrived = [
+        track(3, "eng", "English PGS", false, true),
+        track(11, "eng", "OpenSubtitles", true, false),
+    ];
+    assert_eq!(followed.step(&[], &arrived).subtitle, Some(Some(11)));
+    // The friend picking their own afterwards is left alone.
+    let own = [
+        track(3, "eng", "English PGS", false, true),
+        track(11, "eng", "OpenSubtitles", true, false),
+    ];
+    assert_eq!(followed.step(&[], &own), Follow::default());
+}
+
 fn hosts_release(torrent: Option<TorrentRef>) -> PartyRelease {
     PartyRelease {
         addon: "com.host.addon".into(),
@@ -537,4 +564,26 @@ fn no_match_without_a_host_torrent_plays_the_closest() {
         })
     );
     assert_eq!(groups.len(), 1);
+}
+
+#[test]
+fn a_new_release_of_the_same_video_is_a_source_switch() {
+    let media = |video: &str, label: &str| panorama_core::party::PartyMedia {
+        film_id: "tt1".into(),
+        kind: Default::default(),
+        video_id: video.into(),
+        title: "Film".into(),
+        release: PartyRelease {
+            label: label.into(),
+            ..hosts_release(None)
+        },
+    };
+    let playing = media("tt1", "1080p");
+    assert!(switched_source(Some(&playing), &media("tt1", "2160p")));
+    assert!(!switched_source(Some(&playing), &media("tt1", "1080p")));
+    assert!(
+        !switched_source(Some(&playing), &media("tt1:1:2", "2160p")),
+        "a new episode"
+    );
+    assert!(!switched_source(None, &playing), "the first film");
 }
