@@ -5,6 +5,9 @@ const MAX_FALLBACKS: u8 = 3;
 /// How long a source may go without a first frame before the next one is tried.
 const STUCK_AFTER: Duration = Duration::from_secs(45);
 
+/// The furthest one position report may move past the last one without a seek.
+const MAX_LEAP: f64 = 30.0;
+
 impl Runner {
     pub(super) async fn player_command(&mut self, command: Command) {
         if matches!(command, Command::Seek(value) | Command::SeekRelative(value) | Command::SetSpeed(value) if !value.is_finite())
@@ -87,6 +90,9 @@ impl Runner {
                 && self
                     .awaiting_resume
                     .is_none_or(|target| (*seconds - target).abs() <= 3.0)
+                // Once playing, it only creeps forward, and a seek sets the position itself:
+                // a leap is mpv calling a stream that died its end.
+                && (!self.model.advancing() || *seconds <= self.position + MAX_LEAP)
             {
                 self.awaiting_resume = None;
                 self.position = *seconds;

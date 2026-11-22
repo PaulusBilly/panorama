@@ -125,3 +125,33 @@ async fn resume_confirmation_accepts_three_seconds_either_side() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_dying_stream_jumping_to_the_end_does_not_move_the_resume_point() {
+    let (mut runner, backend, _) = setup();
+    lock(&backend.scripts).extend([
+        Script {
+            events: vec![
+                PlayerEvent::Duration(Some(600.0)),
+                PlayerEvent::TimePos(Some(100.0)),
+                PlayerEvent::TimePos(Some(100.5)),
+                // A read error ends the file, and mpv calls the position its end.
+                PlayerEvent::TimePos(Some(600.0)),
+                PlayerEvent::Error(panorama_mpv::MpvError::Loading),
+            ],
+            ..Default::default()
+        },
+        Script::default(),
+    ]);
+    let mut selection = selection();
+    selection.start = StartMode::Resume(100.0);
+    runner.control(Command::Headless(Box::new(selection))).await;
+    resolve(&mut runner).await;
+    runner.control(Command::Retry).await;
+    resolve(&mut runner).await;
+    assert!(
+        lock(&backend.log).iter().any(|entry| entry == "load@100.5"),
+        "{:?}",
+        lock(&backend.log)
+    );
+}
