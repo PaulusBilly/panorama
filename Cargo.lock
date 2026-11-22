@@ -6504,7 +6504,7 @@ dependencies = [
 
 [[package]]
 name = "panorama-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "embed-resource",
  "futures",
@@ -6528,7 +6528,7 @@ dependencies = [
 
 [[package]]
 name = "panorama-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -6567,7 +6567,7 @@ dependencies = [
 
 [[package]]
 name = "panorama-mpv"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libloading",
  "objc2 0.6.5",
