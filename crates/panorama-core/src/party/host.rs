@@ -12,6 +12,9 @@ use super::{
 const HELLO_TIMEOUT_MS: i64 = 10_000;
 const READY_TIMEOUT_MS: i64 = 20_000;
 const BUFFER_GRACE_MS: i64 = 1_500;
+/// Switching audio or subtitles makes mpv reload the stream, and everyone following the host
+/// stalls with it. Stalls this soon after a switch are the switch, not a slow connection.
+const TRACK_SWITCH_GRACE_MS: i64 = 5_000;
 const WAIT_LIMIT_MS: i64 = 30_000;
 const WAITS_PER_MEDIA: u8 = 3;
 const REFRESH_MS: i64 = 5_000;
@@ -113,6 +116,8 @@ pub struct HostSession {
     next_member: u32,
     showing: Option<Showing>,
     tracks: Option<TrackChoice>,
+    /// When the host last switched tracks mid-film.
+    switched_ms: Option<i64>,
     revision: u64,
     published: Option<Published>,
     published_ms: i64,
@@ -277,6 +282,7 @@ impl HostSession {
             next_member: HOST_ID + 1,
             showing: None,
             tracks: None,
+            switched_ms: None,
             revision: 0,
             published: None,
             published_ms: 0,
@@ -318,7 +324,13 @@ impl HostSession {
                 }
             }
             HostInput::Stop => self.stop(&mut out),
-            HostInput::Tracks(tracks) => self.tracks = Some(tracks.bounded()),
+            HostInput::Tracks(tracks) => {
+                let tracks = tracks.bounded();
+                if self.tracks.as_ref().is_some_and(|held| *held != tracks) {
+                    self.switched_ms = Some(now_ms);
+                }
+                self.tracks = Some(tracks);
+            }
             HostInput::Settings(settings) => self.settings = settings,
             HostInput::End => {
                 self.end(&mut out);
@@ -581,6 +593,14 @@ impl HostSession {
                     member.late |= timed_out && member.id != HOST_ID;
                 }
                 (!held || timed_out).then_some(Phase::Playing)
+            }
+            Phase::Playing
+                if wait
+                    && self
+                        .switched_ms
+                        .is_some_and(|at| now - at < TRACK_SWITCH_GRACE_MS) =>
+            {
+                None
             }
             Phase::Playing if wait => self
                 .participants_mut()
