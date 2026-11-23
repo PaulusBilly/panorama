@@ -23,7 +23,7 @@ use std::{fmt, time::Instant};
 
 const SYNC: &str = "party.sync";
 
-pub use state::{Party, PendingPlay};
+pub use state::{Blocked, Party, PendingPlay};
 
 /// Notices kept for the panel and the toast, newest last.
 pub const NOTICES: usize = 8;

@@ -24,6 +24,10 @@ impl AppShell {
             cx.quit();
         }
     }
+    /// A dialog above the lobby holds the focus.
+    pub(crate) fn covers_lobby(&self) -> bool {
+        self.login.is_some() || self.prompt.is_some()
+    }
     pub fn finish_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.login = None;
         self.sidebar.account.focus(window, cx);

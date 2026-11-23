@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     button::{Button, Icon, title_case},
-    party::{Link, PartySync, PartyView, RosterRow},
+    party::{Blocked, Link, PartySync, PartyView, RosterRow},
     theme::{
         Theme, caps, focus_ring,
         typography::{BUTTON, CAPTION, LABEL, TypeStyle},
@@ -84,7 +84,11 @@ impl Render for PartyLobby {
             });
             window.request_animation_frame();
         }
-        if !closing && !self.root.contains_focused(window, cx) {
+        let covered = self
+            .shell
+            .upgrade()
+            .is_some_and(|shell| shell.read(cx).covers_lobby());
+        if !closing && !covered && !self.root.contains_focused(window, cx) {
             // The player opening under a friend's lobby takes focus; the lobby keeps it.
             cx.defer_in(window, |lobby, window, cx| lobby.root.focus(window, cx));
         }
@@ -731,24 +735,54 @@ impl PartyLobby {
                         .child(start),
                 )
             }
-            Side::Member => (
-                status.child(member_status(
-                    view,
-                    self.state
-                        .read(cx)
-                        .party
-                        .as_ref()
-                        .is_some_and(|party| party.media().is_some()),
-                )),
-                div().child(
-                    Button::glass("party-lobby-leave", "Leave party")
-                        .focus(&self.leave, look.keyboard)
-                        .tab_stop(open)
-                        .on_click(cx.listener(|lobby, _, window, cx| {
-                            lobby.act(Command::LeaveParty, window, cx)
-                        })),
-                ),
-            ),
+            Side::Member => {
+                let blocked = self.state.read(cx).party_blocked();
+                let fix = blocked.and_then(|blocked| {
+                    let label = match blocked {
+                        Blocked::SignedOut => "Sign in",
+                        Blocked::FilmNotFound => "Try again",
+                        Blocked::NoAddons => return None,
+                    };
+                    Some(
+                        Button::primary("party-lobby-fix", label)
+                            .reduced_motion(look.reduced)
+                            .focus(&self.start, look.keyboard)
+                            .tab_stop(open)
+                            .on_click(cx.listener(move |lobby, _, window, cx| {
+                                lobby.fix(blocked, window, cx)
+                            })),
+                    )
+                });
+                let line: SharedString = match blocked {
+                    Some(blocked) => blocked.text().into(),
+                    None => member_status(
+                        view,
+                        self.state
+                            .read(cx)
+                            .party
+                            .as_ref()
+                            .is_some_and(|party| party.media().is_some()),
+                    ),
+                };
+                (
+                    status
+                        .when(blocked.is_some(), |status| status.text_color(theme.ink))
+                        .child(line),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(
+                            Button::glass("party-lobby-leave", "Leave party")
+                                .focus(&self.leave, look.keyboard)
+                                .tab_stop(open)
+                                .on_click(cx.listener(|lobby, _, window, cx| {
+                                    lobby.act(Command::LeaveParty, window, cx)
+                                })),
+                        )
+                        .children(fix),
+                )
+            }
         };
         LABEL
             .apply(div())

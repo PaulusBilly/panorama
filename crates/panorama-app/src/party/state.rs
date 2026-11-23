@@ -33,7 +33,41 @@ pub struct Party {
     /// Member: how many times the host switched the source of what plays, for the player to
     /// say so.
     pub switches: u32,
+    /// Member: the details of the host's film could not be fetched here.
+    lookup_failed: bool,
+    /// Member: the party has heard that this person can't play.
+    told_blocked: bool,
     _events: Task<()>,
+}
+
+/// Why a friend can't play the party's film, each with its own way out.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Blocked {
+    SignedOut,
+    NoAddons,
+    FilmNotFound,
+}
+
+impl Blocked {
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::SignedOut => "Sign in to watch with the party",
+            Self::NoAddons => "Add a streaming addon in Stremio, then rejoin",
+            Self::FilmNotFound => "Couldn't find this film in your addons",
+        }
+    }
+
+    fn of(account: &Account, known: bool, no_addons: bool, lookup_failed: bool) -> Option<Self> {
+        if lookup_failed {
+            return Some(Self::FilmNotFound);
+        }
+        match account {
+            _ if !known => None,
+            Account::Authenticating => None,
+            Account::SignedIn(_) => no_addons.then_some(Self::NoAddons),
+            Account::SignedOut | Account::Error(_) => Some(Self::SignedOut),
+        }
+    }
 }
 
 impl Party {
@@ -46,6 +80,8 @@ impl Party {
             media: None,
             host_tracks: None,
             switches: 0,
+            lookup_failed: false,
+            told_blocked: false,
             _events: Task::ready(()),
         }
     }
@@ -335,6 +371,60 @@ impl AppState {
         }
     }
 
+    /// Member: what stops the party's film playing here, if anything.
+    pub fn party_blocked(&self) -> Option<Blocked> {
+        let party = self
+            .party
+            .as_ref()
+            .filter(|party| !party.view.is_host() && party.view.ended().is_none())?;
+        let session = self.services.as_ref().is_some_and(|s| s.session.is_some());
+        Blocked::of(
+            &self.account,
+            !session || self.account_known,
+            session && self.installed.is_empty(),
+            party.lookup_failed,
+        )
+    }
+
+    /// Member: keeps the host's roster honest about whether this person can play.
+    pub fn sync_party_blocked(&mut self) {
+        let blocked = self.party_blocked().is_some();
+        let Some(party) = self.party.as_mut().filter(|party| !party.view.is_host()) else {
+            return;
+        };
+        if party.told_blocked == blocked {
+            return;
+        }
+        party.told_blocked = blocked;
+        let state = if blocked {
+            MemberState::Failed
+        } else {
+            MemberState::Loading
+        };
+        party.send(Input::Report {
+            state,
+            position: 0.0,
+            duration: None,
+        });
+    }
+
+    /// Member: looks the party's film up again.
+    pub fn retry_party_film(&mut self, cx: &mut Context<Self>) {
+        let Some(party) = self.party.as_mut() else {
+            return;
+        };
+        party.lookup_failed = false;
+        if let Some(media) = party.media.clone() {
+            self.play_by_id(
+                media.kind,
+                media.film_id,
+                media.video_id,
+                Pick::Party(media.release),
+            );
+        }
+        cx.notify();
+    }
+
     /// Open a film by id once the account is ready, starting with `pick`'s source.
     pub fn play_by_id(&mut self, kind: Kind, film_id: String, video_id: String, pick: Pick) {
         self.pending_play = Some(PendingPlay {
@@ -382,7 +472,13 @@ impl AppState {
                             return;
                         }
                         super::trace(|| "pending play details failed".into());
-                        let _ = state.update(cx, |state, _| state.pending_play = None);
+                        let _ = state.update(cx, |state, cx| {
+                            state.pending_play = None;
+                            if let Some(party) = state.party.as_mut() {
+                                party.lookup_failed = !party.view.is_host();
+                            }
+                            cx.notify();
+                        });
                     }),
                 };
                 None
@@ -417,6 +513,8 @@ impl AppState {
             media: None,
             host_tracks: None,
             switches: 0,
+            lookup_failed: false,
+            told_blocked: false,
             _events: task,
         });
         cx.notify();
@@ -441,6 +539,8 @@ impl AppState {
             }
             Event::Tracks(tracks) => party.host_tracks = Some(tracks),
             Event::Stop => {
+                party.lookup_failed = false;
+                party.told_blocked = false;
                 party.host_tracks = None;
                 party.media = None;
                 self.drop_party_play();
@@ -449,6 +549,8 @@ impl AppState {
                 if super::switched_source(party.media.as_ref(), &media) {
                     party.switches += 1;
                 }
+                party.lookup_failed = false;
+                party.told_blocked = false;
                 party.host_tracks = None;
                 party.media = Some(media.clone());
                 self.play_by_id(
@@ -496,6 +598,8 @@ mod tests {
             media: None,
             host_tracks: None,
             switches: 0,
+            lookup_failed: false,
+            told_blocked: false,
             _events: Task::ready(()),
         };
         (party, received)
@@ -527,6 +631,29 @@ mod tests {
             ..media()
         });
         party
+    }
+
+    #[test]
+    fn a_friend_is_told_the_one_thing_stopping_them() {
+        let signed_in = Account::SignedIn("a@b.c".into());
+        assert_eq!(
+            Blocked::of(&Account::SignedOut, true, true, false),
+            Some(Blocked::SignedOut)
+        );
+        assert_eq!(Blocked::of(&Account::SignedOut, false, true, false), None);
+        assert_eq!(
+            Blocked::of(&Account::Authenticating, true, true, false),
+            None
+        );
+        assert_eq!(
+            Blocked::of(&signed_in, true, true, false),
+            Some(Blocked::NoAddons)
+        );
+        assert_eq!(Blocked::of(&signed_in, true, false, false), None);
+        assert_eq!(
+            Blocked::of(&signed_in, true, false, true),
+            Some(Blocked::FilmNotFound)
+        );
     }
 
     #[test]

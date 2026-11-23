@@ -321,6 +321,21 @@ impl PartyLobby {
         });
     }
 
+    /// Member: the way out of what stops the film playing here.
+    fn fix(&mut self, blocked: crate::party::Blocked, window: &mut Window, cx: &mut Context<Self>) {
+        match blocked {
+            crate::party::Blocked::SignedOut => {
+                let shell = self.shell.clone();
+                let _ = shell.update(cx, |shell, cx| shell.open_login(window, cx));
+            }
+            crate::party::Blocked::FilmNotFound => {
+                self.state
+                    .update(cx, |state, cx| state.retry_party_film(cx));
+            }
+            crate::party::Blocked::NoAddons => {}
+        }
+    }
+
     fn dismiss(&mut self, cx: &mut Context<Self>) {
         self.presence
             .retarget(0.0, DURATION_FAST, Some(EASE_EDITORIAL), Instant::now());
@@ -355,6 +370,14 @@ impl PartyLobby {
                 order.push(self.subtitles.clone());
                 order.push(self.audio.clone());
                 order.push(self.leave.clone());
+                if self
+                    .state
+                    .read(cx)
+                    .party_blocked()
+                    .is_some_and(|blocked| blocked != crate::party::Blocked::NoAddons)
+                {
+                    order.push(self.start.clone());
+                }
             }
         }
         order

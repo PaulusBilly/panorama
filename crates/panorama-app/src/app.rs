@@ -322,6 +322,7 @@ impl AppShell {
             self.invite_written =
                 crate::party::handoff::write_private(&path, invite.as_str()).is_ok();
         }
+        self.state.update(cx, |state, _| state.sync_party_blocked());
         if self.state.read(cx).party_stopped() {
             self.leave_party_route(window, cx);
             if self.lobby.is_none() {
