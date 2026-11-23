@@ -109,7 +109,29 @@ impl Render for AppShell {
             self.menu
                 .render(view, &account, update.as_deref(), window, cx)
         });
-        let join = (route.has_sidebar() && self.join.visible(self.reduced_motion))
+        let pill = (!matches!(route, Route::Player { .. }) && self.lobby.is_none())
+            .then(|| self.state.read(cx).party.as_ref())
+            .flatten()
+            .filter(|party| party.view.ended().is_none())
+            .map(|party| {
+                let label = party.pill_label();
+                div()
+                    .absolute()
+                    .top(px(crate::titlebar::SAFE_TOP + 6.0))
+                    .right(px(24.0))
+                    .child(
+                        crate::button::Button::glass("party-pill", label)
+                            .leading(crate::button::Icon::Users)
+                            .compact()
+                            .focus(&self.party_pill, self.keyboard_navigation)
+                            .on_click(cx.listener(|shell, _, window, cx| {
+                                shell.open_party_panel(window, cx)
+                            })),
+                    )
+            });
+        let join = self
+            .join
+            .visible(self.reduced_motion)
             .then(|| self.join_popover(view, in_party, window, cx));
         div()
             .id("panorama-shell")
@@ -207,6 +229,7 @@ impl Render for AppShell {
             )
             .child(body)
             .children(sidebar)
+            .children(pill)
             .when(self.menu.open, |shell| shell.child(self.menu.catcher(cx)))
             .children(menu)
             .when(self.join.open, |shell| shell.child(self.join_catcher(cx)))

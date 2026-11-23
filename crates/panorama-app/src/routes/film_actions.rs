@@ -121,6 +121,21 @@ impl Film {
             (None, Some(code), Primary::Play) => format!("Play {code}"),
             _ => primary.label().to_owned(),
         };
+        let for_everyone = primary == Primary::Play
+            && self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .is_some_and(|party| party.plays_for_everyone());
+        let (label, text) = if for_everyone {
+            (
+                "Play for everyone".to_owned(),
+                "Play for everyone".to_owned(),
+            )
+        } else {
+            (label, text)
+        };
         let mut button = if primary == Primary::Unavailable {
             Button::glass("film-primary", text).leading(Icon::Retry)
         } else {
@@ -137,6 +152,7 @@ impl Film {
             button = button.leading(Icon::Play);
         }
         if remaining.is_some()
+            && !for_everyone
             && let Some(point) = self.resume_here()
         {
             button = button.progress((point.offset_secs / point.duration_secs) as f32);

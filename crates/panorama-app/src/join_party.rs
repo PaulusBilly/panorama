@@ -246,13 +246,23 @@ impl AppShell {
                 "Paste the invite link the host sent you.",
             )
         };
+        let has_sidebar = self.history.current().has_sidebar();
         let popover = div()
             .id("join-party")
             .role(gpui::Role::Dialog)
             .aria_label(title)
             .absolute()
-            .left(px(SIDEBAR_WIDTH + 8.0))
-            .bottom(viewport.height - anchor.bottom() - px(rise))
+            .when(has_sidebar, |popover| {
+                popover
+                    .left(px(SIDEBAR_WIDTH + 8.0))
+                    .bottom(viewport.height - anchor.bottom() - px(rise))
+            })
+            // Without a sidebar it opens from the party pill.
+            .when(!has_sidebar, |popover| {
+                popover
+                    .right(px(24.0))
+                    .top(px(crate::titlebar::SAFE_TOP + 58.0 + rise))
+            })
             .w(px(WIDTH))
             .p(px(16.0))
             .flex()

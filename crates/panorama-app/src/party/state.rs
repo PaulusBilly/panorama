@@ -117,6 +117,21 @@ impl Party {
                 .is_none_or(|media| media.film_id != film_id || media.video_id != video_id)
     }
 
+    /// The host's Play reaches everyone once friends are in.
+    pub fn plays_for_everyone(&self) -> bool {
+        self.view.is_host()
+            && self.view.ended().is_none()
+            && self.view.roster.iter().any(|row| !row.member.is_host)
+    }
+
+    /// What the party pill says, for this person outside the player.
+    pub fn pill_label(&self) -> String {
+        match self.view.roster.len() {
+            0 | 1 => "Watch party".to_owned(),
+            count => format!("Watch party · {count}"),
+        }
+    }
+
     /// The link to rejoin with, once the connection to the host dropped. A party that ended
     /// on purpose has nothing to rejoin.
     pub fn rejoin_invite(&self) -> Option<&str> {
@@ -709,6 +724,16 @@ mod tests {
         assert_eq!(party.rejoin_invite(), None);
         party.view.link = Link::Live;
         assert_eq!(party.rejoin_invite(), None);
+    }
+
+    #[test]
+    fn the_pill_counts_people_only_once_there_are_friends() {
+        let (mut party, _) = hosting();
+        assert_eq!(party.pill_label(), "Watch party");
+        assert!(!party.plays_for_everyone());
+        party.view = crate::party_lobby::preview(true);
+        assert_eq!(party.pill_label(), "Watch party · 3");
+        assert!(party.plays_for_everyone());
     }
 
     #[test]

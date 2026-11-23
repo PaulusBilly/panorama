@@ -58,10 +58,11 @@ pub struct AppShell {
     pub(crate) prompt: Option<Entity<crate::party_prompt::PartyPrompt>>,
     /// The friend asked to go back to the party, so its film opens without asking.
     follow_next_film: bool,
+    party_pill: FocusHandle,
     args: Args,
     viewport: gpui::Size<gpui::Pixels>,
     _state: gpui::Subscription,
-    history: History,
+    pub(crate) history: History,
     cache: VecDeque<Rc<Mounted>>,
     mounted: Option<Rc<Mounted>>,
     /// A card growing into its film page, over the route that is still mounted.
@@ -129,6 +130,7 @@ impl AppShell {
             lobby: None,
             prompt: None,
             follow_next_film: false,
+            party_pill: cx.focus_handle(),
             args: args.clone(),
             viewport: window.viewport_size(),
             _state: state_observer,
@@ -199,6 +201,13 @@ impl AppShell {
                 cx.notify();
             }
         });
+        if args.party_preview.is_some() && !matches!(shell.history.current(), Route::Player { .. })
+        {
+            let view = crate::party_lobby::preview(args.party_preview.as_deref() == Some("host"));
+            shell.state.update(cx, |state, _| {
+                state.party = Some(crate::party::Party::preview(view));
+            });
+        }
         if let Some(host) = args.open_party_lobby {
             shell.open_party_lobby_preview(host, window, cx);
         }
