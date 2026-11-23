@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 const PARTY_SCROLL: usize = 5;
 const TOAST_FOR: Duration = Duration::from_secs(3);
 const TOAST_FADE: Duration = Duration::from_millis(200);
+const TOAST_QUEUE: usize = 3;
 
 /// What the player remembers about the party between frames.
 #[derive(Default)]
@@ -34,6 +35,8 @@ pub(super) struct PartyUi {
     switches: Option<u32>,
     ended: bool,
     toast: Option<(SharedString, Instant)>,
+    /// What happened while a toast was up, so none goes unread.
+    queued: std::collections::VecDeque<SharedString>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -91,8 +94,17 @@ impl Player {
             self.party_ui.ended = true;
             toast = Some("Party ended".into());
         }
+        let now = Instant::now();
+        let showing = (self.party_ui.toast.as_ref())
+            .is_some_and(|(_, at)| now.duration_since(*at) < TOAST_FOR);
         if let Some(text) = toast {
-            self.party_ui.toast = Some((text.into(), Instant::now()));
+            self.party_ui.queued.push_back(text.into());
+            if self.party_ui.queued.len() > TOAST_QUEUE {
+                self.party_ui.queued.pop_front();
+            }
+        }
+        if !showing && let Some(next) = self.party_ui.queued.pop_front() {
+            self.party_ui.toast = Some((next, now));
         }
     }
 
@@ -102,10 +114,9 @@ impl Player {
     }
 
     pub(super) fn party_toast_moving(&self, now: Instant) -> bool {
-        self.party_ui
-            .toast
-            .as_ref()
-            .is_some_and(|(_, at)| now.duration_since(*at) < TOAST_FOR)
+        !self.party_ui.queued.is_empty()
+            || (self.party_ui.toast.as_ref())
+                .is_some_and(|(_, at)| now.duration_since(*at) < TOAST_FOR)
     }
 
     /// The toast at the top centre: it fades in, holds, then fades out. It never takes clicks.
@@ -278,7 +289,7 @@ impl Player {
         if !view.roster.is_empty() {
             body = body
                 .child(section("People"))
-                .children(view.roster.iter().map(|row| roster_row(row, theme)));
+                .children(view.roster.iter().map(|row| roster_row(row, &view, theme)));
         }
         if let Role::Host { settings, .. } = &view.role {
             let settings = *settings;
@@ -470,7 +481,7 @@ impl Player {
                         cx.notify();
                     }))
             })
-            .child(label);
+            .child(crate::button::title_case(label));
         focus_ring(
             row,
             &self.focus.pool[slot],
@@ -483,9 +494,16 @@ impl Player {
     }
 }
 
-fn roster_row(row: &RosterRow, theme: Theme) -> Div {
+fn roster_row(row: &RosterRow, view: &PartyView, theme: Theme) -> Div {
     let member = &row.member;
     let (state, attention) = member_label(row);
+    let me = view.me == Some(member.member_id) || (member.is_host && view.is_host());
+    let role = match (member.is_host, me) {
+        (true, true) => Some("Host · You"),
+        (true, false) => Some("Host"),
+        (false, true) => Some("You"),
+        (false, false) => None,
+    };
     div()
         .flex()
         .items_center()
@@ -499,7 +517,7 @@ fn roster_row(row: &RosterRow, theme: Theme) -> Div {
                 .flex()
                 .flex_col()
                 .child(div().label().truncate().child(member.name.clone()))
-                .when(member.is_host, |name| name.child(note("Host", theme, 0.55))),
+                .when_some(role, |name, role| name.child(note(role, theme, 0.55))),
         )
         .child(
             div()
@@ -539,23 +557,10 @@ fn status_line(view: &PartyView) -> String {
         Link::Ended(_) => "Party ended".into(),
         Link::Live => {
             let count = view.roster.len().max(1);
-            let people = if count == 1 {
+            if count == 1 {
                 "Just you so far".to_owned()
             } else {
                 format!("{count} watching")
-            };
-            let relayed = view
-                .roster
-                .iter()
-                .any(|row| row.path == Some(PathKind::Relayed));
-            let direct = view
-                .roster
-                .iter()
-                .any(|row| row.path == Some(PathKind::Direct));
-            match (relayed, direct) {
-                (true, _) => format!("{people} · Through a relay"),
-                (false, true) => format!("{people} · Direct connection"),
-                _ => people,
             }
         }
     }

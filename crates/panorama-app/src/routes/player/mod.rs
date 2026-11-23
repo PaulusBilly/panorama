@@ -268,7 +268,13 @@ impl Player {
 
     /// Pause or resume, flashing the new state in the middle of the picture.
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
-        self.flash = Some((self.model.paused, Instant::now()));
+        // A friend without control asked for nothing that will happen: the toast says so.
+        let denied = self.state.read(cx).party.as_ref().is_some_and(|party| {
+            party.steers_playback() && !party.view.is_host() && !party.view.anyone_controls
+        });
+        if !denied {
+            self.flash = Some((self.model.paused, Instant::now()));
+        }
         self.send(Command::TogglePause, cx);
         cx.notify();
     }

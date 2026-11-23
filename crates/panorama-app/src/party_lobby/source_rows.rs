@@ -80,7 +80,17 @@ fn quality(row: &Row) -> Option<String> {
 
 /// Addons stack size, codec and seeders on separate lines; the lobby has one.
 fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    text.chars()
+        .filter(|c| !is_pictograph(*c))
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Addons decorate sizes and seeders with emoji, which the lobby's type has no place for.
+fn is_pictograph(c: char) -> bool {
+    matches!(u32::from(c), 0x2600..=0x27BF | 0xFE00..=0xFE0F | 0x1F000..=0x1FAFF)
 }
 
 #[cfg(test)]
@@ -107,6 +117,11 @@ mod tests {
         assert_eq!(current.label, "Fixture 1080p");
         assert!(current.detail.starts_with("Fixture Streams · "));
         assert!(!current.detail.contains('\n'));
+    }
+
+    #[test]
+    fn an_addons_emoji_stay_out_of_the_detail() {
+        assert_eq!(one_line("💾 4.2 GB\n👤 128"), "4.2 GB 128");
     }
 
     #[test]
