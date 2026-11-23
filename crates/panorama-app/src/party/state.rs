@@ -66,6 +66,21 @@ impl Party {
     fn send(&self, input: Input) {
         let _ = self.inputs.send(input);
     }
+
+    /// Announces `media` unless the party already has it.
+    fn announce(&mut self, media: PartyMedia, at: f64) {
+        if self.media.as_ref() != Some(&media) {
+            self.media = Some(media.clone());
+            self.send(Input::Media { media, at });
+        }
+    }
+
+    /// The host's player opened `media` with no lobby to press Start in, so the party starts
+    /// with it. Without this, friends wait in the lobby for a Start nobody can press.
+    fn announce_playing(&mut self, media: PartyMedia, at: f64) {
+        self.announce(media, at);
+        self.send(Input::Start);
+    }
 }
 
 /// A film to open by id once the account and its addons are ready: for a member, the host's
@@ -244,13 +259,15 @@ impl AppState {
     /// Host: the local player opened `media` at `at` seconds. Announcing the same media again
     /// does nothing.
     pub fn party_media(&mut self, media: PartyMedia, at: f64) {
-        if let Some(party) = self
-            .party
-            .as_mut()
-            .filter(|party| party.view.is_host() && party.media.as_ref() != Some(&media))
-        {
-            party.media = Some(media.clone());
-            party.send(Input::Media { media, at });
+        if let Some(party) = self.party.as_mut().filter(|party| party.view.is_host()) {
+            party.announce(media, at);
+        }
+    }
+
+    /// Host: the player itself opened `media`, so the party plays it now.
+    pub fn party_media_playing(&mut self, media: PartyMedia, at: f64) {
+        if let Some(party) = self.party.as_mut().filter(|party| party.view.is_host()) {
+            party.announce_playing(media, at);
         }
     }
 
@@ -421,5 +438,75 @@ impl AppState {
             }
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::party::{Link, PartyView};
+    use panorama_core::party::{HostInput, HostSession, PartyRelease, transport::PartySecret};
+
+    fn media() -> PartyMedia {
+        PartyMedia {
+            film_id: "tt1".into(),
+            kind: Kind::Movie,
+            video_id: "tt1".into(),
+            title: "Film".into(),
+            release: PartyRelease {
+                addon: "com.host.addon".into(),
+                torrent: None,
+                label: "Film 1080p".into(),
+                binge_group: None,
+            },
+        }
+    }
+
+    fn hosting() -> (Party, tokio::sync::mpsc::UnboundedReceiver<Input>) {
+        let (inputs, received) = tokio::sync::mpsc::unbounded_channel();
+        let role = Role::Host {
+            invite: None,
+            settings: HostSettings::default(),
+        };
+        let party = Party {
+            view: PartyView::new(role, Link::Live),
+            inputs,
+            media: None,
+            host_tracks: None,
+            switches: 0,
+            _events: Task::ready(()),
+        };
+        (party, received)
+    }
+
+    fn gate_after(mut received: tokio::sync::mpsc::UnboundedReceiver<Input>) -> Gate {
+        let secret = PartySecret::generate().unwrap();
+        let mut session = HostSession::new("Host".into(), secret, HostSettings::default());
+        while let Ok(input) = received.try_recv() {
+            match input {
+                Input::Media { media, at } => {
+                    session.handle(1_000, HostInput::SetMedia { media, at });
+                }
+                Input::Start => {
+                    session.handle(1_000, HostInput::Start);
+                }
+                other => panic!("unexpected input {other:?}"),
+            }
+        }
+        session.gate()
+    }
+
+    #[test]
+    fn a_film_the_hosts_player_opens_leaves_the_lobby() {
+        let (mut party, received) = hosting();
+        party.announce_playing(media(), 0.0);
+        assert_eq!(gate_after(received), Gate::Ready);
+    }
+
+    #[test]
+    fn a_film_announced_from_the_lobby_waits_for_start() {
+        let (mut party, received) = hosting();
+        party.announce(media(), 0.0);
+        assert_eq!(gate_after(received), Gate::Lobby);
     }
 }
