@@ -166,8 +166,11 @@ fn progress_syncs_every_ten_seconds_and_on_pause_and_seek() {
         assert_eq!(player_offset_ms(&session), 0);
         session.report_progress(FILM, sample(9.9, false));
         assert_eq!(player_offset_ms(&session), 0);
+        let puts = put_calls(&api);
         session.report_progress(FILM, sample(10.0, false));
         assert_eq!(player_offset_ms(&session), 10_000);
+        // The core's first push lands in the background and rewrites the player's item.
+        pushed(&api, puts).await;
         session.report_progress(FILM, sample(19.0, false));
         assert_eq!(player_offset_ms(&session), 10_000);
         session.report_progress(FILM, sample(20.5, false));
@@ -257,7 +260,11 @@ fn finishing_near_the_end_marks_the_film_watched_and_clears_resume() {
         saved_film(&session, &api).await;
         session.begin_playback(target(OFFLINE_META), 0.0).unwrap();
         // The core's first push only records which video is playing; later pushes accumulate.
-        for second in [1.0, 100.0, 4000.0, 7100.0] {
+        session.report_progress(FILM, sample(1.0, false));
+        let first = put_calls(&api);
+        session.report_progress(FILM, sample(100.0, false));
+        pushed(&api, first).await;
+        for second in [4000.0, 7100.0] {
             session.report_progress(FILM, sample(second, false));
         }
         let puts = put_calls(&api);
