@@ -162,7 +162,12 @@ impl Cache {
                     })?;
                     chunk.allocate(charge)?;
                     chunk.set_len(BLOCK)?;
-                    let actual = chunk.allocated_size()?;
+                    let mut actual = chunk.allocated_size()?;
+                    // APFS can report a new file's blocks late, until a flush settles them.
+                    if actual != charge {
+                        chunk.sync_all()?;
+                        actual = chunk.allocated_size()?;
+                    }
                     if actual != charge {
                         return Err(std::io::Error::from(std::io::ErrorKind::StorageFull));
                     }
