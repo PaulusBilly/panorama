@@ -57,9 +57,19 @@ impl OwnedDir {
             let token = session_token()?;
             match root.dir.create_dir(&token) {
                 Ok(()) => {
-                    let mut owned = Self::open_created(root.dir.try_clone()?, path.join(&token))?;
-                    owned.root = Mutex::new(Some(root));
-                    return Ok(owned);
+                    if let Some(directory) =
+                        Directory::claim_new(root.dir.try_clone()?, OsString::from(&token))?
+                    {
+                        return Ok(Self {
+                            path: path.join(&token),
+                            inner: Mutex::new(Some(directory)),
+                            root: Mutex::new(Some(root)),
+                        });
+                    }
+                    attempts += 1;
+                    if attempts > 8 {
+                        return Err(TorrentError::Engine);
+                    }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && attempts < 8 => {
                     attempts += 1;
@@ -175,8 +185,42 @@ impl Directory {
         Ok(())
     }
 
+    /// Opens a session directory just created, or `None` if a concurrent sweep took it first.
+    fn claim_new(parent: Dir, name: OsString) -> std::io::Result<Option<Self>> {
+        let directory = match Self::open(parent, name) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if !directory.try_claim()? {
+            return Ok(None);
+        }
+        match directory.verify() {
+            Ok(()) => Ok(Some(directory)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Unix deletes a directory that is still open, so a live session holds a lock the sweep
+    /// must win first. The lock lives as long as `self.dir` and dies with the process.
+    #[cfg(unix)]
+    fn try_claim(&self) -> std::io::Result<bool> {
+        match self.dir.try_clone()?.into_std_file().try_lock() {
+            Ok(()) => Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+            Err(std::fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    /// Windows refuses to delete a directory another handle holds open.
+    #[cfg(not(unix))]
+    fn try_claim(&self) -> std::io::Result<bool> {
+        Ok(true)
+    }
+
     /// Best-effort removal of stale token-named children. Never follows links
-    /// and ignores every failure; directories held open elsewhere survive.
+    /// and ignores every failure; directories a live session holds survive.
     fn sweep(&self) {
         let Ok(entries) = self.dir.entries() else {
             return;
@@ -198,7 +242,10 @@ impl Directory {
             let Ok(child) = Self::open(clone, name) else {
                 continue;
             };
-            if child.clear().is_err() || child.verify().is_err() {
+            if !child.try_claim().unwrap_or(false)
+                || child.clear().is_err()
+                || child.verify().is_err()
+            {
                 continue;
             }
             let Self {

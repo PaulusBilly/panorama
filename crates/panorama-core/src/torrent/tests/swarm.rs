@@ -80,6 +80,9 @@ async fn local_swarm_full_ranges_seeks_reuse_security_and_shutdown() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn metadata_bound_and_cancellation() {
     let dir = tempfile::tempdir().unwrap();
+    let silent_peer = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
     let engine = TorrentEngine::offline(
         TorrentOptions {
             cache_dir: dir.path().join("cache"),
@@ -87,7 +90,7 @@ async fn metadata_bound_and_cancellation() {
             no_peers_timeout: Duration::from_millis(200),
             ..Default::default()
         },
-        vec!["127.0.0.1:1".parse().unwrap()],
+        vec![silent_peer.local_addr().unwrap()],
     );
     let source =
         TorrentSource::from_stream("0000000000000000000000000000000000000001", None, &[]).unwrap();
