@@ -56,6 +56,8 @@ pub struct AppShell {
     lobby: Option<Entity<crate::party_lobby::PartyLobby>>,
     /// A question the party needs answered, over everything else.
     pub(crate) prompt: Option<Entity<crate::party_prompt::PartyPrompt>>,
+    /// The friend asked to go back to the party, so its film opens without asking.
+    follow_next_film: bool,
     args: Args,
     viewport: gpui::Size<gpui::Pixels>,
     _state: gpui::Subscription,
@@ -126,6 +128,7 @@ impl AppShell {
             login: None,
             lobby: None,
             prompt: None,
+            follow_next_film: false,
             args: args.clone(),
             viewport: window.viewport_size(),
             _state: state_observer,
@@ -199,15 +202,24 @@ impl AppShell {
         if let Some(host) = args.open_party_lobby {
             shell.open_party_lobby_preview(host, window, cx);
         }
-        if args.open_party_prompt
+        if let Some(kind) = args.open_party_prompt.as_deref()
             && let Some(film) = crate::fixtures::films().into_iter().next()
         {
-            let play = crate::party_prompt::Play::Launch {
-                video_id: film.id.clone(),
-                film: Box::new(film),
-                resume: None,
+            use crate::party_prompt::{Ask, Play};
+            let ask = match kind {
+                "stop" => Ask::StopFilm,
+                "end" => Ask::EndParty,
+                "switch" => Ask::JoinOther {
+                    invite: String::new(),
+                    hosting: true,
+                },
+                _ => Ask::LeaveToPlay(Play::Launch {
+                    video_id: film.id.clone(),
+                    film: Box::new(film),
+                    resume: None,
+                }),
             };
-            shell.ask_party(crate::party_prompt::Ask::LeaveToPlay(play), window, cx);
+            shell.ask_party(ask, window, cx);
         }
         if args.play_hero && args.fixtures {
             cx.defer_in(window, |shell, window, cx| {
@@ -243,6 +255,37 @@ impl AppShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), panorama_core::party::transport::InviteError> {
+        panorama_core::party::transport::parse_invite(invite)?;
+        let current = (self.state.read(cx).party.as_ref())
+            .filter(|party| party.view.ended().is_none())
+            .map(|party| party.view.is_host());
+        if let Some(hosting) = current {
+            if self.join.open {
+                self.close_join(window, cx);
+            }
+            let invite = invite.to_owned();
+            self.ask_party(
+                crate::party_prompt::Ask::JoinOther { invite, hosting },
+                window,
+                cx,
+            );
+            cx.activate(true);
+            window.activate_window();
+            return Ok(());
+        }
+        self.join_party_now(invite, name, window, cx)
+    }
+
+    /// Joins `invite`, closing whatever this window was playing on its own.
+    pub(crate) fn join_party_now(
+        &mut self,
+        invite: &str,
+        name: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), panorama_core::party::transport::InviteError> {
+        panorama_core::party::transport::parse_invite(invite)?;
+        self.leave_party_route(window, cx);
         self.state
             .update(cx, |state, cx| state.join_party(invite, name, cx))?;
         if self.join.open {
@@ -257,6 +300,24 @@ impl AppShell {
     /// The sidebar's Watch party: back to the party's film with its panel open. Before the
     /// party has opened a film, the popover says so and offers a way out.
     pub(crate) fn open_party_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.read(cx);
+        // A friend whose party moved on while they browsed goes to what it plays now.
+        let moved_on = state.party.as_ref().is_some_and(|party| {
+            !party.view.is_host()
+                && party.media().is_some_and(|media| {
+                    state
+                        .playback
+                        .as_ref()
+                        .is_none_or(|playing| playing.video_id != media.video_id)
+                })
+        });
+        if moved_on {
+            self.follow_next_film = true;
+            self.join.dismiss();
+            self.state
+                .update(cx, |state, cx| state.retry_party_film(cx));
+            return;
+        }
         let state = self.state.read(cx);
         // A host who closed the film keeps the party, with nothing to go back to: reopening
         // the last film would play it for everyone.
@@ -334,6 +395,17 @@ impl AppShell {
         else {
             return;
         };
+        let browsing = !matches!(self.history.current(), Route::Player { .. })
+            && self.lobby.is_none()
+            && (self.state.read(cx).party.as_ref()).is_some_and(|party| !party.view.is_host());
+        if browsing && !std::mem::take(&mut self.follow_next_film) {
+            if self.prompt.is_none() {
+                let next = Box::new((film, video_id, pick));
+                self.ask_party(crate::party_prompt::Ask::JoinFilm(next), window, cx);
+            }
+            return;
+        }
+        self.follow_next_film = false;
         let id = film.id.clone();
         if *self.history.current() == (Route::Player { id: id.clone() })
             && let Some(player) = self.mounted.as_ref().and_then(|mounted| {

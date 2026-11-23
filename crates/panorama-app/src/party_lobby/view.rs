@@ -740,7 +740,7 @@ impl PartyLobby {
                 let fix = blocked.and_then(|blocked| {
                     let label = match blocked {
                         Blocked::SignedOut => "Sign in",
-                        Blocked::FilmNotFound => "Try again",
+                        Blocked::FilmNotFound | Blocked::SourceFailed => "Try again",
                         Blocked::NoAddons => return None,
                     };
                     Some(
@@ -753,6 +753,21 @@ impl PartyLobby {
                             })),
                     )
                 });
+                let rejoin = (self.state.read(cx).party.as_ref())
+                    .and_then(|party| party.rejoin_invite().map(str::to_owned))
+                    .map(|invite| {
+                        Button::primary("party-lobby-rejoin", "Rejoin")
+                            .reduced_motion(look.reduced)
+                            .focus(&self.start, look.keyboard)
+                            .tab_stop(open)
+                            .on_click(cx.listener(move |lobby, _, window, cx| {
+                                let shell = lobby.shell.clone();
+                                let invite = invite.clone();
+                                let _ = shell.update(cx, |shell, cx| {
+                                    shell.join_party_now(&invite, None, window, cx)
+                                });
+                            }))
+                    });
                 let line: SharedString = match blocked {
                     Some(blocked) => blocked.text().into(),
                     None => member_status(
@@ -780,7 +795,8 @@ impl PartyLobby {
                                     lobby.act(Command::LeaveParty, window, cx)
                                 })),
                         )
-                        .children(fix),
+                        .children(fix)
+                        .children(rejoin),
                 )
             }
         };

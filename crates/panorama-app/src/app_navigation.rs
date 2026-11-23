@@ -182,6 +182,11 @@ impl AppShell {
             }
             return;
         }
+        if matches!(self.history.current(), Route::Player { .. })
+            && self.ask_before_closing_film(window, cx)
+        {
+            return;
+        }
         let returning = match self.history.current() {
             Route::Film { id, .. } => self
                 .returning

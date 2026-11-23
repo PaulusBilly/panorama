@@ -283,6 +283,11 @@ impl PartyLobby {
         if self.exit.is_some() {
             return;
         }
+        if command == Command::LeaveParty && self.is_host() && self.readiness(cx).friends > 0 {
+            let shell = self.shell.clone();
+            let _ = shell.update(cx, |shell, cx| shell.leave_or_ask(window, cx));
+            return;
+        }
         let Some(exit) = decide(self.is_host(), &self.readiness(cx), command) else {
             return;
         };
@@ -328,7 +333,7 @@ impl PartyLobby {
                 let shell = self.shell.clone();
                 let _ = shell.update(cx, |shell, cx| shell.open_login(window, cx));
             }
-            crate::party::Blocked::FilmNotFound => {
+            crate::party::Blocked::FilmNotFound | crate::party::Blocked::SourceFailed => {
                 self.state
                     .update(cx, |state, cx| state.retry_party_film(cx));
             }
@@ -370,11 +375,14 @@ impl PartyLobby {
                 order.push(self.subtitles.clone());
                 order.push(self.audio.clone());
                 order.push(self.leave.clone());
-                if self
-                    .state
-                    .read(cx)
+                let state = self.state.read(cx);
+                if state
                     .party_blocked()
                     .is_some_and(|blocked| blocked != crate::party::Blocked::NoAddons)
+                    || state
+                        .party
+                        .as_ref()
+                        .is_some_and(|party| party.rejoin_invite().is_some())
                 {
                     order.push(self.start.clone());
                 }

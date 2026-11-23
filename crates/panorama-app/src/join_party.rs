@@ -57,6 +57,8 @@ pub struct JoinParty {
     problem: Option<Problem>,
     submit: FocusHandle,
     leave: FocusHandle,
+    copy: FocusHandle,
+    copied: bool,
     _events: Option<Subscription>,
 }
 
@@ -69,6 +71,8 @@ impl JoinParty {
             problem: None,
             submit: cx.focus_handle(),
             leave: cx.focus_handle(),
+            copy: cx.focus_handle(),
+            copied: false,
             _events: None,
         }
     }
@@ -76,6 +80,7 @@ impl JoinParty {
     fn set_open(&mut self, open: bool) {
         self.open = open;
         self.problem = None;
+        self.copied = false;
         self.presence.retarget(
             if open { 1.0 } else { 0.0 },
             if open { MENU_ENTER } else { MENU_EXIT },
@@ -163,8 +168,8 @@ impl AppShell {
     }
 
     fn leave_party_from_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| state.leave_party(cx));
         self.close_join(window, cx);
+        self.leave_or_ask(window, cx);
     }
 
     /// While open, a full-window transparent layer under the popover: a press or wheel outside
@@ -213,10 +218,22 @@ impl AppShell {
                 .party
                 .as_ref()
                 .is_some_and(|party| party.view.is_host());
+        let invite = (self.state.read(cx).party.as_ref())
+            .filter(|_| hosting)
+            .and_then(|party| match &party.view.role {
+                crate::party::Role::Host { invite, .. } => invite.clone(),
+                crate::party::Role::Member => None,
+            });
+        let people = (self.state.read(cx).party.as_ref())
+            .filter(|_| hosting)
+            .map(|party| match party.view.roster.len() {
+                0 | 1 => "Just you so far".to_owned(),
+                count => format!("{count} in the party"),
+            });
         let (title, detail) = if hosting {
             (
                 "Watch party",
-                "Your party is still open. Choose Watch together on a film to play it for everyone.",
+                "Your party is still open. Open a film and press Play to start it for everyone.",
             )
         } else if in_party {
             (
@@ -246,6 +263,15 @@ impl AppShell {
             .occlude()
             .shadow(shadow)
             .child(div().label().weight(FontWeight::MEDIUM).child(title))
+            .when_some(people, |popover, people| {
+                popover.child(
+                    div()
+                        .mt(px(2.0))
+                        .caption()
+                        .text_color(theme.ink)
+                        .child(people),
+                )
+            })
             .child(
                 div()
                     .mt(px(4.0))
@@ -254,19 +280,43 @@ impl AppShell {
                     .child(detail),
             );
         if in_party {
+            let copied = self.join.copied;
+            let copy = invite.map(|link| {
+                Button::primary(
+                    "join-party-copy",
+                    if copied { "Link copied" } else { "Copy invite" },
+                )
+                .compact()
+                .reduced_motion(view.reduced)
+                .focus(&self.join.copy, view.keyboard)
+                .tab_stop(self.join.open)
+                .on_click(cx.listener(move |shell, _, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                        link.as_str().to_owned(),
+                    ));
+                    shell.join.copied = true;
+                    cx.notify();
+                }))
+            });
             return popover.child(
-                div().mt(px(16.0)).flex().justify_end().child(
-                    Button::glass(
-                        "join-party-leave",
-                        if hosting { "End party" } else { "Leave party" },
+                div()
+                    .mt(px(16.0))
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.0))
+                    .child(
+                        Button::glass(
+                            "join-party-leave",
+                            if hosting { "End party" } else { "Leave party" },
+                        )
+                        .compact()
+                        .focus(&self.join.leave, view.keyboard)
+                        .tab_stop(self.join.open)
+                        .on_click(cx.listener(|shell, _, window, cx| {
+                            shell.leave_party_from_sidebar(window, cx)
+                        })),
                     )
-                    .compact()
-                    .focus(&self.join.leave, view.keyboard)
-                    .tab_stop(self.join.open)
-                    .on_click(cx.listener(|shell, _, window, cx| {
-                        shell.leave_party_from_sidebar(window, cx)
-                    })),
-                ),
+                    .children(copy),
             );
         }
         let Some(input) = self.join.input.clone() else {

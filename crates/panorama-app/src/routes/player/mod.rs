@@ -630,6 +630,13 @@ impl Player {
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let asked = self
+            .shell
+            .update(cx, |shell, cx| shell.ask_before_closing_film(window, cx))
+            .unwrap_or(false);
+        if asked {
+            return;
+        }
         self.unmount(cx);
         if window.is_fullscreen() {
             window.toggle_fullscreen();

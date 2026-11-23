@@ -202,7 +202,7 @@ impl Player {
                     theme,
                     keyboard,
                     window,
-                    |player, cx| {
+                    |player, _, cx| {
                         player.party_ui.copy_pending = true;
                         player
                             .state
@@ -214,8 +214,34 @@ impl Player {
         };
         let host = view.is_host();
         if let Some(reason) = view.ended() {
+            let rejoin = self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .and_then(|party| party.rejoin_invite().map(str::to_owned));
             return body
                 .child(helper(crate::party::ended_text(reason, host).into()).pt(px(4.0)))
+                .when_some(rejoin, |body, invite| {
+                    body.child(self.party_row(
+                        "party-rejoin",
+                        slot::PARTY_PRIMARY,
+                        "Rejoin",
+                        Tone::Accent,
+                        false,
+                        theme,
+                        keyboard,
+                        window,
+                        move |player, window, cx| {
+                            let shell = player.shell.clone();
+                            let invite = invite.clone();
+                            let _ = shell.update(cx, |shell, cx| {
+                                shell.join_party_now(&invite, None, window, cx)
+                            });
+                        },
+                        cx,
+                    ))
+                })
                 .child(self.party_row(
                     "party-close",
                     slot::PARTY_EXIT,
@@ -225,7 +251,7 @@ impl Player {
                     theme,
                     keyboard,
                     window,
-                    |player, cx| player.state.update(cx, |state, cx| state.leave_party(cx)),
+                    |player, _, cx| player.state.update(cx, |state, cx| state.leave_party(cx)),
                     cx,
                 ))
                 .into_any_element();
@@ -245,7 +271,7 @@ impl Player {
                 theme,
                 keyboard,
                 window,
-                |player, cx| player.copy_invite(cx),
+                |player, _, cx| player.copy_invite(cx),
                 cx,
             ));
         }
@@ -362,7 +388,10 @@ impl Player {
             theme,
             keyboard,
             window,
-            |player, cx| player.state.update(cx, |state, cx| state.leave_party(cx)),
+            |player, window, cx| {
+                let shell = player.shell.clone();
+                let _ = shell.update(cx, |shell, cx| shell.leave_or_ask(window, cx));
+            },
             cx,
         ))
         .into_any_element()
@@ -419,7 +448,7 @@ impl Player {
         theme: Theme,
         keyboard: bool,
         window: &Window,
-        on_press: impl Fn(&mut Player, &mut gpui::Context<Player>) + 'static,
+        on_press: impl Fn(&mut Player, &mut Window, &mut gpui::Context<Player>) + 'static,
         cx: &mut gpui::Context<Self>,
     ) -> Stateful<Div> {
         let ink = theme.ink;
@@ -436,8 +465,8 @@ impl Player {
             .when(!disabled, |row| {
                 row.cursor_pointer()
                     .hover(move |style| style.bg(ink.opacity(0.05)))
-                    .on_click(cx.listener(move |player, _, _, cx| {
-                        on_press(player, cx);
+                    .on_click(cx.listener(move |player, _, window, cx| {
+                        on_press(player, window, cx);
                         cx.notify();
                     }))
             })

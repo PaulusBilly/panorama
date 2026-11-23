@@ -74,11 +74,9 @@ impl Film {
             self.primary_action(window, cx);
             return;
         };
-        self.state
-            .update(cx, |state, cx| state.start_party(None, cx));
-        let _ = self.shell.update(cx, |shell, cx| {
-            shell.open_party_lobby_as_host(selection, window, cx)
-        });
+        let _ = self
+            .shell
+            .update(cx, |shell, cx| shell.watch_together(selection, window, cx));
     }
     /// The resume point, when it belongs to what Play plays.
     fn resume_here(&self) -> Option<&panorama_core::stremio::ResumePoint> {

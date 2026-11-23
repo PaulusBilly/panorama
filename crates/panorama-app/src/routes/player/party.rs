@@ -67,6 +67,9 @@ impl Player {
             if opened {
                 self.state.read(cx).party_reopened();
             }
+            let failed = matches!(self.model.status, Status::Error(_) | Status::NoPeers);
+            self.state
+                .update(cx, |state, cx| state.set_party_source_failed(failed, cx));
             self.follow_host_tracks(cx);
         }
         self.report(cx);

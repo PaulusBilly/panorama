@@ -3,7 +3,7 @@ use crate::{
     app::AppShell,
     button::Button,
     party_lobby::{CloseLobby, NextControl, PreviousControl},
-    playback::selection::PlaybackSelection,
+    playback::{launch::Pick, selection::PlaybackSelection},
     router::Route,
     theme::{Theme, Typography, motion::*},
     transition::Tween,
@@ -48,6 +48,16 @@ impl Play {
 pub enum Ask {
     /// A friend is opening something other than the party's film.
     LeaveToPlay(Play),
+    /// A friend is starting a party of their own.
+    LeaveToHost(Box<PlaybackSelection>),
+    /// The host is closing the film everyone is watching.
+    StopFilm,
+    /// The host is ending the party with friends in it.
+    EndParty,
+    /// An invite arrived while already in a party.
+    JoinOther { invite: String, hosting: bool },
+    /// The host started a film while this friend was browsing.
+    JoinFilm(Box<(FilmDetails, String, Pick)>),
 }
 
 /// The words of one question.
@@ -70,6 +80,47 @@ impl Ask {
                 ),
                 confirm: "Leave and play",
                 stay: "Stay in party",
+            },
+            Self::LeaveToHost(selection) => Wording {
+                title: "Leave the party?".into(),
+                body: format!(
+                    "You'll start a new party for {}. The one you're in keeps going without you.",
+                    selection.film.name
+                ),
+                confirm: "Leave and host",
+                stay: "Stay in party",
+            },
+            Self::StopFilm => Wording {
+                title: "Stop the film for everyone?".into(),
+                body: "Your friends go back to the lobby while you pick what's next. The party stays open."
+                    .into(),
+                confirm: "Stop film",
+                stay: "Keep watching",
+            },
+            Self::EndParty => Wording {
+                title: "End the party?".into(),
+                body: "Everyone is disconnected and the invite link stops working. Friends can keep watching on their own."
+                    .into(),
+                confirm: "End party",
+                stay: "Keep party",
+            },
+            Self::JoinOther { hosting: true, .. } => Wording {
+                title: "End your party and join?".into(),
+                body: "Joining this invite ends the party you're hosting for everyone in it.".into(),
+                confirm: "End and join",
+                stay: "Keep my party",
+            },
+            Self::JoinOther { hosting: false, .. } => Wording {
+                title: "Switch parties?".into(),
+                body: "Joining this invite takes you out of the party you're in.".into(),
+                confirm: "Switch",
+                stay: "Stay in party",
+            },
+            Self::JoinFilm(next) => Wording {
+                title: format!("{} is on", next.0.name),
+                body: "The host started a new film for the party.".into(),
+                confirm: "Join",
+                stay: "Not now",
             },
         }
     }
@@ -248,6 +299,74 @@ impl AppShell {
         }
     }
 
+    /// Hosts a party on `selection`, first asking a friend already in someone else's.
+    pub(crate) fn watch_together(
+        &mut self,
+        selection: PlaybackSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let in_friends_party = self
+            .state
+            .read(cx)
+            .party
+            .as_ref()
+            .is_some_and(|party| !party.view.is_host() && party.view.ended().is_none());
+        if in_friends_party {
+            self.ask_party(Ask::LeaveToHost(Box::new(selection)), window, cx);
+        } else {
+            self.host_party(selection, window, cx);
+        }
+    }
+
+    fn host_party(
+        &mut self,
+        selection: PlaybackSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.state
+            .update(cx, |state, cx| state.start_party(None, cx));
+        self.open_party_lobby_as_host(selection, window, cx);
+    }
+
+    /// Whether the host would be cutting friends off by closing or ending now.
+    fn host_with_friends(&self, cx: &gpui::App) -> bool {
+        self.state.read(cx).party.as_ref().is_some_and(|party| {
+            party.view.is_host()
+                && party.view.ended().is_none()
+                && party.view.roster.iter().any(|row| !row.member.is_host)
+        })
+    }
+
+    /// The host is leaving the player: `true` when that needs a yes first.
+    pub(crate) fn ask_before_closing_film(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let asks = self.host_with_friends(cx)
+            && self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .is_some_and(|party| party.media().is_some());
+        if asks {
+            self.ask_party(Ask::StopFilm, window, cx);
+        }
+        asks
+    }
+
+    /// Leaves the party, asking first when that ends it for friends.
+    pub(crate) fn leave_or_ask(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.host_with_friends(cx) {
+            self.ask_party(Ask::EndParty, window, cx);
+        } else {
+            self.state.update(cx, |state, cx| state.leave_party(cx));
+        }
+    }
+
     pub(crate) fn ask_party(&mut self, ask: Ask, window: &mut Window, cx: &mut Context<Self>) {
         let shell = cx.weak_entity();
         self.prompt = Some(cx.new(|cx| PartyPrompt::new(shell, ask, window, cx)));
@@ -280,6 +399,26 @@ impl AppShell {
             Some(Ask::LeaveToPlay(play)) => {
                 self.state.update(cx, |state, cx| state.leave_party(cx));
                 self.play_now(play, window, cx);
+            }
+            Some(Ask::LeaveToHost(selection)) => self.host_party(*selection, window, cx),
+            Some(Ask::StopFilm) => {
+                if window.is_fullscreen() {
+                    window.toggle_fullscreen();
+                }
+                self.leave_party_route(window, cx);
+            }
+            Some(Ask::EndParty) => self.state.update(cx, |state, cx| state.leave_party(cx)),
+            Some(Ask::JoinOther { invite, .. }) => {
+                if let Err(error) = self.join_party_now(&invite, None, window, cx) {
+                    crate::debug::log(format!("party join refused: {error}"));
+                }
+            }
+            Some(Ask::JoinFilm(next)) => {
+                let (film, video_id, pick) = *next;
+                let id = film.id.clone();
+                self.state
+                    .update(cx, |state, cx| state.launch(film, video_id, None, pick, cx));
+                self.navigate(Route::Player { id }, window, cx);
             }
             None => cx.notify(),
         }

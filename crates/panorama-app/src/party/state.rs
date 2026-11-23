@@ -1,6 +1,6 @@
 //! The party on `AppState`: start, join, leave, settings, and what the player feeds in.
 use super::{
-    PartySync, PartyView, Role, default_name, display_name,
+    EndReason, PartySync, PartyView, Role, default_name, display_name,
     service::{self, Event, Input},
 };
 use crate::{
@@ -35,6 +35,10 @@ pub struct Party {
     pub switches: u32,
     /// Member: the details of the host's film could not be fetched here.
     lookup_failed: bool,
+    /// Member: this player's source failed, so the film can't play here.
+    source_failed: bool,
+    /// Member: the link joined with, for one-press rejoin after a dropped connection.
+    invite: Option<String>,
     /// Member: the party has heard that this person can't play.
     told_blocked: bool,
     _events: Task<()>,
@@ -46,6 +50,7 @@ pub enum Blocked {
     SignedOut,
     NoAddons,
     FilmNotFound,
+    SourceFailed,
 }
 
 impl Blocked {
@@ -54,6 +59,7 @@ impl Blocked {
             Self::SignedOut => "Sign in to watch with the party",
             Self::NoAddons => "Add a streaming addon in Stremio, then rejoin",
             Self::FilmNotFound => "Couldn't find this film in your addons",
+            Self::SourceFailed => "Your copy of this film won't play",
         }
     }
 
@@ -81,6 +87,8 @@ impl Party {
             host_tracks: None,
             switches: 0,
             lookup_failed: false,
+            source_failed: false,
+            invite: None,
             told_blocked: false,
             _events: Task::ready(()),
         }
@@ -107,6 +115,17 @@ impl Party {
                 .media
                 .as_ref()
                 .is_none_or(|media| media.film_id != film_id || media.video_id != video_id)
+    }
+
+    /// The link to rejoin with, once the connection to the host dropped. A party that ended
+    /// on purpose has nothing to rejoin.
+    pub fn rejoin_invite(&self) -> Option<&str> {
+        matches!(
+            self.view.ended(),
+            Some(EndReason::Lost | EndReason::Failed(_))
+        )
+        .then_some(self.invite.as_deref())
+        .flatten()
     }
 
     fn send(&self, input: Input) {
@@ -232,6 +251,7 @@ impl AppState {
         name: Option<String>,
         cx: &mut Context<Self>,
     ) -> Result<(), InviteError> {
+        let raw = invite.trim().to_owned();
         let invite = parse_invite(invite)?;
         let Some(services) = self.services.clone() else {
             return Ok(());
@@ -248,6 +268,9 @@ impl AppState {
             sync,
         );
         self.attach_party(spawned, Role::Member, cx);
+        if let Some(party) = self.party.as_mut() {
+            party.invite = Some(raw);
+        }
         Ok(())
     }
 
@@ -384,6 +407,19 @@ impl AppState {
             session && self.installed.is_empty(),
             party.lookup_failed,
         )
+        .or(party.source_failed.then_some(Blocked::SourceFailed))
+    }
+
+    /// Member: whether the player's current source has failed.
+    pub fn set_party_source_failed(&mut self, failed: bool, cx: &mut Context<Self>) {
+        if let Some(party) = self
+            .party
+            .as_mut()
+            .filter(|party| !party.view.is_host() && party.source_failed != failed)
+        {
+            party.source_failed = failed;
+            cx.notify();
+        }
     }
 
     /// Member: keeps the host's roster honest about whether this person can play.
@@ -414,6 +450,7 @@ impl AppState {
             return;
         };
         party.lookup_failed = false;
+        party.source_failed = false;
         if let Some(media) = party.media.clone() {
             self.play_by_id(
                 media.kind,
@@ -514,6 +551,8 @@ impl AppState {
             host_tracks: None,
             switches: 0,
             lookup_failed: false,
+            source_failed: false,
+            invite: None,
             told_blocked: false,
             _events: task,
         });
@@ -540,6 +579,7 @@ impl AppState {
             Event::Tracks(tracks) => party.host_tracks = Some(tracks),
             Event::Stop => {
                 party.lookup_failed = false;
+                party.source_failed = false;
                 party.told_blocked = false;
                 party.host_tracks = None;
                 party.media = None;
@@ -550,6 +590,7 @@ impl AppState {
                     party.switches += 1;
                 }
                 party.lookup_failed = false;
+                party.source_failed = false;
                 party.told_blocked = false;
                 party.host_tracks = None;
                 party.media = Some(media.clone());
@@ -599,6 +640,8 @@ mod tests {
             host_tracks: None,
             switches: 0,
             lookup_failed: false,
+            source_failed: false,
+            invite: None,
             told_blocked: false,
             _events: Task::ready(()),
         };
@@ -654,6 +697,18 @@ mod tests {
             Blocked::of(&signed_in, true, false, true),
             Some(Blocked::FilmNotFound)
         );
+    }
+
+    #[test]
+    fn only_a_dropped_connection_offers_rejoin() {
+        let mut party = member_watching("tt1");
+        party.invite = Some("panorama://party/x".into());
+        party.view.link = Link::Ended(EndReason::Lost);
+        assert_eq!(party.rejoin_invite(), Some("panorama://party/x"));
+        party.view.link = Link::Ended(EndReason::Left);
+        assert_eq!(party.rejoin_invite(), None);
+        party.view.link = Link::Live;
+        assert_eq!(party.rejoin_invite(), None);
     }
 
     #[test]

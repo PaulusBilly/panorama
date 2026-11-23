@@ -160,7 +160,9 @@ impl Render for AppShell {
                     let id = id.clone();
                     let action = player.update(cx, |player, cx| player.key_down(event, window, cx));
                     let handled = action.is_some();
-                    if let Some(crate::routes::player::keyboard::KeyAction::Close) = action {
+                    if let Some(crate::routes::player::keyboard::KeyAction::Close) = action
+                        && !shell.ask_before_closing_film(window, cx)
+                    {
                         if let Some(host) = &shell.state.read(cx).playback_host {
                             host.send(crate::playback::host::Command::Stop);
                         }
