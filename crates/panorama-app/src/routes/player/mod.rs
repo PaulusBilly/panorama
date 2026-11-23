@@ -588,7 +588,12 @@ impl Player {
     fn unmount(&mut self, cx: &mut gpui::App) {
         self.release(cx);
         if std::mem::take(&mut self.opened) {
-            self.state.update(cx, |state, _| state.party_stop());
+            let (position, duration) = (self.model.time.unwrap_or(0.0), self.model.duration);
+            let id = self.id.clone();
+            self.state.update(cx, |state, _| {
+                state.party_stop();
+                state.party_left_film(&id, position, duration);
+            });
         }
     }
 

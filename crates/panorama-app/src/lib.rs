@@ -30,6 +30,7 @@ pub mod link_handler;
 pub mod login;
 pub mod party;
 pub mod party_lobby;
+pub mod party_prompt;
 pub mod playback;
 pub mod prefetch;
 pub mod router;

@@ -35,14 +35,10 @@ impl Film {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let route = crate::router::Route::Player {
-            id: self.id.clone(),
-        };
-        self.state
-            .update(cx, |state, _| state.playback = Some(selection));
+        let play = crate::party_prompt::Play::Selection(Box::new(selection));
         let _ = self
             .shell
-            .update(cx, |shell, cx| shell.navigate(route, window, cx));
+            .update(cx, |shell, cx| shell.play_or_ask(play, window, cx));
     }
     /// What Play would play now: the selected source of the film or the target episode.
     fn selection(&self) -> Option<crate::playback::selection::PlaybackSelection> {

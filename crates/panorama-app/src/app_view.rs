@@ -148,6 +148,7 @@ impl Render for AppShell {
                 }
                 if let Route::Player { id } = shell.history.current()
                     && shell.lobby.is_none()
+                    && shell.prompt.is_none()
                     && let Some(player) = shell.mounted.as_ref().and_then(|mounted| {
                         mounted
                             .view
@@ -222,5 +223,6 @@ impl Render for AppShell {
             })
             .when_some(self.lobby.clone(), |shell, lobby| shell.child(lobby))
             .when_some(self.login.clone(), |shell, login| shell.child(login))
+            .when_some(self.prompt.clone(), |shell, prompt| shell.child(prompt))
     }
 }

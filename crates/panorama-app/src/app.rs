@@ -54,6 +54,8 @@ pub struct AppShell {
     pub(crate) sidebar: Sidebar,
     login: Option<Entity<LoginDialog>>,
     lobby: Option<Entity<crate::party_lobby::PartyLobby>>,
+    /// A question the party needs answered, over everything else.
+    pub(crate) prompt: Option<Entity<crate::party_prompt::PartyPrompt>>,
     args: Args,
     viewport: gpui::Size<gpui::Pixels>,
     _state: gpui::Subscription,
@@ -64,7 +66,7 @@ pub struct AppShell {
     zoom: Option<crate::zoom::Zoom>,
     /// The card the open film page grew from.
     returning: Option<crate::zoom::Returning>,
-    focus: FocusHandle,
+    pub(crate) focus: FocusHandle,
     _keystrokes: gpui::Subscription,
     titlebar: Titlebar,
     launched: Instant,
@@ -123,6 +125,7 @@ impl AppShell {
             sidebar: Sidebar::new(cx),
             login: None,
             lobby: None,
+            prompt: None,
             args: args.clone(),
             viewport: window.viewport_size(),
             _state: state_observer,
@@ -195,6 +198,16 @@ impl AppShell {
         });
         if let Some(host) = args.open_party_lobby {
             shell.open_party_lobby_preview(host, window, cx);
+        }
+        if args.open_party_prompt
+            && let Some(film) = crate::fixtures::films().into_iter().next()
+        {
+            let play = crate::party_prompt::Play::Launch {
+                video_id: film.id.clone(),
+                film: Box::new(film),
+                resume: None,
+            };
+            shell.ask_party(crate::party_prompt::Ask::LeaveToPlay(play), window, cx);
         }
         if args.play_hero && args.fixtures {
             cx.defer_in(window, |shell, window, cx| {

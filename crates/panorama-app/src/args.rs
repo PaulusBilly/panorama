@@ -71,6 +71,8 @@ pub struct Args {
     pub open_sign_in: bool,
     /// Open the watch party lobby over a made-up party: `true` as its host, `false` as a friend.
     pub open_party_lobby: Option<bool>,
+    /// Open the question a friend gets before playing something else.
+    pub open_party_prompt: bool,
     /// Measure five seconds of scrolling with 200 fixture cards.
     pub bench_scroll: bool,
     /// Present the fixture account as signed out.
@@ -148,6 +150,7 @@ impl Args {
             open_join: false,
             open_sign_in: false,
             open_party_lobby: None,
+            open_party_prompt: false,
             bench_scroll: false,
             signed_out: false,
             no_sources: false,
@@ -327,6 +330,7 @@ impl Args {
                         },
                     );
                 }
+                "--open-party-prompt" => result.open_party_prompt = true,
                 "--signed-out" => result.signed_out = true,
                 "--no-sources" => result.no_sources = true,
                 "--film-loading" => result.film_loading = true,

@@ -63,6 +63,16 @@ impl Party {
         self.view.ended().is_none() && (!self.view.is_host() || self.media.is_some())
     }
 
+    /// Whether opening this video would take a friend off what the party is watching.
+    pub fn pulls_friend_away(&self, film_id: &str, video_id: &str) -> bool {
+        self.view.ended().is_none()
+            && !self.view.is_host()
+            && self
+                .media
+                .as_ref()
+                .is_none_or(|media| media.film_id != film_id || media.video_id != video_id)
+    }
+
     fn send(&self, input: Input) {
         let _ = self.inputs.send(input);
     }
@@ -299,6 +309,18 @@ impl AppState {
         }
     }
 
+    /// Member: the player closed on `film_id`, so nothing here holds the party up. A last
+    /// report of buffering would otherwise make everyone wait for a player that is gone. When
+    /// the party has moved to another film, this player's report no longer applies.
+    pub fn party_left_film(&self, film_id: &str, position: f64, duration: Option<f64>) {
+        let current = self.party.as_ref().is_some_and(|party| {
+            !party.view.is_host() && party.media().is_some_and(|media| media.film_id == film_id)
+        });
+        if current {
+            self.party_report(MemberState::Paused, position, duration);
+        }
+    }
+
     /// Member: whether the source now playing is the host's release.
     pub fn party_release(&self, matched: bool) {
         if let Some(party) = &self.party {
@@ -494,6 +516,31 @@ mod tests {
             }
         }
         session.gate()
+    }
+
+    fn member_watching(film: &str) -> Party {
+        let (mut party, _) = hosting();
+        party.view.role = Role::Member;
+        party.media = Some(PartyMedia {
+            film_id: film.into(),
+            video_id: film.into(),
+            ..media()
+        });
+        party
+    }
+
+    #[test]
+    fn only_another_film_pulls_a_friend_away() {
+        let party = member_watching("tt1");
+        assert!(!party.pulls_friend_away("tt1", "tt1"));
+        assert!(party.pulls_friend_away("tt2", "tt2"));
+        assert!(party.pulls_friend_away("tt1", "tt1:1:2"));
+    }
+
+    #[test]
+    fn a_host_is_never_asked_to_leave_their_own_party() {
+        let (party, _) = hosting();
+        assert!(!party.pulls_friend_away("tt2", "tt2"));
     }
 
     #[test]
