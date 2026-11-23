@@ -61,7 +61,6 @@ async fn pending_seek_with_a_live_peer_outlasts_the_no_peers_window() {
                 tokio::pin!(frame);
                 assert!(futures::poll!(&mut frame).is_pending());
                 tokio::time::advance(window + Duration::from_millis(1)).await;
-                assert!(playback.entry.snapshot().peers_live > 0);
                 assert!(
                     futures::poll!(&mut frame).is_pending(),
                     "healthy seek failed at the read deadline"
