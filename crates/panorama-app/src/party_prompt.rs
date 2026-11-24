@@ -137,6 +137,8 @@ pub struct PartyPrompt {
     root: FocusHandle,
     stay: FocusHandle,
     confirm: FocusHandle,
+    /// What had focus before the question, for Stay to hand it back.
+    back: Option<FocusHandle>,
     presence: Tween,
 }
 
@@ -147,6 +149,7 @@ impl PartyPrompt {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let back = window.focused(cx);
         let stay = cx.focus_handle();
         stay.focus(window, cx);
         let mut presence = Tween::fixed(0.0);
@@ -158,14 +161,18 @@ impl PartyPrompt {
             root: cx.focus_handle().tab_stop(false),
             stay,
             confirm: cx.focus_handle(),
+            back,
             presence,
         }
     }
 
     fn answer(&mut self, yes: bool, window: &mut Window, cx: &mut Context<Self>) {
         let ask = self.ask.take().filter(|_| yes);
+        let back = self.back.take().filter(|_| !yes);
         let shell = self.shell.clone();
-        let _ = shell.update(cx, |shell, cx| shell.answer_party_prompt(ask, window, cx));
+        let _ = shell.update(cx, |shell, cx| {
+            shell.answer_party_prompt(ask, back, window, cx)
+        });
         cx.stop_propagation();
     }
 
@@ -259,6 +266,7 @@ impl Render for PartyPrompt {
             .track_focus(&self.root)
             .role(gpui::Role::AlertDialog)
             .aria_label(self.wording.title.clone())
+            .aria_description(self.wording.body.clone())
             .on_action(cx.listener(|prompt, _: &NextControl, window, cx| prompt.cycle(window, cx)))
             .on_action(
                 cx.listener(|prompt, _: &PreviousControl, window, cx| prompt.cycle(window, cx)),
@@ -393,11 +401,12 @@ impl AppShell {
     fn answer_party_prompt(
         &mut self,
         ask: Option<Ask>,
+        back: Option<FocusHandle>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.prompt = None;
-        window.focus(&self.focus, cx);
+        window.focus(back.as_ref().unwrap_or(&self.focus), cx);
         match ask {
             Some(Ask::LeaveToPlay(play)) => {
                 self.state.update(cx, |state, cx| state.leave_party(cx));
