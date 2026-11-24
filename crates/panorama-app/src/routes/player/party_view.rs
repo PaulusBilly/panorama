@@ -652,7 +652,7 @@ pub(super) fn preview(kind: &str) -> PartyView {
         path,
     };
     let host = kind == "host";
-    PartyView {
+    crate::party::worst_case(PartyView {
         role: if host {
             Role::Host {
                 invite: Some(InviteLink::preview()),
@@ -712,7 +712,7 @@ pub(super) fn preview(kind: &str) -> PartyView {
         sync: PartySync::default(),
         me: None,
         gate: matches!(kind, "host" | "member").then_some(Gate::Waiting(2)),
-    }
+    })
 }
 
 #[cfg(test)]

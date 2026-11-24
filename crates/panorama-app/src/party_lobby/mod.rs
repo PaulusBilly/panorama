@@ -449,7 +449,7 @@ pub fn preview(host: bool) -> PartyView {
         },
         path: None,
     };
-    PartyView {
+    crate::party::worst_case(PartyView {
         role: if host {
             Role::Host {
                 invite: Some(InviteLink::preview()),
@@ -473,7 +473,7 @@ pub fn preview(host: bool) -> PartyView {
         },
         me: (!host).then_some(1),
         gate: (!host).then_some(Gate::Lobby),
-    }
+    })
 }
 
 #[cfg(test)]

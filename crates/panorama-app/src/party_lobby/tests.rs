@@ -210,3 +210,11 @@ fn a_friend_joining_mid_start_waits_for_the_roster() {
     view.roster.clear();
     assert!(!host_started(&view));
 }
+
+#[test]
+fn a_long_word_shrinks_the_waiting_room_title_instead_of_breaking() {
+    assert_eq!(view::room_title_size("Aftersun", 900.0), 56.0);
+    let size = view::room_title_size("Dr. Strangelove or: How I Learned", 300.0);
+    assert!(size < 56.0 && 11.0 * size * 0.8 <= 300.5, "{size}");
+    assert_eq!(view::room_title_size("Supercalifragilistic", 100.0), 24.0);
+}

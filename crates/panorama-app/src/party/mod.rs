@@ -30,6 +30,30 @@ pub const NOTICES: usize = 8;
 /// Bytes of a display name, as the protocol allows.
 const MAX_NAME: usize = 32;
 
+/// A capture's made-up party, with `PANORAMA_WORST=1` swapping in the worst roster.
+pub(crate) fn worst_case(mut view: PartyView) -> PartyView {
+    if !crate::fixtures::worst() {
+        return view;
+    }
+    let Some(template) = view.roster.first().cloned() else {
+        return view;
+    };
+    view.roster = (crate::fixtures::worst_party().into_iter().enumerate())
+        .map(|(index, (name, state))| {
+            let mut row = template.clone();
+            row.member.member_id = index as u32;
+            row.member.name = name.into();
+            row.member.state = state;
+            row.member.is_host = index == 0;
+            row
+        })
+        .collect();
+    for entry in &mut view.notices {
+        entry.notice.by = view.roster[5].member.name.clone();
+    }
+    view
+}
+
 /// Everything the interface shows about the party.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartyView {

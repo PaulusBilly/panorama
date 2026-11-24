@@ -226,8 +226,26 @@ fn head(title: Option<&str>, theme: Theme) -> Div {
                 .child("Watch party"),
         )
         .when_some(title, |head, title| {
-            head.child(TITLE.apply(div()).line_clamp(2).child(caps(title)))
+            head.child(
+                TITLE
+                    .apply(div())
+                    .line_clamp(2)
+                    .text_ellipsis()
+                    .child(caps(title)),
+            )
         })
+}
+
+/// The waiting room's title size: as large as 56px, but small enough that its longest word
+/// fits `width` whole, since a word broken across lines stops reading as a title.
+pub(super) fn room_title_size(title: &str, width: f32) -> f32 {
+    // ponytail: uppercase glyphs run up to about 0.8em in this face; measure text if it drifts.
+    let longest = title
+        .split_whitespace()
+        .map(|word| word.chars().count())
+        .max();
+    let fits = longest.map_or(ROOM_TITLE.size, |chars| width / (chars as f32 * 0.8));
+    fits.clamp(TITLE.size, ROOM_TITLE.size)
 }
 
 impl PartyLobby {
@@ -290,7 +308,16 @@ impl PartyLobby {
                         .flex_col()
                         .gap(px(12.0))
                         .text_color(theme.ink)
-                        .child(ROOM_TITLE.apply(div()).line_clamp(3).child(caps(title)))
+                        .child(
+                            TypeStyle {
+                                size: room_title_size(title, bounds.0 - panel - 104.0),
+                                ..ROOM_TITLE
+                            }
+                            .apply(div())
+                            .line_clamp(3)
+                            .text_ellipsis()
+                            .child(caps(title)),
+                        )
                         .when_some(film, |block, film| {
                             block.child(crate::hero::credits(film, 10.0))
                         }),
@@ -765,7 +792,7 @@ impl PartyLobby {
                 (
                     status
                         .when(blocked.is_some(), |status| status.text_color(theme.ink))
-                        .child(line),
+                        .child(div().flex_1().min_w_0().child(line)),
                     div()
                         .flex()
                         .items_center()
@@ -794,7 +821,7 @@ impl PartyLobby {
             .py(px(16.0))
             .border_t_1()
             .border_color(theme.rule)
-            .child(status.when(!stacked, |status| status.flex_1()))
+            .child(status.when(!stacked, |status| status.flex_1().min_w_0()))
             .child(div().flex().flex_shrink_0().justify_end().child(actions))
     }
 }

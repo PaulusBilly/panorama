@@ -335,9 +335,9 @@ impl Args {
                         .next()
                         .and_then(|value| value.to_str().map(str::to_owned))
                         .filter(|value| {
-                            matches!(value.as_str(), "leave" | "stop" | "end" | "switch")
+                            matches!(value.as_str(), "leave" | "stop" | "end" | "switch" | "next")
                         })
-                        .ok_or("--open-party-prompt needs leave, stop, end or switch")?;
+                        .ok_or("--open-party-prompt needs leave, stop, end, switch or next")?;
                     result.open_party_prompt = Some(kind);
                 }
                 "--signed-out" => result.signed_out = true,

@@ -222,6 +222,11 @@ impl AppShell {
                     invite: String::new(),
                     hosting: true,
                 },
+                "next" => Ask::JoinFilm(Box::new((
+                    film.clone(),
+                    film.id.clone(),
+                    Default::default(),
+                ))),
                 _ => Ask::LeaveToPlay(Play::Launch {
                     video_id: film.id.clone(),
                     film: Box::new(film),
