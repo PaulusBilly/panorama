@@ -438,7 +438,7 @@ impl AppShell {
             Some(Ask::JoinFilm(next))
                 if (self.state.read(cx).party.as_ref())
                     .and_then(|party| party.media())
-                    .is_some_and(|media| media.film_id == next.0.id) =>
+                    .is_some_and(|media| joins(&next, &media.film_id, &media.video_id)) =>
             {
                 let (film, video_id, pick) = *next;
                 let id = film.id.clone();
@@ -451,9 +451,23 @@ impl AppShell {
     }
 }
 
+/// Whether a question to join holds what the party plays now, down to the episode.
+fn joins(next: &(FilmDetails, String, Pick), film_id: &str, video_id: &str) -> bool {
+    next.0.id == film_id && next.1 == video_id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_question_about_an_earlier_episode_joins_nothing() {
+        let film = crate::fixtures::films().remove(0);
+        let next = (film.clone(), format!("{}:1:1", film.id), Pick::default());
+        assert!(joins(&next, &film.id, &format!("{}:1:1", film.id)));
+        assert!(!joins(&next, &film.id, &format!("{}:1:2", film.id)));
+        assert!(!joins(&next, "tt0", &format!("{}:1:1", film.id)));
+    }
 
     #[test]
     fn leaving_to_play_names_the_film_and_keeps_stay_available() {
