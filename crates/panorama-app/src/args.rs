@@ -71,6 +71,8 @@ pub struct Args {
     pub open_sign_in: bool,
     /// Open the watch party lobby over a made-up party: `true` as its host, `false` as a friend.
     pub open_party_lobby: Option<bool>,
+    /// `--party-alone`: the previewed party has only its host, for captures.
+    pub party_alone: bool,
     /// Open one of the party's questions before capture.
     pub open_party_prompt: Option<String>,
     /// Measure five seconds of scrolling with 200 fixture cards.
@@ -150,6 +152,7 @@ impl Args {
             open_join: false,
             open_sign_in: false,
             open_party_lobby: None,
+            party_alone: false,
             open_party_prompt: None,
             bench_scroll: false,
             signed_out: false,
@@ -321,6 +324,7 @@ impl Args {
                 "--update-ready" => result.update_ready = true,
                 "--open-join" => result.open_join = true,
                 "--open-sign-in" => result.open_sign_in = true,
+                "--party-alone" => result.party_alone = true,
                 "--open-party-lobby" => {
                     result.open_party_lobby = Some(
                         match args.next().as_deref().and_then(|value| value.to_str()) {

@@ -121,7 +121,17 @@ impl Render for PartyLobby {
                 cx,
             )
         });
-        let head = head(title.as_deref().filter(|_| !room_title), look.theme);
+        // A friend's waiting room fills the window; only the host's panel closes to what is behind.
+        let close = (!member).then(|| {
+            Button::round("party-lobby-close", Icon::Close, "Close watch party")
+                .compact()
+                .focus(&self.close, look.keyboard)
+                .tab_stop(!closing)
+                .on_click(
+                    cx.listener(|lobby, _, window, cx| lobby.act(Command::Escape, window, cx)),
+                )
+        });
+        let head = head(title.as_deref().filter(|_| !room_title), close, look.theme);
         let mut body = div().px(px(GUTTER)).flex().flex_col();
         if let Some(view) = &party {
             body = body.child(self.people(view, look, cx));
@@ -199,10 +209,15 @@ impl Render for PartyLobby {
             .when(!member, |root| {
                 root.child(
                     div()
+                        .id("party-lobby-scrim")
                         .absolute()
                         .inset_0()
                         .bg(look.theme.scrim.opacity(0.4))
-                        .opacity(scrim),
+                        .opacity(scrim)
+                        // Clicking beside the panel closes it, like the X.
+                        .on_click(cx.listener(|lobby, _, window, cx| {
+                            lobby.act(Command::Escape, window, cx)
+                        })),
                 )
             })
             .when_some(room, |root, room| root.child(room.opacity(scrim)))
@@ -211,11 +226,10 @@ impl Render for PartyLobby {
 }
 
 /// The top of the panel: what this is, and the film when nothing else names it.
-fn head(title: Option<&str>, theme: Theme) -> Div {
-    div()
-        .px(px(GUTTER))
-        .pt(px(28.0))
-        .pb(px(8.0))
+fn head(title: Option<&str>, close: Option<Button>, theme: Theme) -> Div {
+    let name = div()
+        .flex_1()
+        .min_w_0()
         .flex()
         .flex_col()
         .gap(px(4.0))
@@ -233,7 +247,16 @@ fn head(title: Option<&str>, theme: Theme) -> Div {
                     .text_ellipsis()
                     .child(caps(title)),
             )
-        })
+        });
+    div()
+        .px(px(GUTTER))
+        .pt(px(28.0))
+        .pb(px(8.0))
+        .flex()
+        .items_start()
+        .gap(px(12.0))
+        .child(name)
+        .children(close.map(|close| div().mt(px(-6.0)).mr(px(-8.0)).child(close)))
 }
 
 /// The waiting room's title size: as large as 56px, but small enough that its longest word
@@ -477,30 +500,11 @@ impl PartyLobby {
         .on_click(
             cx.listener(|lobby, _, window, cx| lobby.act(Command::PickAnotherFilm, window, cx)),
         );
-        let end = quiet(
-            "party-lobby-end",
-            "End party",
-            None,
-            &self.leave,
-            look,
-            self.exit.is_none(),
-            window,
-        )
-        .on_click(cx.listener(|lobby, _, window, cx| lobby.act(Command::LeaveParty, window, cx)));
-        // The two ways out of the lobby, apart from starting: pulled out by their own padding
-        // so the labels line up with the rows above.
+        // Pulled out by its own padding so the label lines up with the rows above.
         section("Source", None, theme, false)
             .child(row)
             .when(self.changing, |section| section.child(list))
-            .child(
-                div()
-                    .mt(px(8.0))
-                    .mx(px(-10.0))
-                    .flex()
-                    .justify_between()
-                    .child(pick_film)
-                    .child(end),
-            )
+            .child(div().mt(px(8.0)).mx(px(-10.0)).flex().child(pick_film))
     }
 
     fn choice(
@@ -713,10 +717,13 @@ impl PartyLobby {
             .id("party-lobby-status")
             .role(gpui::Role::Status);
         // Two buttons leave no room for a sentence beside them.
-        let stacked = !self.is_host()
-            && (self.state.read(cx).party_blocked().is_some()
+        let stacked = if self.is_host() {
+            readiness.friends > 0
+        } else {
+            self.state.read(cx).party_blocked().is_some()
                 || (self.state.read(cx).party.as_ref())
-                    .is_some_and(|party| party.rejoin_invite().is_some()));
+                    .is_some_and(|party| party.rejoin_invite().is_some())
+        };
         let (status, actions) = match &self.side {
             Side::Host(_) => {
                 let anyway = readiness.offers_start_anyway();
@@ -731,7 +738,9 @@ impl PartyLobby {
                 .leading(Icon::Play)
                 .reduced_motion(look.reduced)
                 .focus(&self.start, look.keyboard)
-                .tab_stop(open)
+                .tab_stop(open && readiness.friends > 0)
+                // Nobody to start for yet: the People list says it is just you.
+                .disabled(readiness.friends == 0)
                 .on_click(cx.listener(move |lobby, _, window, cx| {
                     let command = if anyway {
                         Command::StartAnyway
@@ -742,7 +751,19 @@ impl PartyLobby {
                 }));
                 (
                     host_status(status, view, &readiness, theme),
-                    div().flex().items_center().gap(px(8.0)).child(start),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(
+                            Button::glass("party-lobby-end", "End party")
+                                .focus(&self.leave, look.keyboard)
+                                .tab_stop(open)
+                                .on_click(cx.listener(|lobby, _, window, cx| {
+                                    lobby.act(Command::LeaveParty, window, cx)
+                                })),
+                        )
+                        .child(start),
                 )
             }
             Side::Member => {
@@ -1008,7 +1029,7 @@ fn host_status(
             .child("can't play this source");
     }
     match readiness.waiting.as_slice() {
-        [] if readiness.friends == 0 => status.child("Nobody has joined yet"),
+        [] if readiness.friends == 0 => status,
         [] => status.child("Everyone is ready"),
         [one] => status.child("Waiting for").child(name(one.clone())),
         [one, two] => status

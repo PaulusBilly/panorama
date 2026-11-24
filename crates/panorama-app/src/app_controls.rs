@@ -55,6 +55,7 @@ impl AppShell {
     pub(crate) fn open_party_lobby_preview(
         &mut self,
         host: bool,
+        alone: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -67,7 +68,10 @@ impl AppShell {
         else {
             return;
         };
-        let view = crate::party_lobby::preview(host);
+        let mut view = crate::party_lobby::preview(host);
+        if alone {
+            view.roster.retain(|row| row.member.is_host);
+        }
         self.state.update(cx, |state, _| {
             state.party = Some(crate::party::Party::preview(view));
         });

@@ -79,9 +79,9 @@ impl Readiness {
         }
     }
 
-    /// Start watching: every friend who joined has the film ready.
+    /// Start watching: someone joined, and every friend who did has the film ready.
     pub fn can_start(&self) -> bool {
-        self.waiting.is_empty()
+        self.friends > 0 && self.waiting.is_empty()
     }
 
     /// Start anyway: offered while someone is still getting there.
@@ -115,9 +115,11 @@ pub fn host_started(view: &PartyView) -> bool {
 /// What `command` does from this side, given who is ready. `None` leaves the lobby open.
 pub fn decide(host: bool, readiness: &Readiness, command: Command) -> Option<Exit> {
     match command {
-        // A host with friends in keeps them: closing goes back to choosing a film.
-        Command::Escape if host && readiness.friends > 0 => Some(Exit::Browse),
-        Command::Escape | Command::LeaveParty => Some(Exit::Leave),
+        // Closing only hides the lobby: the party and its invite link stay until End party.
+        Command::Escape if host => Some(Exit::Browse),
+        // A friend's waiting room has nothing behind it to close to; Leave party is explicit.
+        Command::Escape => None,
+        Command::LeaveParty => Some(Exit::Leave),
         Command::PickAnotherFilm if host => Some(Exit::Browse),
         Command::StartWatching if host && readiness.can_start() => Some(Exit::Start),
         Command::StartAnyway if host && readiness.offers_start_anyway() => Some(Exit::Start),
@@ -134,6 +136,7 @@ pub struct PartyLobby {
     /// The film for the header when the party has not loaded one here yet: a preview's.
     film: Option<FilmDetails>,
     root: FocusHandle,
+    close: FocusHandle,
     copy: FocusHandle,
     change: FocusHandle,
     pick_film: FocusHandle,
@@ -181,6 +184,7 @@ impl PartyLobby {
             side,
             film,
             root,
+            close: cx.focus_handle(),
             copy: cx.focus_handle(),
             change: cx.focus_handle(),
             pick_film: cx.focus_handle(),
@@ -366,6 +370,7 @@ impl PartyLobby {
         let mut order = Vec::new();
         match &self.side {
             Side::Host(_) => {
+                order.push(self.close.clone());
                 if invite(self.party(cx)).is_some() {
                     order.push(self.copy.clone());
                 }
@@ -375,7 +380,9 @@ impl PartyLobby {
                 }
                 order.push(self.pick_film.clone());
                 order.push(self.leave.clone());
-                order.push(self.start.clone());
+                if self.readiness(cx).friends > 0 {
+                    order.push(self.start.clone());
+                }
             }
             Side::Member => {
                 order.push(self.subtitles.clone());
