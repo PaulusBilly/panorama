@@ -71,6 +71,8 @@ pub struct Args {
     pub open_sign_in: bool,
     /// Open the watch party lobby over a made-up party: `true` as its host, `false` as a friend.
     pub open_party_lobby: Option<bool>,
+    /// Open one of the party's questions before capture.
+    pub open_party_prompt: Option<String>,
     /// Measure five seconds of scrolling with 200 fixture cards.
     pub bench_scroll: bool,
     /// Present the fixture account as signed out.
@@ -148,6 +150,7 @@ impl Args {
             open_join: false,
             open_sign_in: false,
             open_party_lobby: None,
+            open_party_prompt: None,
             bench_scroll: false,
             signed_out: false,
             no_sources: false,
@@ -327,6 +330,16 @@ impl Args {
                         },
                     );
                 }
+                "--open-party-prompt" => {
+                    let kind = args
+                        .next()
+                        .and_then(|value| value.to_str().map(str::to_owned))
+                        .filter(|value| {
+                            matches!(value.as_str(), "leave" | "stop" | "end" | "switch" | "next")
+                        })
+                        .ok_or("--open-party-prompt needs leave, stop, end, switch or next")?;
+                    result.open_party_prompt = Some(kind);
+                }
                 "--signed-out" => result.signed_out = true,
                 "--no-sources" => result.no_sources = true,
                 "--film-loading" => result.film_loading = true,
@@ -366,8 +379,10 @@ impl Args {
                     let kind = args
                         .next()
                         .and_then(|value| value.to_str().map(str::to_owned))
-                        .filter(|value| matches!(value.as_str(), "host" | "member" | "ended"))
-                        .ok_or("--party-preview needs host, member or ended")?;
+                        .filter(|value| {
+                            matches!(value.as_str(), "host" | "member" | "ended" | "reconnecting")
+                        })
+                        .ok_or("--party-preview needs host, member, ended or reconnecting")?;
                     result.party_preview = Some(kind);
                 }
                 "--runtime-problem" => {

@@ -69,7 +69,7 @@ impl Readiness {
             friends: friends.clone().count(),
             waiting: friends
                 .clone()
-                .filter(|row| !is_ready(row.member.state))
+                .filter(|row| !is_ready(row.member.state) && row.member.state != MemberState::Away)
                 .map(|row| row.member.name.clone())
                 .collect(),
             failed: friends
@@ -134,14 +134,12 @@ pub struct PartyLobby {
     /// The film for the header when the party has not loaded one here yet: a preview's.
     film: Option<FilmDetails>,
     root: FocusHandle,
-    close: FocusHandle,
     copy: FocusHandle,
     change: FocusHandle,
     pick_film: FocusHandle,
     sources: Vec<FocusHandle>,
     subtitles: FocusHandle,
     audio: FocusHandle,
-    start_anyway: FocusHandle,
     start: FocusHandle,
     leave: FocusHandle,
     scroll: ScrollHandle,
@@ -183,14 +181,12 @@ impl PartyLobby {
             side,
             film,
             root,
-            close: cx.focus_handle(),
             copy: cx.focus_handle(),
             change: cx.focus_handle(),
             pick_film: cx.focus_handle(),
             sources: Vec::new(),
             subtitles: cx.focus_handle(),
             audio: cx.focus_handle(),
-            start_anyway: cx.focus_handle(),
             start: cx.focus_handle(),
             leave: cx.focus_handle(),
             scroll: ScrollHandle::new(),
@@ -283,6 +279,11 @@ impl PartyLobby {
         if self.exit.is_some() {
             return;
         }
+        if command == Command::LeaveParty && self.is_host() && self.readiness(cx).friends > 0 {
+            let shell = self.shell.clone();
+            let _ = shell.update(cx, |shell, cx| shell.leave_or_ask(window, cx));
+            return;
+        }
         let Some(exit) = decide(self.is_host(), &self.readiness(cx), command) else {
             return;
         };
@@ -321,6 +322,37 @@ impl PartyLobby {
         });
     }
 
+    /// The copied label holds long enough to read, then the button can be used again.
+    fn show_copied(&mut self, cx: &mut Context<Self>) {
+        self.copied = true;
+        cx.notify();
+        cx.spawn(async move |lobby, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(2))
+                .await;
+            let _ = lobby.update(cx, |lobby, cx| {
+                lobby.copied = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Member: the way out of what stops the film playing here.
+    fn fix(&mut self, blocked: crate::party::Blocked, window: &mut Window, cx: &mut Context<Self>) {
+        match blocked {
+            crate::party::Blocked::SignedOut => {
+                let shell = self.shell.clone();
+                let _ = shell.update(cx, |shell, cx| shell.open_login(window, cx));
+            }
+            crate::party::Blocked::FilmNotFound | crate::party::Blocked::SourceFailed => {
+                self.state
+                    .update(cx, |state, cx| state.retry_party_film(cx));
+            }
+            crate::party::Blocked::NoAddons => {}
+        }
+    }
+
     fn dismiss(&mut self, cx: &mut Context<Self>) {
         self.presence
             .retarget(0.0, DURATION_FAST, Some(EASE_EDITORIAL), Instant::now());
@@ -331,7 +363,7 @@ impl PartyLobby {
 
     /// The tab order, top to bottom, of the controls showing now.
     fn tab_order(&self, cx: &gpui::App) -> Vec<FocusHandle> {
-        let mut order = vec![self.close.clone()];
+        let mut order = Vec::new();
         match &self.side {
             Side::Host(_) => {
                 if invite(self.party(cx)).is_some() {
@@ -343,18 +375,23 @@ impl PartyLobby {
                 }
                 order.push(self.pick_film.clone());
                 order.push(self.leave.clone());
-                let readiness = self.readiness(cx);
-                if readiness.offers_start_anyway() {
-                    order.push(self.start_anyway.clone());
-                }
-                if readiness.can_start() {
-                    order.push(self.start.clone());
-                }
+                order.push(self.start.clone());
             }
             Side::Member => {
                 order.push(self.subtitles.clone());
                 order.push(self.audio.clone());
                 order.push(self.leave.clone());
+                let state = self.state.read(cx);
+                if state
+                    .party_blocked()
+                    .is_some_and(|blocked| blocked != crate::party::Blocked::NoAddons)
+                    || state
+                        .party
+                        .as_ref()
+                        .is_some_and(|party| party.rejoin_invite().is_some())
+                {
+                    order.push(self.start.clone());
+                }
             }
         }
         order
@@ -412,7 +449,7 @@ pub fn preview(host: bool) -> PartyView {
         },
         path: None,
     };
-    PartyView {
+    crate::party::worst_case(PartyView {
         role: if host {
             Role::Host {
                 invite: Some(InviteLink::preview()),
@@ -426,6 +463,7 @@ pub fn preview(host: bool) -> PartyView {
             person(0, "Billy", MemberState::Ready, true),
             person(1, "Sam", MemberState::Paused, false),
             person(2, "Rina", MemberState::Loading, false),
+            person(3, "Kim", MemberState::Away, false),
         ],
         anyone_controls: false,
         notices: Vec::new(),
@@ -435,7 +473,7 @@ pub fn preview(host: bool) -> PartyView {
         },
         me: (!host).then_some(1),
         gate: (!host).then_some(Gate::Lobby),
-    }
+    })
 }
 
 #[cfg(test)]

@@ -67,6 +67,9 @@ impl Player {
             if opened {
                 self.state.read(cx).party_reopened();
             }
+            let failed = matches!(self.model.status, Status::Error(_) | Status::NoPeers);
+            self.state
+                .update(cx, |state, cx| state.set_party_source_failed(failed, cx));
             self.follow_host_tracks(cx);
         }
         self.report(cx);
@@ -189,8 +192,10 @@ impl Player {
         };
         let at = self.model.time.unwrap_or(selection.start.seconds());
         self.state
-            .update(cx, |state, _| state.party_media(media, at));
+            .update(cx, |state, _| state.party_media_playing(media, at));
         self.party.announced = None;
+        // The party forgets everyone's state on a load, so the next report must go out.
+        self.party.reported = None;
     }
 
     fn plays_release(&self, source: SourceRef, release: &PartyRelease) -> bool {

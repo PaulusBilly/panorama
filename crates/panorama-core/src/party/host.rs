@@ -594,7 +594,7 @@ impl HostSession {
         let at = showing.anchor_position;
         if kind == NoticeKind::Seeked && matches!(phase, Phase::WaitingForReady { .. }) {
             for p in self.participants_mut() {
-                if p.state != MemberState::Failed {
+                if !matches!(p.state, MemberState::Failed | MemberState::Away) {
                     p.state = MemberState::Loading;
                 }
             }

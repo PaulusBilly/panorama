@@ -4,14 +4,14 @@ use super::{
 };
 use crate::{
     button::{Button, Icon, title_case},
-    party::{Link, PartySync, PartyView, RosterRow},
+    party::{Blocked, Link, PartySync, PartyView, RosterRow},
     theme::{
         Theme, caps, focus_ring,
         typography::{BUTTON, CAPTION, LABEL, TypeStyle},
     },
 };
 use gpui::{
-    Animation, AnimationExt, BoxShadow, ClipboardItem, Context, Div, FocusHandle, Render, Rgba,
+    Animation, AnimationExt, BoxShadow, ClipboardItem, Context, Div, FocusHandle, Render,
     SharedString, Stateful, Transformation, Window, div, linear_color_stop, linear_gradient, point,
     prelude::*, px, relative, svg,
 };
@@ -21,14 +21,20 @@ use panorama_core::{
 };
 use std::time::{Duration, Instant};
 
-const WIDTH: f32 = 560.0;
-const HEADER: f32 = 252.0;
+const WIDTH: f32 = 420.0;
 const GUTTER: f32 = 28.0;
+/// The waiting room's title needs this much room beside the panel.
+const TITLE_ROOM: f32 = 360.0;
 const ROW: f32 = 44.0;
 const TITLE: TypeStyle = TypeStyle {
-    size: 30.0,
+    size: 24.0,
     weight: 500.0,
-    line_height: 1.05,
+    line_height: 1.08,
+};
+const ROOM_TITLE: TypeStyle = TypeStyle {
+    size: 56.0,
+    weight: 500.0,
+    line_height: 1.0,
 };
 const SMALL: TypeStyle = TypeStyle {
     size: 11.0,
@@ -84,21 +90,39 @@ impl Render for PartyLobby {
             });
             window.request_animation_frame();
         }
-        if !closing && !self.root.contains_focused(window, cx) {
+        let covered = self
+            .shell
+            .upgrade()
+            .is_some_and(|shell| shell.read(cx).covers_lobby());
+        if !closing && !covered && !self.root.contains_focused(window, cx) {
             // The player opening under a friend's lobby takes focus; the lobby keeps it.
             cx.defer_in(window, |lobby, window, cx| lobby.root.focus(window, cx));
         }
         let viewport = window.viewport_size();
-        let width = (f32::from(viewport.width) - 40.0).min(WIDTH);
-        let height = f32::from(viewport.height) - crate::titlebar::SAFE_TOP - 40.0;
+        let (window_width, window_height) = (f32::from(viewport.width), f32::from(viewport.height));
+        let width = window_width.min(WIDTH);
         let party = self.party(cx).cloned();
         let film = self.header_film(cx);
         let title = film.as_ref().map(|film| film.name.clone()).or_else(|| {
             let state = self.state.read(cx);
             Some(state.party.as_ref()?.media()?.title.clone())
         });
-        let header = self.header(film.as_ref(), title, look, window, cx);
-        let mut body = div().px(px(GUTTER)).pt(px(6.0)).flex().flex_col();
+        let member = matches!(self.side, Side::Member);
+        let room_title = member && window_width - width >= TITLE_ROOM;
+        // A friend's player loads under the lobby; the room hides it until the host starts.
+        let room = member.then(|| {
+            self.waiting_room(
+                film.as_ref(),
+                title.as_deref().filter(|_| room_title),
+                (window_width, window_height),
+                width,
+                look,
+                window,
+                cx,
+            )
+        });
+        let head = head(title.as_deref().filter(|_| !room_title), look.theme);
+        let mut body = div().px(px(GUTTER)).flex().flex_col();
         if let Some(view) = &party {
             body = body.child(self.people(view, look, cx));
         }
@@ -106,26 +130,34 @@ impl Render for PartyLobby {
             Side::Host(_) => body.child(self.source(look, window, cx)),
             Side::Member => body.child(self.follow(party.as_ref(), look, window, cx)),
         };
-        let footer = self.footer(party.as_ref(), look, window, cx);
+        let footer = self.footer(party.as_ref(), look, cx);
+        let shift = if look.reduced {
+            0.0
+        } else {
+            24.0 * (1.0 - progress)
+        };
         let panel = div()
-            .relative()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right(px(-shift))
             .w(px(width))
-            .max_h(px(height))
+            // Only Windows has caption buttons on this side of the window.
+            .pt(px(if cfg!(target_os = "macos") {
+                0.0
+            } else {
+                crate::titlebar::SAFE_TOP
+            }))
             .flex()
             .flex_col()
             .bg(look.theme.surface)
             .text_color(look.theme.ink)
             .opacity(progress)
-            .top(px(if look.reduced {
-                0.0
-            } else {
-                12.0 * (1.0 - progress)
-            }))
             .shadow(vec![BoxShadow {
                 inset: false,
                 color: look.theme.shadow.into(),
-                offset: point(px(0.0), px(24.0)),
-                blur_radius: px(80.0),
+                offset: point(px(-12.0), px(0.0)),
+                blur_radius: px(48.0),
                 spread_radius: px(0.0),
             }])
             .child(
@@ -135,14 +167,14 @@ impl Render for PartyLobby {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
-                    .child(header)
+                    .child(head)
                     .child(body),
             )
             .child(footer);
-        // A friend's player loads under the lobby; it stays hidden until the host starts.
-        let (label, backdrop) = match &self.side {
-            Side::Host(_) => ("Watch party lobby", look.theme.scrim.opacity(0.72)),
-            Side::Member => ("Watch party", look.theme.player_canvas),
+        let label = if member {
+            "Watch party"
+        } else {
+            "Watch party lobby"
         };
         div()
             .id("party-lobby")
@@ -164,26 +196,67 @@ impl Render for PartyLobby {
             .on_action(cx.listener(|lobby, _: &super::CloseLobby, window, cx| {
                 lobby.act(Command::Escape, window, cx)
             }))
-            .child(div().absolute().inset_0().bg(backdrop).opacity(scrim))
-            .child(
-                div()
-                    .relative()
-                    .size_full()
-                    .pt(px(crate::titlebar::SAFE_TOP))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(panel),
-            )
+            .when(!member, |root| {
+                root.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .bg(look.theme.scrim.opacity(0.4))
+                        .opacity(scrim),
+                )
+            })
+            .when_some(room, |root, room| root.child(room.opacity(scrim)))
+            .child(panel)
     }
 }
 
+/// The top of the panel: what this is, and the film when nothing else names it.
+fn head(title: Option<&str>, theme: Theme) -> Div {
+    div()
+        .px(px(GUTTER))
+        .pt(px(28.0))
+        .pb(px(8.0))
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(
+            SMALL
+                .apply(div())
+                .text_color(theme.ink_muted)
+                .child("Watch party"),
+        )
+        .when_some(title, |head, title| {
+            head.child(
+                TITLE
+                    .apply(div())
+                    .line_clamp(2)
+                    .text_ellipsis()
+                    .child(caps(title)),
+            )
+        })
+}
+
+/// The waiting room's title size: as large as 56px, but small enough that its longest word
+/// fits `width` whole, since a word broken across lines stops reading as a title.
+pub(super) fn room_title_size(title: &str, width: f32) -> f32 {
+    // ponytail: uppercase glyphs run up to about 0.8em in this face; measure text if it drifts.
+    let longest = title
+        .split_whitespace()
+        .map(|word| word.chars().count())
+        .max();
+    let fits = longest.map_or(ROOM_TITLE.size, |chars| width / (chars as f32 * 0.8));
+    fits.clamp(TITLE.size, ROOM_TITLE.size)
+}
+
 impl PartyLobby {
-    /// The film's backdrop under the card's scrims, with its title and credits.
-    fn header(
+    /// A friend's full-window wait: the film's art, with its title beside the panel.
+    #[allow(clippy::too_many_arguments)]
+    fn waiting_room(
         &mut self,
         film: Option<&FilmDetails>,
-        title: Option<String>,
+        title: Option<&str>,
+        bounds: (f32, f32),
+        panel: f32,
         look: Look,
         window: &Window,
         cx: &mut Context<Self>,
@@ -191,7 +264,6 @@ impl PartyLobby {
         let theme = look.theme;
         let art = film.and_then(|film| film.background.clone().or_else(|| film.poster.clone()));
         let poster = film.is_some_and(|film| film.background.is_none());
-        let bounds = (WIDTH, HEADER);
         let image = art.as_ref().and_then(|url| {
             let services = self.state.read(cx).services.clone()?;
             let scale = window.scale_factor();
@@ -211,72 +283,46 @@ impl PartyLobby {
             })
         });
         self.art = art;
-        let scrim = |from: Rgba, to: Rgba, start: f32, end: f32| {
-            div().absolute().inset_0().bg(linear_gradient(
-                180.0,
-                linear_color_stop(from, start),
-                linear_color_stop(to, end),
-            ))
-        };
-        let shade = theme.canvas.opacity(0.58);
         div()
-            .relative()
-            .h(px(HEADER))
-            .flex_shrink_0()
+            .absolute()
+            .inset_0()
             .overflow_hidden()
-            .bg(theme.artwork_empty)
-            .when_some(image, |header, image| {
+            .bg(theme.player_canvas)
+            .when_some(image, |room, image| {
                 let opacity = crate::film_card::fade_in(&image, look.reduced);
-                header.child(crate::hero::cover(image.image, bounds, poster, 1.0).opacity(opacity))
+                room.child(crate::hero::cover(image.image, bounds, poster, 1.0).opacity(opacity))
             })
-            .child(scrim(shade.opacity(0.0), shade, 0.3, 0.62))
-            .child(scrim(theme.surface.opacity(0.0), theme.surface, 0.62, 1.0))
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .border_1()
-                    .border_b_0()
-                    .border_color(theme.image_outline),
-            )
-            .child(
-                div().absolute().top(px(14.0)).right(px(14.0)).child(
-                    Button::round(
-                        "party-lobby-close",
-                        Icon::Close,
-                        match (self.is_host(), self.readiness(cx).friends) {
-                            (true, 0) => "Close and end the party",
-                            (true, _) => "Close and keep the party",
-                            (false, _) => "Close and leave the party",
-                        },
-                    )
-                    .compact()
-                    .focus(&self.close, look.keyboard)
-                    .tab_stop(self.exit.is_none())
-                    .on_click(
-                        cx.listener(|lobby, _, window, cx| lobby.act(Command::Escape, window, cx)),
-                    ),
-                ),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(GUTTER))
-                    .right(px(GUTTER))
-                    .bottom(px(18.0))
-                    .flex()
-                    .flex_col()
-                    .text_color(theme.ink)
-                    .child(
-                        TITLE
+            .child(div().absolute().inset_0().bg(linear_gradient(
+                180.0,
+                linear_color_stop(theme.canvas.opacity(0.0), 0.35),
+                linear_color_stop(theme.canvas.opacity(0.88), 1.0),
+            )))
+            .when_some(title, |room, title| {
+                room.child(
+                    div()
+                        .absolute()
+                        .left(px(56.0))
+                        .right(px(panel + 48.0))
+                        .bottom(px(48.0))
+                        .flex()
+                        .flex_col()
+                        .gap(px(12.0))
+                        .text_color(theme.ink)
+                        .child(
+                            TypeStyle {
+                                size: room_title_size(title, bounds.0 - panel - 104.0),
+                                ..ROOM_TITLE
+                            }
                             .apply(div())
-                            .line_clamp(2)
-                            .child(caps(title.as_deref().unwrap_or("Watch party"))),
-                    )
-                    .when_some(film, |block, film| {
-                        block.child(crate::hero::credits(film, 10.0))
-                    }),
-            )
+                            .line_clamp(3)
+                            .text_ellipsis()
+                            .child(caps(title)),
+                        )
+                        .when_some(film, |block, film| {
+                            block.child(crate::hero::credits(film, 10.0))
+                        }),
+                )
+            })
     }
 
     fn people(&self, view: &PartyView, look: Look, cx: &mut Context<Self>) -> Div {
@@ -285,7 +331,7 @@ impl PartyLobby {
         let mut section = section(
             "People",
             Some(match count {
-                1 => "Just you so far".to_owned(),
+                0 | 1 => "Just you so far".to_owned(),
                 count => format!("{count} in the party"),
             }),
             theme,
@@ -298,50 +344,26 @@ impl PartyLobby {
             let link = invite(Some(view));
             let ready = link.is_some();
             section = section.child(
-                div()
-                    .mt(px(8.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .h(px(40.0))
-                            .px(px(12.0))
-                            .flex()
-                            .items_center()
-                            .bg(theme.canvas)
-                            .text_color(theme.ink_muted)
-                            .text_size(px(12.0))
-                            .child(
-                                div().min_w_0().truncate().child(
-                                    link.clone()
-                                        .unwrap_or_else(|| "Getting an invite link ready".into()),
-                                ),
-                            ),
+                div().mt(px(10.0)).flex().child(
+                    Button::glass(
+                        "party-lobby-copy",
+                        match (ready, self.copied) {
+                            (false, _) => "Getting invite link…",
+                            (true, true) => "Invite link copied",
+                            (true, false) => "Copy invite link",
+                        },
                     )
-                    .child(
-                        Button::glass(
-                            "party-lobby-copy",
-                            if self.copied {
-                                "Invite link copied"
-                            } else {
-                                "Copy invite link"
-                            },
-                        )
-                        .leading(if self.copied { Icon::Check } else { Icon::Copy })
-                        .disabled(!ready)
-                        .focus(&self.copy, look.keyboard)
-                        .tab_stop(ready && self.exit.is_none())
-                        .on_click(cx.listener(move |lobby, _, _, cx| {
-                            if let Some(link) = link.clone() {
-                                cx.write_to_clipboard(ClipboardItem::new_string(link));
-                                lobby.copied = true;
-                                cx.notify();
-                            }
-                        })),
-                    ),
+                    .leading(if self.copied { Icon::Check } else { Icon::Copy })
+                    .disabled(!ready)
+                    .focus(&self.copy, look.keyboard)
+                    .tab_stop(ready && self.exit.is_none())
+                    .on_click(cx.listener(move |lobby, _, _, cx| {
+                        if let Some(link) = link.clone() {
+                            cx.write_to_clipboard(ClipboardItem::new_string(link));
+                            lobby.show_copied(cx);
+                        }
+                    })),
+                ),
             );
         }
         section
@@ -678,13 +700,7 @@ impl PartyLobby {
         )
     }
 
-    fn footer(
-        &self,
-        view: Option<&PartyView>,
-        look: Look,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    fn footer(&self, view: Option<&PartyView>, look: Look, cx: &mut Context<Self>) -> Div {
         let theme = look.theme;
         let open = self.exit.is_none();
         let readiness = view.map_or_else(Readiness::default, |view| Readiness::of(&view.roster));
@@ -696,74 +712,117 @@ impl PartyLobby {
             .text_color(theme.ink_muted)
             .id("party-lobby-status")
             .role(gpui::Role::Status);
+        // Two buttons leave no room for a sentence beside them.
+        let stacked = !self.is_host()
+            && (self.state.read(cx).party_blocked().is_some()
+                || (self.state.read(cx).party.as_ref())
+                    .is_some_and(|party| party.rejoin_invite().is_some()));
         let (status, actions) = match &self.side {
             Side::Host(_) => {
-                let start_anyway = readiness.offers_start_anyway().then(|| {
-                    quiet(
-                        "party-lobby-start-anyway",
-                        "Start anyway",
-                        None,
-                        &self.start_anyway,
-                        look,
-                        open,
-                        window,
-                    )
-                    .on_click(cx.listener(|lobby, _, window, cx| {
-                        lobby.act(Command::StartAnyway, window, cx)
-                    }))
-                });
-                let start = Button::primary("party-lobby-start", "Start watching")
-                    .leading(Icon::Play)
-                    .disabled(!readiness.can_start())
-                    .reduced_motion(look.reduced)
-                    .focus(&self.start, look.keyboard)
-                    .tab_stop(open)
-                    .on_click(cx.listener(|lobby, _, window, cx| {
-                        lobby.act(Command::StartWatching, window, cx)
-                    }));
+                let anyway = readiness.offers_start_anyway();
+                let start = Button::primary(
+                    "party-lobby-start",
+                    if anyway {
+                        "Start anyway"
+                    } else {
+                        "Start watching"
+                    },
+                )
+                .leading(Icon::Play)
+                .reduced_motion(look.reduced)
+                .focus(&self.start, look.keyboard)
+                .tab_stop(open)
+                .on_click(cx.listener(move |lobby, _, window, cx| {
+                    let command = if anyway {
+                        Command::StartAnyway
+                    } else {
+                        Command::StartWatching
+                    };
+                    lobby.act(command, window, cx)
+                }));
                 (
                     host_status(status, view, &readiness, theme),
+                    div().flex().items_center().gap(px(8.0)).child(start),
+                )
+            }
+            Side::Member => {
+                let blocked = self.state.read(cx).party_blocked();
+                let fix = blocked.and_then(|blocked| {
+                    let label = match blocked {
+                        Blocked::SignedOut => "Sign in",
+                        Blocked::FilmNotFound | Blocked::SourceFailed => "Try again",
+                        Blocked::NoAddons => return None,
+                    };
+                    Some(
+                        Button::primary("party-lobby-fix", label)
+                            .reduced_motion(look.reduced)
+                            .focus(&self.start, look.keyboard)
+                            .tab_stop(open)
+                            .on_click(cx.listener(move |lobby, _, window, cx| {
+                                lobby.fix(blocked, window, cx)
+                            })),
+                    )
+                });
+                let rejoin = (self.state.read(cx).party.as_ref())
+                    .and_then(|party| party.rejoin_invite().map(str::to_owned))
+                    .map(|invite| {
+                        Button::primary("party-lobby-rejoin", "Rejoin")
+                            .reduced_motion(look.reduced)
+                            .focus(&self.start, look.keyboard)
+                            .tab_stop(open)
+                            .on_click(cx.listener(move |lobby, _, window, cx| {
+                                let shell = lobby.shell.clone();
+                                let invite = invite.clone();
+                                let _ = shell.update(cx, |shell, cx| {
+                                    shell.join_party_now(&invite, None, window, cx)
+                                });
+                            }))
+                    });
+                let line: SharedString = match blocked {
+                    Some(blocked) => blocked.text().into(),
+                    None => member_status(
+                        view,
+                        self.state
+                            .read(cx)
+                            .party
+                            .as_ref()
+                            .is_some_and(|party| party.media().is_some()),
+                    ),
+                };
+                (
+                    status
+                        .when(blocked.is_some(), |status| status.text_color(theme.ink))
+                        .child(div().flex_1().min_w_0().child(line)),
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.0))
-                        .children(start_anyway)
-                        .child(start),
+                        .child(
+                            Button::glass("party-lobby-leave", "Leave party")
+                                .focus(&self.leave, look.keyboard)
+                                .tab_stop(open)
+                                .on_click(cx.listener(|lobby, _, window, cx| {
+                                    lobby.act(Command::LeaveParty, window, cx)
+                                })),
+                        )
+                        .children(fix)
+                        .children(rejoin),
                 )
             }
-            Side::Member => (
-                status.child(member_status(
-                    view,
-                    self.state
-                        .read(cx)
-                        .party
-                        .as_ref()
-                        .is_some_and(|party| party.media().is_some()),
-                )),
-                div().child(
-                    Button::glass("party-lobby-leave", "Leave party")
-                        .focus(&self.leave, look.keyboard)
-                        .tab_stop(open)
-                        .on_click(cx.listener(|lobby, _, window, cx| {
-                            lobby.act(Command::LeaveParty, window, cx)
-                        })),
-                ),
-            ),
         };
         LABEL
             .apply(div())
             .flex_shrink_0()
             .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(16.0))
+            .when(stacked, |footer| footer.flex_col())
+            .when(!stacked, |footer| footer.items_center())
+            .gap(px(12.0))
             .px(px(GUTTER))
-            .pt(px(18.0))
-            .pb(px(22.0))
+            .py(px(16.0))
             .border_t_1()
             .border_color(theme.rule)
-            .child(status)
-            .child(actions)
+            .child(status.when(!stacked, |status| status.flex_1().min_w_0()))
+            .child(div().flex().flex_shrink_0().justify_end().child(actions))
     }
 }
 
@@ -811,8 +870,9 @@ fn person(row: &RosterRow, view: &PartyView, look: Look) -> Div {
         .collect();
     let (label, ready) = match member.state {
         state if is_ready(state) => ("Ready", true),
-        MemberState::Failed => ("Can't play this source", false),
-        _ => ("Loading the source", false),
+        MemberState::Failed => ("Can't play", false),
+        MemberState::Away => ("Away", false),
+        _ => ("Loading", false),
     };
     let marker = if ready {
         div()
@@ -820,7 +880,7 @@ fn person(row: &RosterRow, view: &PartyView, look: Look) -> Div {
             .rounded_full()
             .bg(theme.accent)
             .into_any_element()
-    } else if member.state == MemberState::Failed {
+    } else if matches!(member.state, MemberState::Failed | MemberState::Away) {
         div().into_any_element()
     } else {
         spinner(member.member_id, look)
@@ -934,7 +994,7 @@ fn host_status(
 ) -> Stateful<Div> {
     let name = |text: String| div().text_color(theme.ink).child(text);
     match view.map(|view| view.link) {
-        Some(Link::Starting) => return status.child("Getting the party ready"),
+        Some(Link::Starting) => return status.child("Starting the party…"),
         Some(Link::Ended(reason)) => {
             return status.child(crate::party::lobby_ended_text(reason, true));
         }

@@ -15,6 +15,19 @@ fn roster(friends: &[(&str, MemberState)]) -> Vec<RosterRow> {
 }
 
 #[test]
+fn a_friend_who_stepped_away_does_not_hold_start() {
+    let away = Readiness::of(&roster(&[
+        ("Sam", MemberState::Ready),
+        ("Kim", MemberState::Away),
+    ]));
+    assert!(away.can_start());
+    assert_eq!(
+        decide(true, &away, Command::StartWatching),
+        Some(Exit::Start)
+    );
+}
+
+#[test]
 fn start_is_disabled_until_every_joined_friend_is_ready() {
     let loading = Readiness::of(&roster(&[
         ("Sam", MemberState::Paused),
@@ -196,4 +209,12 @@ fn a_friend_joining_mid_start_waits_for_the_roster() {
     view.gate = Some(Gate::Ready);
     view.roster.clear();
     assert!(!host_started(&view));
+}
+
+#[test]
+fn a_long_word_shrinks_the_waiting_room_title_instead_of_breaking() {
+    assert_eq!(view::room_title_size("Aftersun", 900.0), 56.0);
+    let size = view::room_title_size("Dr. Strangelove or: How I Learned", 300.0);
+    assert!(size < 56.0 && 11.0 * size * 0.8 <= 300.5, "{size}");
+    assert_eq!(view::room_title_size("Supercalifragilistic", 100.0), 24.0);
 }

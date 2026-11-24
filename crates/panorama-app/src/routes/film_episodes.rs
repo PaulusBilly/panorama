@@ -169,15 +169,14 @@ impl Film {
             .resume
             .clone()
             .filter(|point| point.video_id.as_ref() == Some(&episode.id));
-        self.state.update(cx, |state, cx| {
-            state.launch(film, episode.id, resume, Default::default(), cx)
-        });
-        let route = crate::router::Route::Player {
-            id: self.id.clone(),
+        let play = crate::party_prompt::Play::Launch {
+            film: Box::new(film),
+            video_id: episode.id,
+            resume,
         };
         let _ = self
             .shell
-            .update(cx, |shell, cx| shell.navigate(route, window, cx));
+            .update(cx, |shell, cx| shell.play_or_ask(play, window, cx));
     }
 
     pub(super) fn episodes_section(

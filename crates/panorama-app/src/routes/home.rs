@@ -373,17 +373,16 @@ pub(crate) fn play_film<V: 'static>(
         open_film(state, shell, film, window, cx);
         return;
     }
-    let id = film.id.clone();
     let video_id = resume
         .as_ref()
         .and_then(|point| point.video_id.clone())
-        .unwrap_or_else(|| id.clone());
-    state.update(cx, |state, cx| {
-        state.launch(film, video_id, resume, Default::default(), cx)
-    });
-    let _ = shell.update(cx, |shell, cx| {
-        shell.navigate(Route::Player { id }, window, cx)
-    });
+        .unwrap_or_else(|| film.id.clone());
+    let play = crate::party_prompt::Play::Launch {
+        film: Box::new(film),
+        video_id,
+        resume,
+    };
+    let _ = shell.update(cx, |shell, cx| shell.play_or_ask(play, window, cx));
 }
 
 pub(crate) fn open_film<V: 'static>(

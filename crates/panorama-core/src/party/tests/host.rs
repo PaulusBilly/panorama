@@ -621,6 +621,18 @@ fn a_seek_holds_everyone_at_the_new_spot_until_they_are_ready_there() {
 }
 
 #[test]
+fn a_friend_who_stepped_away_holds_nothing_up() {
+    let mut host = party();
+    report(&mut host, 9_000, SAM, MemberState::Away);
+    host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    let out = local_paused_at(&mut host, 10_500, 500.0);
+    let out = [out, tick(&mut host, 10_600)].concat();
+    assert_eq!(playing(&out, SAM), Some(true));
+    let sam = roster(&out).unwrap().into_iter().find(|m| m.name == "Sam");
+    assert_eq!(sam.unwrap().state, MemberState::Away);
+}
+
+#[test]
 fn a_seek_without_waiting_for_everyone_keeps_playing() {
     let mut host = party();
     host.handle(

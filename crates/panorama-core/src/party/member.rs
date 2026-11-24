@@ -266,6 +266,8 @@ impl MemberSession {
                 self.revision = Some(revision);
                 self.media = Some(media.clone());
                 self.playback = None;
+                // The host forgot every member's state, so the next report goes out even if unchanged.
+                self.reported = None;
                 self.applied = None;
                 self.tracks = None;
                 // Opening a new source resets the player's speed.

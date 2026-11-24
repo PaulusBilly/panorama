@@ -500,3 +500,20 @@ fn a_paused_member_reports_a_jump() {
     ));
     assert!(reports(&member.handle(2_500, player(MemberState::Paused, 500.0))).is_empty());
 }
+
+#[test]
+fn a_friend_away_tells_the_host_again_after_each_new_film() {
+    let mut member = joined();
+    member.handle(100, load(1, "A"));
+    member.handle(200, player(MemberState::Away, 0.0));
+    // The host forgets everyone's state on a new film, so the same report must go again.
+    let mut out = member.handle(5_000, load(2, "B"));
+    out.extend(member.handle(5_100, player(MemberState::Away, 0.0)));
+    assert!(matches!(
+        reports(&out)[..],
+        [Up::Report {
+            state: MemberState::Away,
+            ..
+        }]
+    ));
+}

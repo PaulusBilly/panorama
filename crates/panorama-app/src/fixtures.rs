@@ -20,12 +20,37 @@ pub const STILLS: [(&str, &[u8]); 3] = [
 /// title and still, and the bright one lands in the row.
 const FILM_STILLS: [usize; 9] = [2, 0, 1, 0, 1, 2, 1, 2, 0];
 
+/// Dev only: `PANORAMA_WORST=1` swaps the demo data for the worst a real party holds.
+pub fn worst() -> bool {
+    std::env::var_os("PANORAMA_WORST").is_some_and(|value| value == "1")
+}
+
+/// Eight people, the most a party holds, each at a limit real names reach: 32 characters,
+/// a dedupe suffix, one letter, an emoji first, diacritics, CJK, and no break opportunity.
+pub fn worst_party() -> Vec<(&'static str, panorama_core::party::MemberState)> {
+    use panorama_core::party::MemberState::*;
+    vec![
+        ("Aleksandra Wiśniewska-Kowalczyk", Ready),
+        ("Jo", Ready),
+        ("Bartholomew Fitzgerald-Mont (2)", Loading),
+        ("🎬 movie night", Ready),
+        ("Nguyễn Thị Thanh Hương", Failed),
+        ("MaximilianAlexanderHohenzollern", Buffering),
+        ("李小龙", Away),
+        ("x", Paused),
+    ]
+}
+
 pub fn films() -> Vec<FilmDetails> {
     (0..9)
         .map(|index| FilmDetails {
             id: format!("tmdb:{}", 100 + index),
             kind: Kind::Movie,
-            name: ["Aftersun", "Perfect Days", "Past Lives"][index % 3].into(),
+            name: if worst() && index == 0 {
+                "Dr. Strangelove or: How I Learned to Stop Worrying and Love the Bomb".into()
+            } else {
+                ["Aftersun", "Perfect Days", "Past Lives"][index % 3].into()
+            },
             release_info: Some((2022 + index % 3).to_string()),
             released: None,
             director: vec![["Charlotte Wells", "Wim Wenders", "Celine Song"][index % 3].into()],

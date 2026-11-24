@@ -182,6 +182,11 @@ impl AppShell {
             }
             return;
         }
+        if matches!(self.history.current(), Route::Player { .. })
+            && self.ask_before_closing_film(window, cx)
+        {
+            return;
+        }
         let returning = match self.history.current() {
             Route::Film { id, .. } => self
                 .returning
@@ -260,7 +265,7 @@ impl AppShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.login.is_some() || self.lobby.is_some() {
+        if self.login.is_some() || self.lobby.is_some() || self.prompt.is_some() {
             return;
         }
         let key = event.keystroke.key.as_str();

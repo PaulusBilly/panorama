@@ -268,7 +268,13 @@ impl Player {
 
     /// Pause or resume, flashing the new state in the middle of the picture.
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
-        self.flash = Some((self.model.paused, Instant::now()));
+        // A friend without control asked for nothing that will happen: the toast says so.
+        let denied = self.state.read(cx).party.as_ref().is_some_and(|party| {
+            party.steers_playback() && !party.view.is_host() && !party.view.anyone_controls
+        });
+        if !denied {
+            self.flash = Some((self.model.paused, Instant::now()));
+        }
         self.send(Command::TogglePause, cx);
         cx.notify();
     }
@@ -587,9 +593,16 @@ impl Player {
     /// Leaving the player closes the film for the whole party.
     fn unmount(&mut self, cx: &mut gpui::App) {
         self.release(cx);
-        if std::mem::take(&mut self.opened) {
-            self.state.update(cx, |state, _| state.party_stop());
-        }
+        let opened = std::mem::take(&mut self.opened);
+        let (position, duration) = (self.model.time.unwrap_or(0.0), self.model.duration);
+        let id = self.id.clone();
+        self.state.update(cx, |state, _| {
+            if opened {
+                state.party_stop();
+            }
+            // A friend who leaves before a source opened is away too.
+            state.party_left_film(&id, position, duration);
+        });
     }
 
     /// Closes what plays.
@@ -625,6 +638,13 @@ impl Player {
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let asked = self
+            .shell
+            .update(cx, |shell, cx| shell.ask_before_closing_film(window, cx))
+            .unwrap_or(false);
+        if asked {
+            return;
+        }
         self.unmount(cx);
         if window.is_fullscreen() {
             window.toggle_fullscreen();

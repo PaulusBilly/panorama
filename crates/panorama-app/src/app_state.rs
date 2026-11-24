@@ -43,6 +43,8 @@ pub struct AppState {
     pub account: Account,
     /// Installed addons in account order.
     pub installed: Vec<Descriptor>,
+    /// The session has said who is signed in, so a signed-out account is not just unread.
+    pub account_known: bool,
     /// Live services, absent after a startup failure.
     pub services: Option<Arc<Services>>,
     /// Startup failure shown with Reload Panorama.
@@ -138,6 +140,7 @@ impl AppState {
             closing: false,
             account: Account::SignedOut,
             installed: vec![],
+            account_known: false,
             services,
             runtime_error,
             runtime_problem: None,
@@ -232,6 +235,7 @@ impl AppState {
                             state.account = account;
                         }
                         state.installed = addons;
+                        state.account_known = true;
                         if changed
                             && !matches!(state.account, Account::Authenticating | Account::Error(_))
                         {

@@ -21,7 +21,7 @@ pub use protocol::{
 };
 pub use release::{PartyRelease, TorrentRef, find};
 
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 /// Including the host.
 pub const MAX_MEMBERS: usize = 8;
 /// Bytes per line on the wire.

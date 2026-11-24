@@ -35,14 +35,10 @@ impl Film {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let route = crate::router::Route::Player {
-            id: self.id.clone(),
-        };
-        self.state
-            .update(cx, |state, _| state.playback = Some(selection));
+        let play = crate::party_prompt::Play::Selection(Box::new(selection));
         let _ = self
             .shell
-            .update(cx, |shell, cx| shell.navigate(route, window, cx));
+            .update(cx, |shell, cx| shell.play_or_ask(play, window, cx));
     }
     /// What Play would play now: the selected source of the film or the target episode.
     fn selection(&self) -> Option<crate::playback::selection::PlaybackSelection> {
@@ -78,11 +74,9 @@ impl Film {
             self.primary_action(window, cx);
             return;
         };
-        self.state
-            .update(cx, |state, cx| state.start_party(None, cx));
-        let _ = self.shell.update(cx, |shell, cx| {
-            shell.open_party_lobby_as_host(selection, window, cx)
-        });
+        let _ = self
+            .shell
+            .update(cx, |shell, cx| shell.watch_together(selection, window, cx));
     }
     /// The resume point, when it belongs to what Play plays.
     fn resume_here(&self) -> Option<&panorama_core::stremio::ResumePoint> {
@@ -127,6 +121,21 @@ impl Film {
             (None, Some(code), Primary::Play) => format!("Play {code}"),
             _ => primary.label().to_owned(),
         };
+        let for_everyone = primary == Primary::Play
+            && self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .is_some_and(|party| party.plays_for_everyone());
+        let (label, text) = if for_everyone {
+            (
+                "Play for everyone".to_owned(),
+                "Play for everyone".to_owned(),
+            )
+        } else {
+            (label, text)
+        };
         let mut button = if primary == Primary::Unavailable {
             Button::glass("film-primary", text).leading(Icon::Retry)
         } else {
@@ -143,6 +152,7 @@ impl Film {
             button = button.leading(Icon::Play);
         }
         if remaining.is_some()
+            && !for_everyone
             && let Some(point) = self.resume_here()
         {
             button = button.progress((point.offset_secs / point.duration_secs) as f32);

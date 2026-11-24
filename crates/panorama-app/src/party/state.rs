@@ -1,6 +1,6 @@
 //! The party on `AppState`: start, join, leave, settings, and what the player feeds in.
 use super::{
-    PartySync, PartyView, Role, default_name, display_name,
+    EndReason, PartySync, PartyView, Role, default_name, display_name,
     service::{self, Event, Input},
 };
 use crate::{
@@ -17,6 +17,7 @@ use panorama_core::{
     },
     store::Key,
 };
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
 const NAME: &str = "party.name";
@@ -33,7 +34,60 @@ pub struct Party {
     /// Member: how many times the host switched the source of what plays, for the player to
     /// say so.
     pub switches: u32,
+    /// Member: the details of the host's film could not be fetched here.
+    lookup_failed: bool,
+    /// Member: this player's source failed, so the film can't play here.
+    source_failed: bool,
+    /// Member: the link and name joined with, for rejoining after a dropped connection.
+    invite: Option<String>,
+    joined_as: Option<String>,
+    /// Member: the party has heard that this person can't play.
+    told_blocked: bool,
+    /// Member: the player's last report, resent once a block clears.
+    reported: std::cell::Cell<Option<(MemberState, f64, Option<f64>)>>,
+    /// Member: joins made on their own since the link was last live.
+    rejoins: u8,
+    _rejoin: Option<Task<()>>,
     _events: Task<()>,
+}
+
+/// How long a friend waits before each automatic rejoin. After the last, Rejoin is theirs.
+const REJOIN_AFTER: [Duration; 3] = [
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+    Duration::from_secs(10),
+];
+
+/// Why a friend can't play the party's film, each with its own way out.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Blocked {
+    SignedOut,
+    NoAddons,
+    FilmNotFound,
+    SourceFailed,
+}
+
+impl Blocked {
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::SignedOut => "Sign in to watch with the party",
+            Self::NoAddons => "Add a streaming addon in Stremio to watch with the party",
+            Self::FilmNotFound => "Couldn't find this film in your addons",
+            Self::SourceFailed => "Your copy of this film won't play",
+        }
+    }
+
+    fn of(account: &Account, known: bool, no_addons: bool, lookup_failed: bool) -> Option<Self> {
+        if lookup_failed {
+            return Some(Self::FilmNotFound);
+        }
+        match account {
+            _ if !known => None,
+            Account::Authenticating => None,
+            Account::SignedIn(_) => no_addons.then_some(Self::NoAddons),
+            Account::SignedOut | Account::Error(_) => Some(Self::SignedOut),
+        }
+    }
 }
 
 impl Party {
@@ -46,6 +100,14 @@ impl Party {
             media: None,
             host_tracks: None,
             switches: 0,
+            lookup_failed: false,
+            source_failed: false,
+            invite: None,
+            joined_as: None,
+            told_blocked: false,
+            reported: Default::default(),
+            rejoins: 0,
+            _rejoin: None,
             _events: Task::ready(()),
         }
     }
@@ -63,8 +125,78 @@ impl Party {
         self.view.ended().is_none() && (!self.view.is_host() || self.media.is_some())
     }
 
+    /// Whether opening this video would take a friend off what the party is watching.
+    pub fn pulls_friend_away(&self, film_id: &str, video_id: &str) -> bool {
+        self.view.ended().is_none()
+            && !self.view.is_host()
+            && self
+                .media
+                .as_ref()
+                .is_none_or(|media| media.film_id != film_id || media.video_id != video_id)
+    }
+
+    /// The host's Play reaches everyone once friends are in.
+    pub fn plays_for_everyone(&self) -> bool {
+        self.view.is_host()
+            && self.view.ended().is_none()
+            && self.view.roster.iter().any(|row| !row.member.is_host)
+    }
+
+    /// What the party pill says, for this person outside the player.
+    pub fn pill_label(&self) -> String {
+        match self.view.roster.len() {
+            0 | 1 => "Watch party".to_owned(),
+            count => format!("Watch party · {count}"),
+        }
+    }
+
+    /// The link to rejoin with, once the connection to the host dropped. A party that ended
+    /// on purpose has nothing to rejoin.
+    pub fn rejoin_invite(&self) -> Option<&str> {
+        matches!(
+            self.view.ended(),
+            Some(EndReason::Lost | EndReason::Failed(_))
+        )
+        .then_some(self.invite.as_deref())
+        .flatten()
+    }
+
+    /// When to join again on its own after the connection dropped, while tries remain. A
+    /// first join that never got in has no connection to lose, so it stays a plain failure.
+    /// Member: what the host hears while blocked, and after: the player's own last word.
+    fn report_for(&self, blocked: bool) -> (MemberState, f64, Option<f64>) {
+        match self.reported.get() {
+            _ if blocked => (MemberState::Failed, 0.0, None),
+            Some(last) => last,
+            None => (MemberState::Loading, 0.0, None),
+        }
+    }
+
+    fn rejoin_after(&self) -> Option<Duration> {
+        self.rejoin_invite()?;
+        if self.view.me.is_none() && self.rejoins == 0 {
+            return None;
+        }
+        REJOIN_AFTER.get(usize::from(self.rejoins)).copied()
+    }
+
     fn send(&self, input: Input) {
         let _ = self.inputs.send(input);
+    }
+
+    /// Announces `media` unless the party already has it.
+    fn announce(&mut self, media: PartyMedia, at: f64) {
+        if self.media.as_ref() != Some(&media) {
+            self.media = Some(media.clone());
+            self.send(Input::Media { media, at });
+        }
+    }
+
+    /// The host's player opened `media` with no lobby to press Start in, so the party starts
+    /// with it. Without this, friends wait in the lobby for a Start nobody can press.
+    fn announce_playing(&mut self, media: PartyMedia, at: f64) {
+        self.announce(media, at);
+        self.send(Input::Start);
     }
 }
 
@@ -171,6 +303,7 @@ impl AppState {
         name: Option<String>,
         cx: &mut Context<Self>,
     ) -> Result<(), InviteError> {
+        let raw = invite.trim().to_owned();
         let invite = parse_invite(invite)?;
         let Some(services) = self.services.clone() else {
             return Ok(());
@@ -182,12 +315,46 @@ impl AppState {
         let spawned = service::member(
             &services.runtime,
             services.store.clone(),
-            name,
+            name.clone(),
             invite,
             sync,
         );
         self.attach_party(spawned, Role::Member, cx);
+        if let Some(party) = self.party.as_mut() {
+            party.invite = Some(raw);
+            party.joined_as = Some(name);
+        }
         Ok(())
+    }
+
+    /// Member: the connection dropped, so join again after a pause, the same as pressing
+    /// Rejoin. The party keeps its place: the host sends the film and position on welcome.
+    fn rejoin_later(&mut self, cx: &mut Context<Self>) {
+        let Some(party) = self.party.as_mut() else {
+            return;
+        };
+        let (Some(delay), Some(invite)) = (party.rejoin_after(), party.invite.clone()) else {
+            return;
+        };
+        let name = party.joined_as.clone();
+        let tries = party.rejoins + 1;
+        super::trace(|| format!("rejoin {tries} in {}s", delay.as_secs()));
+        party.view.link = super::Link::Ended(EndReason::Reconnecting);
+        party._rejoin = Some(cx.spawn(async move |state, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = state.update(cx, |state, cx| {
+                let still = state
+                    .party
+                    .as_ref()
+                    .is_some_and(|party| party.view.ended() == Some(EndReason::Reconnecting));
+                if still
+                    && state.join_party(&invite, name, cx).is_ok()
+                    && let Some(party) = state.party.as_mut()
+                {
+                    party.rejoins = tries;
+                }
+            });
+        }));
     }
 
     /// Leave, or as the host, end the party for everyone. Playback carries on.
@@ -233,6 +400,7 @@ impl AppState {
     /// The local player's state, on change and while playing.
     pub fn party_report(&self, state: MemberState, position: f64, duration: Option<f64>) {
         if let Some(party) = &self.party {
+            party.reported.set(Some((state, position, duration)));
             party.send(Input::Report {
                 state,
                 position,
@@ -244,13 +412,15 @@ impl AppState {
     /// Host: the local player opened `media` at `at` seconds. Announcing the same media again
     /// does nothing.
     pub fn party_media(&mut self, media: PartyMedia, at: f64) {
-        if let Some(party) = self
-            .party
-            .as_mut()
-            .filter(|party| party.view.is_host() && party.media.as_ref() != Some(&media))
-        {
-            party.media = Some(media.clone());
-            party.send(Input::Media { media, at });
+        if let Some(party) = self.party.as_mut().filter(|party| party.view.is_host()) {
+            party.announce(media, at);
+        }
+    }
+
+    /// Host: the player itself opened `media`, so the party plays it now.
+    pub fn party_media_playing(&mut self, media: PartyMedia, at: f64) {
+        if let Some(party) = self.party.as_mut().filter(|party| party.view.is_host()) {
+            party.announce_playing(media, at);
         }
     }
 
@@ -282,6 +452,18 @@ impl AppState {
         }
     }
 
+    /// Member: the player closed on `film_id`, so this person is away and holds nothing up. A
+    /// last report of buffering would otherwise make everyone wait for a player that is gone.
+    /// When the party has moved to another film, this player's report no longer applies.
+    pub fn party_left_film(&self, film_id: &str, position: f64, duration: Option<f64>) {
+        let current = self.party.as_ref().is_some_and(|party| {
+            !party.view.is_host() && party.media().is_some_and(|media| media.film_id == film_id)
+        });
+        if current {
+            self.party_report(MemberState::Away, position, duration);
+        }
+    }
+
     /// Member: whether the source now playing is the host's release.
     pub fn party_release(&self, matched: bool) {
         if let Some(party) = &self.party {
@@ -294,6 +476,70 @@ impl AppState {
         if let Some(party) = &self.party {
             party.send(Input::Reopened);
         }
+    }
+
+    /// Member: what stops the party's film playing here, if anything.
+    pub fn party_blocked(&self) -> Option<Blocked> {
+        let party = self
+            .party
+            .as_ref()
+            .filter(|party| !party.view.is_host() && party.view.ended().is_none())?;
+        let session = self.services.as_ref().is_some_and(|s| s.session.is_some());
+        Blocked::of(
+            &self.account,
+            !session || self.account_known,
+            session && self.installed.is_empty(),
+            party.lookup_failed,
+        )
+        .or(party.source_failed.then_some(Blocked::SourceFailed))
+    }
+
+    /// Member: whether the player's current source has failed.
+    pub fn set_party_source_failed(&mut self, failed: bool, cx: &mut Context<Self>) {
+        if let Some(party) = self
+            .party
+            .as_mut()
+            .filter(|party| !party.view.is_host() && party.source_failed != failed)
+        {
+            party.source_failed = failed;
+            cx.notify();
+        }
+    }
+
+    /// Member: keeps the host's roster honest about whether this person can play.
+    pub fn sync_party_blocked(&mut self) {
+        let blocked = self.party_blocked().is_some();
+        let Some(party) = self.party.as_mut().filter(|party| !party.view.is_host()) else {
+            return;
+        };
+        if party.told_blocked == blocked {
+            return;
+        }
+        party.told_blocked = blocked;
+        let (state, position, duration) = party.report_for(blocked);
+        party.send(Input::Report {
+            state,
+            position,
+            duration,
+        });
+    }
+
+    /// Member: looks the party's film up again.
+    pub fn retry_party_film(&mut self, cx: &mut Context<Self>) {
+        let Some(party) = self.party.as_mut() else {
+            return;
+        };
+        party.lookup_failed = false;
+        party.source_failed = false;
+        if let Some(media) = party.media.clone() {
+            self.play_by_id(
+                media.kind,
+                media.film_id,
+                media.video_id,
+                Pick::Party(media.release),
+            );
+        }
+        cx.notify();
     }
 
     /// Open a film by id once the account is ready, starting with `pick`'s source.
@@ -343,7 +589,13 @@ impl AppState {
                             return;
                         }
                         super::trace(|| "pending play details failed".into());
-                        let _ = state.update(cx, |state, _| state.pending_play = None);
+                        let _ = state.update(cx, |state, cx| {
+                            state.pending_play = None;
+                            if let Some(party) = state.party.as_mut() {
+                                party.lookup_failed = !party.view.is_host();
+                            }
+                            cx.notify();
+                        });
                     }),
                 };
                 None
@@ -378,6 +630,14 @@ impl AppState {
             media: None,
             host_tracks: None,
             switches: 0,
+            lookup_failed: false,
+            source_failed: false,
+            invite: None,
+            joined_as: None,
+            told_blocked: false,
+            reported: Default::default(),
+            rejoins: 0,
+            _rejoin: None,
             _events: task,
         });
         cx.notify();
@@ -390,9 +650,13 @@ impl AppState {
         match event {
             Event::View(view) => {
                 let ended = view.ended().is_some();
+                if view.link == super::Link::Live {
+                    party.rejoins = 0;
+                }
                 party.view = view;
                 if ended {
                     self.drop_party_play();
+                    self.rejoin_later(cx);
                 }
             }
             Event::Player(command) => {
@@ -402,6 +666,9 @@ impl AppState {
             }
             Event::Tracks(tracks) => party.host_tracks = Some(tracks),
             Event::Stop => {
+                party.lookup_failed = false;
+                party.source_failed = false;
+                party.told_blocked = false;
                 party.host_tracks = None;
                 party.media = None;
                 self.drop_party_play();
@@ -410,6 +677,9 @@ impl AppState {
                 if super::switched_source(party.media.as_ref(), &media) {
                     party.switches += 1;
                 }
+                party.lookup_failed = false;
+                party.source_failed = false;
+                party.told_blocked = false;
                 party.host_tracks = None;
                 party.media = Some(media.clone());
                 self.play_by_id(
@@ -421,5 +691,193 @@ impl AppState {
             }
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::party::{Link, PartyView};
+    use panorama_core::party::{
+        HostInput, HostSession, PartyRelease,
+        transport::{PartySecret, TransportError},
+    };
+
+    fn media() -> PartyMedia {
+        PartyMedia {
+            film_id: "tt1".into(),
+            kind: Kind::Movie,
+            video_id: "tt1".into(),
+            title: "Film".into(),
+            release: PartyRelease {
+                addon: "com.host.addon".into(),
+                torrent: None,
+                label: "Film 1080p".into(),
+                binge_group: None,
+            },
+        }
+    }
+
+    fn hosting() -> (Party, tokio::sync::mpsc::UnboundedReceiver<Input>) {
+        let (inputs, received) = tokio::sync::mpsc::unbounded_channel();
+        let role = Role::Host {
+            invite: None,
+            settings: HostSettings::default(),
+        };
+        let party = Party {
+            view: PartyView::new(role, Link::Live),
+            inputs,
+            media: None,
+            host_tracks: None,
+            switches: 0,
+            lookup_failed: false,
+            source_failed: false,
+            invite: None,
+            joined_as: None,
+            told_blocked: false,
+            reported: Default::default(),
+            rejoins: 0,
+            _rejoin: None,
+            _events: Task::ready(()),
+        };
+        (party, received)
+    }
+
+    fn gate_after(mut received: tokio::sync::mpsc::UnboundedReceiver<Input>) -> Gate {
+        let secret = PartySecret::generate().unwrap();
+        let mut session = HostSession::new("Host".into(), secret, HostSettings::default());
+        while let Ok(input) = received.try_recv() {
+            match input {
+                Input::Media { media, at } => {
+                    session.handle(1_000, HostInput::SetMedia { media, at });
+                }
+                Input::Start => {
+                    session.handle(1_000, HostInput::Start);
+                }
+                other => panic!("unexpected input {other:?}"),
+            }
+        }
+        session.gate()
+    }
+
+    fn member_watching(film: &str) -> Party {
+        let (mut party, _) = hosting();
+        party.view.role = Role::Member;
+        party.media = Some(PartyMedia {
+            film_id: film.into(),
+            video_id: film.into(),
+            ..media()
+        });
+        party
+    }
+
+    #[test]
+    fn a_friend_is_told_the_one_thing_stopping_them() {
+        let signed_in = Account::SignedIn("a@b.c".into());
+        assert_eq!(
+            Blocked::of(&Account::SignedOut, true, true, false),
+            Some(Blocked::SignedOut)
+        );
+        assert_eq!(Blocked::of(&Account::SignedOut, false, true, false), None);
+        assert_eq!(
+            Blocked::of(&Account::Authenticating, true, true, false),
+            None
+        );
+        assert_eq!(
+            Blocked::of(&signed_in, true, true, false),
+            Some(Blocked::NoAddons)
+        );
+        assert_eq!(Blocked::of(&signed_in, true, false, false), None);
+        assert_eq!(
+            Blocked::of(&signed_in, true, false, true),
+            Some(Blocked::FilmNotFound)
+        );
+    }
+
+    #[test]
+    fn a_recovered_friend_tells_the_host_what_their_player_last_said() {
+        let party = member_watching("tt1");
+        assert_eq!(party.report_for(false), (MemberState::Loading, 0.0, None));
+        party
+            .reported
+            .set(Some((MemberState::Ready, 42.0, Some(7_200.0))));
+        assert_eq!(party.report_for(true), (MemberState::Failed, 0.0, None));
+        assert_eq!(
+            party.report_for(false),
+            (MemberState::Ready, 42.0, Some(7_200.0))
+        );
+    }
+
+    #[test]
+    fn only_a_dropped_connection_offers_rejoin() {
+        let mut party = member_watching("tt1");
+        party.invite = Some("panorama://party/x".into());
+        party.view.link = Link::Ended(EndReason::Lost);
+        assert_eq!(party.rejoin_invite(), Some("panorama://party/x"));
+        party.view.link = Link::Ended(EndReason::Left);
+        assert_eq!(party.rejoin_invite(), None);
+        party.view.link = Link::Live;
+        assert_eq!(party.rejoin_invite(), None);
+    }
+
+    #[test]
+    fn a_dropped_friend_rejoins_on_their_own_three_times_then_by_hand() {
+        let mut party = member_watching("tt1");
+        party.invite = Some("panorama://party/x".into());
+        party.view.link = Link::Ended(EndReason::Failed(TransportError::Timeout));
+        assert_eq!(party.rejoin_after(), None, "a first join that never got in");
+        party.view.me = Some(1);
+        party.view.link = Link::Ended(EndReason::Lost);
+        let delays: Vec<u64> = (0..4)
+            .map_while(|tries| {
+                party.rejoins = tries;
+                party.rejoin_after().map(|delay| delay.as_secs())
+            })
+            .collect();
+        assert_eq!(delays, [2, 5, 10]);
+        assert_eq!(party.rejoin_invite(), Some("panorama://party/x"));
+        party.view.link = Link::Ended(EndReason::Reconnecting);
+        assert_eq!(party.rejoin_invite(), None);
+        party.view.link = Link::Ended(EndReason::Left);
+        party.rejoins = 0;
+        assert_eq!(party.rejoin_after(), None);
+    }
+
+    #[test]
+    fn the_pill_counts_people_only_once_there_are_friends() {
+        let (mut party, _) = hosting();
+        assert_eq!(party.pill_label(), "Watch party");
+        assert!(!party.plays_for_everyone());
+        party.view = crate::party_lobby::preview(true);
+        assert_eq!(party.pill_label(), "Watch party · 4");
+        assert!(party.plays_for_everyone());
+    }
+
+    #[test]
+    fn only_another_film_pulls_a_friend_away() {
+        let party = member_watching("tt1");
+        assert!(!party.pulls_friend_away("tt1", "tt1"));
+        assert!(party.pulls_friend_away("tt2", "tt2"));
+        assert!(party.pulls_friend_away("tt1", "tt1:1:2"));
+    }
+
+    #[test]
+    fn a_host_is_never_asked_to_leave_their_own_party() {
+        let (party, _) = hosting();
+        assert!(!party.pulls_friend_away("tt2", "tt2"));
+    }
+
+    #[test]
+    fn a_film_the_hosts_player_opens_leaves_the_lobby() {
+        let (mut party, received) = hosting();
+        party.announce_playing(media(), 0.0);
+        assert_eq!(gate_after(received), Gate::Ready);
+    }
+
+    #[test]
+    fn a_film_announced_from_the_lobby_waits_for_start() {
+        let (mut party, received) = hosting();
+        party.announce(media(), 0.0);
+        assert_eq!(gate_after(received), Gate::Lobby);
     }
 }

@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 const PARTY_SCROLL: usize = 5;
 const TOAST_FOR: Duration = Duration::from_secs(3);
 const TOAST_FADE: Duration = Duration::from_millis(200);
+const TOAST_QUEUE: usize = 3;
 
 /// What the player remembers about the party between frames.
 #[derive(Default)]
@@ -34,6 +35,8 @@ pub(super) struct PartyUi {
     switches: Option<u32>,
     ended: bool,
     toast: Option<(SharedString, Instant)>,
+    /// What happened while a toast was up, so none goes unread.
+    queued: std::collections::VecDeque<SharedString>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -87,12 +90,28 @@ impl Player {
             toast = Some(format!("{host} switched the source"));
         }
         self.party_ui.switches = Some(party.switches);
-        if !self.party_ui.ended && view.ended().is_some() {
-            self.party_ui.ended = true;
-            toast = Some("Party ended".into());
+        // Reconnecting is not an end: the panel says so, and a party that comes back can still
+        // end later.
+        match view.ended() {
+            Some(EndReason::Reconnecting) => {}
+            Some(_) if !self.party_ui.ended => {
+                self.party_ui.ended = true;
+                toast = Some("Party ended".into());
+            }
+            Some(_) => {}
+            None => self.party_ui.ended = false,
         }
+        let now = Instant::now();
+        let showing = (self.party_ui.toast.as_ref())
+            .is_some_and(|(_, at)| now.duration_since(*at) < TOAST_FOR);
         if let Some(text) = toast {
-            self.party_ui.toast = Some((text.into(), Instant::now()));
+            self.party_ui.queued.push_back(text.into());
+            if self.party_ui.queued.len() > TOAST_QUEUE {
+                self.party_ui.queued.pop_front();
+            }
+        }
+        if !showing && let Some(next) = self.party_ui.queued.pop_front() {
+            self.party_ui.toast = Some((next, now));
         }
     }
 
@@ -102,10 +121,9 @@ impl Player {
     }
 
     pub(super) fn party_toast_moving(&self, now: Instant) -> bool {
-        self.party_ui
-            .toast
-            .as_ref()
-            .is_some_and(|(_, at)| now.duration_since(*at) < TOAST_FOR)
+        !self.party_ui.queued.is_empty()
+            || (self.party_ui.toast.as_ref())
+                .is_some_and(|(_, at)| now.duration_since(*at) < TOAST_FOR)
     }
 
     /// The toast at the top centre: it fades in, holds, then fades out. It never takes clicks.
@@ -202,7 +220,7 @@ impl Player {
                     theme,
                     keyboard,
                     window,
-                    |player, cx| {
+                    |player, _, cx| {
                         player.party_ui.copy_pending = true;
                         player
                             .state
@@ -214,8 +232,34 @@ impl Player {
         };
         let host = view.is_host();
         if let Some(reason) = view.ended() {
+            let rejoin = self
+                .state
+                .read(cx)
+                .party
+                .as_ref()
+                .and_then(|party| party.rejoin_invite().map(str::to_owned));
             return body
                 .child(helper(crate::party::ended_text(reason, host).into()).pt(px(4.0)))
+                .when_some(rejoin, |body, invite| {
+                    body.child(self.party_row(
+                        "party-rejoin",
+                        slot::PARTY_PRIMARY,
+                        "Rejoin",
+                        Tone::Accent,
+                        false,
+                        theme,
+                        keyboard,
+                        window,
+                        move |player, window, cx| {
+                            let shell = player.shell.clone();
+                            let invite = invite.clone();
+                            let _ = shell.update(cx, |shell, cx| {
+                                shell.join_party_now(&invite, None, window, cx)
+                            });
+                        },
+                        cx,
+                    ))
+                })
                 .child(self.party_row(
                     "party-close",
                     slot::PARTY_EXIT,
@@ -225,7 +269,7 @@ impl Player {
                     theme,
                     keyboard,
                     window,
-                    |player, cx| player.state.update(cx, |state, cx| state.leave_party(cx)),
+                    |player, _, cx| player.state.update(cx, |state, cx| state.leave_party(cx)),
                     cx,
                 ))
                 .into_any_element();
@@ -238,21 +282,21 @@ impl Player {
                 if invite.is_some() {
                     "Copy invite link"
                 } else {
-                    "Getting the invite link…"
+                    "Getting invite link…"
                 },
                 Tone::Accent,
                 invite.is_none(),
                 theme,
                 keyboard,
                 window,
-                |player, cx| player.copy_invite(cx),
+                |player, _, cx| player.copy_invite(cx),
                 cx,
             ));
         }
         if !view.roster.is_empty() {
             body = body
                 .child(section("People"))
-                .children(view.roster.iter().map(|row| roster_row(row, theme)));
+                .children(view.roster.iter().map(|row| roster_row(row, &view, theme)));
         }
         if let Role::Host { settings, .. } = &view.role {
             let settings = *settings;
@@ -279,7 +323,8 @@ impl Player {
                     cx,
                 ))
                 .child(helper(
-                    "Pauses for anyone buffering, and after a jump until everyone is there. Up to 30 seconds at a time.".into(),
+                    "Holds everyone while someone catches up, for up to 30 seconds at a time."
+                        .into(),
                 ))
                 .child(self.checkbox(
                     "party-control",
@@ -362,7 +407,10 @@ impl Player {
             theme,
             keyboard,
             window,
-            |player, cx| player.state.update(cx, |state, cx| state.leave_party(cx)),
+            |player, window, cx| {
+                let shell = player.shell.clone();
+                let _ = shell.update(cx, |shell, cx| shell.leave_or_ask(window, cx));
+            },
             cx,
         ))
         .into_any_element()
@@ -385,7 +433,7 @@ impl Player {
 
     /// "Waiting for <name>" while the party holds everyone for someone else.
     pub(super) fn party_waiting(&self, cx: &gpui::App) -> Option<String> {
-        waiting_text(&self.state.read(cx).party.as_ref()?.view)
+        waiting_text(&self.state.read(cx).party.as_ref()?.view, self.model.paused)
     }
 
     fn copy_invite(&mut self, cx: &mut gpui::Context<Self>) {
@@ -419,7 +467,7 @@ impl Player {
         theme: Theme,
         keyboard: bool,
         window: &Window,
-        on_press: impl Fn(&mut Player, &mut gpui::Context<Player>) + 'static,
+        on_press: impl Fn(&mut Player, &mut Window, &mut gpui::Context<Player>) + 'static,
         cx: &mut gpui::Context<Self>,
     ) -> Stateful<Div> {
         let ink = theme.ink;
@@ -436,12 +484,12 @@ impl Player {
             .when(!disabled, |row| {
                 row.cursor_pointer()
                     .hover(move |style| style.bg(ink.opacity(0.05)))
-                    .on_click(cx.listener(move |player, _, _, cx| {
-                        on_press(player, cx);
+                    .on_click(cx.listener(move |player, _, window, cx| {
+                        on_press(player, window, cx);
                         cx.notify();
                     }))
             })
-            .child(label);
+            .child(crate::button::title_case(label));
         focus_ring(
             row,
             &self.focus.pool[slot],
@@ -454,9 +502,16 @@ impl Player {
     }
 }
 
-fn roster_row(row: &RosterRow, theme: Theme) -> Div {
+fn roster_row(row: &RosterRow, view: &PartyView, theme: Theme) -> Div {
     let member = &row.member;
     let (state, attention) = member_label(row);
+    let me = view.me == Some(member.member_id) || (member.is_host && view.is_host());
+    let role = match (member.is_host, me) {
+        (true, true) => Some("Host · You"),
+        (true, false) => Some("Host"),
+        (false, true) => Some("You"),
+        (false, false) => None,
+    };
     div()
         .flex()
         .items_center()
@@ -470,7 +525,7 @@ fn roster_row(row: &RosterRow, theme: Theme) -> Div {
                 .flex()
                 .flex_col()
                 .child(div().label().truncate().child(member.name.clone()))
-                .when(member.is_host, |name| name.child(note("Host", theme, 0.55))),
+                .when_some(role, |name, role| name.child(note(role, theme, 0.55))),
         )
         .child(
             div()
@@ -498,6 +553,7 @@ fn member_label(row: &RosterRow) -> (&'static str, bool) {
         MemberState::Loading => ("Loading", false),
         MemberState::Ready => ("Ready", false),
         MemberState::Paused => ("Paused", false),
+        MemberState::Away => ("Away", false),
         MemberState::Playing => ("Watching", false),
     }
 }
@@ -505,47 +561,60 @@ fn member_label(row: &RosterRow) -> (&'static str, bool) {
 /// The line under the title: what the connection is doing, or how many are watching.
 fn status_line(view: &PartyView) -> String {
     match view.link {
-        Link::Starting if view.is_host() => "Getting an invite link ready…".into(),
+        Link::Starting if view.is_host() => "Starting the party…".into(),
         Link::Starting | Link::Connecting => "Connecting to the host…".into(),
+        Link::Ended(EndReason::Reconnecting) => "Reconnecting…".into(),
         Link::Ended(_) => "Party ended".into(),
         Link::Live => {
             let count = view.roster.len().max(1);
-            let people = if count == 1 {
+            if count == 1 {
                 "Just you so far".to_owned()
             } else {
                 format!("{count} watching")
-            };
-            let relayed = view
-                .roster
-                .iter()
-                .any(|row| row.path == Some(PathKind::Relayed));
-            let direct = view
-                .roster
-                .iter()
-                .any(|row| row.path == Some(PathKind::Direct));
-            match (relayed, direct) {
-                (true, _) => format!("{people} · Through a relay"),
-                (false, true) => format!("{people} · Direct connection"),
-                _ => people,
             }
         }
     }
 }
 
-/// Who the party is paused for, by the name the roster gives them.
-fn waiting_text(view: &PartyView) -> Option<String> {
-    let Some(Gate::Waiting(id)) = view.gate else {
-        return None;
-    };
+/// Who the party is paused for, by the name the roster gives them. A paused party that
+/// someone else is still opening the film for waits on them too, as after Play for everyone.
+fn waiting_text(view: &PartyView, paused: bool) -> Option<String> {
     if view.ended().is_some() {
         return None;
     }
-    let name = view
-        .roster
-        .iter()
-        .find(|row| row.member.member_id == id)
-        .map_or("someone", |row| row.member.name.as_str());
-    Some(format!("Waiting for {name}"))
+    let name = |row: &RosterRow| row.member.name.clone();
+    let names: Vec<String> = match view.gate? {
+        Gate::Waiting(id) => vec![
+            (view.roster.iter())
+                .find(|row| row.member.member_id == id)
+                .map_or("someone".to_owned(), name),
+        ],
+        Gate::Ready if paused => (view.roster.iter())
+            .filter(|row| !is_me(view, row))
+            .filter(|row| {
+                matches!(
+                    row.member.state,
+                    MemberState::Loading | MemberState::Buffering
+                )
+            })
+            .map(name)
+            .collect(),
+        _ => return None,
+    };
+    match names.as_slice() {
+        [] => None,
+        [one] => Some(format!("Waiting for {one}")),
+        [one, two] => Some(format!("Waiting for {one} and {two}")),
+        many => Some(format!("Waiting for {} people", many.len())),
+    }
+}
+
+fn is_me(view: &PartyView, row: &RosterRow) -> bool {
+    if view.is_host() {
+        row.member.is_host
+    } else {
+        view.me == Some(row.member.member_id)
+    }
 }
 
 fn notice_text(notice: &Notice) -> String {
@@ -583,7 +652,7 @@ pub(super) fn preview(kind: &str) -> PartyView {
         path,
     };
     let host = kind == "host";
-    PartyView {
+    crate::party::worst_case(PartyView {
         role: if host {
             Role::Host {
                 invite: Some(InviteLink::preview()),
@@ -592,10 +661,10 @@ pub(super) fn preview(kind: &str) -> PartyView {
         } else {
             Role::Member
         },
-        link: if kind == "ended" {
-            Link::Ended(EndReason::Bye(ByeReason::HostLeft))
-        } else {
-            Link::Live
+        link: match kind {
+            "ended" => Link::Ended(EndReason::Bye(ByeReason::HostLeft)),
+            "reconnecting" => Link::Ended(EndReason::Reconnecting),
+            _ => Link::Live,
         },
         roster: vec![
             person(
@@ -625,7 +694,7 @@ pub(super) fn preview(kind: &str) -> PartyView {
             person(
                 3,
                 "Rina",
-                MemberState::Playing,
+                MemberState::Away,
                 false,
                 false,
                 Some(PathKind::Direct),
@@ -642,8 +711,8 @@ pub(super) fn preview(kind: &str) -> PartyView {
         }],
         sync: PartySync::default(),
         me: None,
-        gate: (kind != "ended").then_some(Gate::Waiting(2)),
-    }
+        gate: matches!(kind, "host" | "member").then_some(Gate::Waiting(2)),
+    })
 }
 
 #[cfg(test)]
@@ -678,16 +747,48 @@ mod tests {
     fn waiting_pill_names_the_member_the_party_waits_for() {
         let mut view = preview("member");
         view.gate = Some(Gate::Waiting(2));
-        assert_eq!(waiting_text(&view).as_deref(), Some("Waiting for Sam"));
+        assert_eq!(
+            waiting_text(&view, false).as_deref(),
+            Some("Waiting for Sam")
+        );
         view.gate = Some(Gate::Waiting(9));
-        assert_eq!(waiting_text(&view).as_deref(), Some("Waiting for someone"));
+        assert_eq!(
+            waiting_text(&view, false).as_deref(),
+            Some("Waiting for someone")
+        );
         view.gate = Some(Gate::Ready);
-        assert_eq!(waiting_text(&view), None);
+        assert_eq!(waiting_text(&view, false), None);
         view.gate = None;
-        assert_eq!(waiting_text(&view), None);
+        assert_eq!(waiting_text(&view, true), None);
         let mut ended = preview("ended");
         ended.gate = Some(Gate::Waiting(2));
-        assert_eq!(waiting_text(&ended), None);
+        assert_eq!(waiting_text(&ended, false), None);
+    }
+
+    #[test]
+    fn a_held_start_names_who_is_still_opening_the_film() {
+        let mut view = preview("host");
+        view.gate = Some(Gate::Ready);
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for Sam")
+        );
+        view.roster[3].member.state = MemberState::Loading;
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for Sam and Rina")
+        );
+        view.roster[1].member.state = MemberState::Loading;
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for 3 people")
+        );
+        view.roster[0].member.state = MemberState::Loading;
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for 3 people")
+        );
+        assert_eq!(waiting_text(&view, false), None);
     }
 
     #[test]
