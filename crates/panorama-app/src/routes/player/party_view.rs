@@ -90,9 +90,16 @@ impl Player {
             toast = Some(format!("{host} switched the source"));
         }
         self.party_ui.switches = Some(party.switches);
-        if !self.party_ui.ended && view.ended().is_some() {
-            self.party_ui.ended = true;
-            toast = Some("Party ended".into());
+        // Reconnecting is not an end: the panel says so, and a party that comes back can still
+        // end later.
+        match view.ended() {
+            Some(EndReason::Reconnecting) => {}
+            Some(_) if !self.party_ui.ended => {
+                self.party_ui.ended = true;
+                toast = Some("Party ended".into());
+            }
+            Some(_) => {}
+            None => self.party_ui.ended = false,
         }
         let now = Instant::now();
         let showing = (self.party_ui.toast.as_ref())
