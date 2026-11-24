@@ -305,6 +305,7 @@ impl Film {
             .filter(|point| point.video_id.as_ref() == Some(&episode.id))
             .map(|point| (point.offset_secs / point.duration_secs) as f32);
         let watched = self.watched.contains(&episode.id);
+        let group: gpui::SharedString = format!("film-episode-{index}").into();
         let mut still = div()
             .relative()
             .w(px(width))
@@ -348,6 +349,35 @@ impl Film {
                         ),
                 )
             })
+            // Pointing at an aired episode shows it plays.
+            .when(!unaired, |still| {
+                still.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(theme.scrim.opacity(0.32))
+                        .opacity(0.0)
+                        .group_hover(group.clone(), |style| style.opacity(1.0))
+                        .child(
+                            div()
+                                .size(px(48.0))
+                                .rounded_full()
+                                .bg(theme.scrim.opacity(0.6))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    svg()
+                                        .path(Icon::Play.path())
+                                        .size(px(20.0))
+                                        .text_color(theme.ink),
+                                ),
+                        ),
+                )
+            })
             .child(
                 div()
                     .absolute()
@@ -355,7 +385,17 @@ impl Film {
                     .border_1()
                     .border_color(theme.image_outline),
             );
-        let name = format!("{}  {}", episode.number, episode.title);
+        // The number steps back so the title reads first.
+        let name = div()
+            .flex()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(theme.ink_muted)
+                    .child(episode.number.to_string()),
+            )
+            .child(div().min_w_0().truncate().child(episode.title.clone()));
         let note = if unaired {
             episode
                 .released
@@ -366,19 +406,13 @@ impl Film {
         };
         let mut tile = div()
             .relative()
+            .group(group)
             .w(px(width))
             .flex()
             .flex_col()
             .when(unaired, |tile| tile.opacity(0.5))
             .child(still)
-            .child(
-                div()
-                    .label()
-                    .mt(px(10.0))
-                    .text_color(theme.ink)
-                    .line_clamp(1)
-                    .child(name),
-            )
+            .child(div().label().mt(px(10.0)).text_color(theme.ink).child(name))
             .when_some(note, |tile, note| {
                 tile.child(
                     div()
