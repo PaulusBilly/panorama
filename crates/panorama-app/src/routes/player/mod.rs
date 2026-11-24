@@ -593,14 +593,16 @@ impl Player {
     /// Leaving the player closes the film for the whole party.
     fn unmount(&mut self, cx: &mut gpui::App) {
         self.release(cx);
-        if std::mem::take(&mut self.opened) {
-            let (position, duration) = (self.model.time.unwrap_or(0.0), self.model.duration);
-            let id = self.id.clone();
-            self.state.update(cx, |state, _| {
+        let opened = std::mem::take(&mut self.opened);
+        let (position, duration) = (self.model.time.unwrap_or(0.0), self.model.duration);
+        let id = self.id.clone();
+        self.state.update(cx, |state, _| {
+            if opened {
                 state.party_stop();
-                state.party_left_film(&id, position, duration);
-            });
-        }
+            }
+            // A friend who leaves before a source opened is away too.
+            state.party_left_film(&id, position, duration);
+        });
     }
 
     /// Closes what plays.

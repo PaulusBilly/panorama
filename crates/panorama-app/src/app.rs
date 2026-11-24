@@ -417,9 +417,10 @@ impl AppShell {
             self.state
                 .read(cx)
                 .party_report(panorama_core::party::MemberState::Away, 0.0, None);
-            if self.prompt.is_none() {
-                let next = Box::new((film, video_id, pick));
-                self.ask_party(crate::party_prompt::Ask::JoinFilm(next), window, cx);
+            let ask = crate::party_prompt::Ask::JoinFilm(Box::new((film, video_id, pick)));
+            match self.prompt.clone() {
+                None => self.ask_party(ask, window, cx),
+                Some(prompt) => prompt.update(cx, |prompt, cx| prompt.swap_film(ask, cx)),
             }
             return;
         }

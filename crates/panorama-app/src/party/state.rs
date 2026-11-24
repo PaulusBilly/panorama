@@ -43,6 +43,8 @@ pub struct Party {
     joined_as: Option<String>,
     /// Member: the party has heard that this person can't play.
     told_blocked: bool,
+    /// Member: the player's last report, resent once a block clears.
+    reported: std::cell::Cell<Option<(MemberState, f64, Option<f64>)>>,
     /// Member: joins made on their own since the link was last live.
     rejoins: u8,
     _rejoin: Option<Task<()>>,
@@ -103,6 +105,7 @@ impl Party {
             invite: None,
             joined_as: None,
             told_blocked: false,
+            reported: Default::default(),
             rejoins: 0,
             _rejoin: None,
             _events: Task::ready(()),
@@ -160,6 +163,15 @@ impl Party {
 
     /// When to join again on its own after the connection dropped, while tries remain. A
     /// first join that never got in has no connection to lose, so it stays a plain failure.
+    /// Member: what the host hears while blocked, and after: the player's own last word.
+    fn report_for(&self, blocked: bool) -> (MemberState, f64, Option<f64>) {
+        match self.reported.get() {
+            _ if blocked => (MemberState::Failed, 0.0, None),
+            Some(last) => last,
+            None => (MemberState::Loading, 0.0, None),
+        }
+    }
+
     fn rejoin_after(&self) -> Option<Duration> {
         self.rejoin_invite()?;
         if self.view.me.is_none() && self.rejoins == 0 {
@@ -388,6 +400,7 @@ impl AppState {
     /// The local player's state, on change and while playing.
     pub fn party_report(&self, state: MemberState, position: f64, duration: Option<f64>) {
         if let Some(party) = &self.party {
+            party.reported.set(Some((state, position, duration)));
             party.send(Input::Report {
                 state,
                 position,
@@ -503,15 +516,11 @@ impl AppState {
             return;
         }
         party.told_blocked = blocked;
-        let state = if blocked {
-            MemberState::Failed
-        } else {
-            MemberState::Loading
-        };
+        let (state, position, duration) = party.report_for(blocked);
         party.send(Input::Report {
             state,
-            position: 0.0,
-            duration: None,
+            position,
+            duration,
         });
     }
 
@@ -626,6 +635,7 @@ impl AppState {
             invite: None,
             joined_as: None,
             told_blocked: false,
+            reported: Default::default(),
             rejoins: 0,
             _rejoin: None,
             _events: task,
@@ -725,6 +735,7 @@ mod tests {
             invite: None,
             joined_as: None,
             told_blocked: false,
+            reported: Default::default(),
             rejoins: 0,
             _rejoin: None,
             _events: Task::ready(()),
@@ -780,6 +791,20 @@ mod tests {
         assert_eq!(
             Blocked::of(&signed_in, true, false, true),
             Some(Blocked::FilmNotFound)
+        );
+    }
+
+    #[test]
+    fn a_recovered_friend_tells_the_host_what_their_player_last_said() {
+        let party = member_watching("tt1");
+        assert_eq!(party.report_for(false), (MemberState::Loading, 0.0, None));
+        party
+            .reported
+            .set(Some((MemberState::Ready, 42.0, Some(7_200.0))));
+        assert_eq!(party.report_for(true), (MemberState::Failed, 0.0, None));
+        assert_eq!(
+            party.report_for(false),
+            (MemberState::Ready, 42.0, Some(7_200.0))
         );
     }
 

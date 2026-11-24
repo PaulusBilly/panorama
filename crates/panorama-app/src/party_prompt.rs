@@ -166,6 +166,15 @@ impl PartyPrompt {
         }
     }
 
+    /// The party moved on while it asked to join a film, so it asks about the newer one.
+    pub(crate) fn swap_film(&mut self, next: Ask, cx: &mut Context<Self>) {
+        if matches!(self.ask, Some(Ask::JoinFilm(_))) {
+            self.wording = next.wording();
+            self.ask = Some(next);
+            cx.notify();
+        }
+    }
+
     fn answer(&mut self, yes: bool, window: &mut Window, cx: &mut Context<Self>) {
         let ask = self.ask.take().filter(|_| yes);
         let back = self.back.take().filter(|_| !yes);
@@ -425,14 +434,19 @@ impl AppShell {
                     crate::debug::log(format!("party join refused: {error}"));
                 }
             }
-            Some(Ask::JoinFilm(next)) => {
+            // Only the film the party plays now; an older question launches nothing.
+            Some(Ask::JoinFilm(next))
+                if (self.state.read(cx).party.as_ref())
+                    .and_then(|party| party.media())
+                    .is_some_and(|media| media.film_id == next.0.id) =>
+            {
                 let (film, video_id, pick) = *next;
                 let id = film.id.clone();
                 self.state
                     .update(cx, |state, cx| state.launch(film, video_id, None, pick, cx));
                 self.navigate(Route::Player { id }, window, cx);
             }
-            None => cx.notify(),
+            _ => cx.notify(),
         }
     }
 }
