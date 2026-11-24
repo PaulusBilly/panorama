@@ -425,7 +425,7 @@ impl Player {
 
     /// "Waiting for <name>" while the party holds everyone for someone else.
     pub(super) fn party_waiting(&self, cx: &gpui::App) -> Option<String> {
-        waiting_text(&self.state.read(cx).party.as_ref()?.view)
+        waiting_text(&self.state.read(cx).party.as_ref()?.view, self.model.paused)
     }
 
     fn copy_invite(&mut self, cx: &mut gpui::Context<Self>) {
@@ -545,6 +545,7 @@ fn member_label(row: &RosterRow) -> (&'static str, bool) {
         MemberState::Loading => ("Loading", false),
         MemberState::Ready => ("Ready", false),
         MemberState::Paused => ("Paused", false),
+        MemberState::Away => ("Away", false),
         MemberState::Playing => ("Watching", false),
     }
 }
@@ -554,6 +555,7 @@ fn status_line(view: &PartyView) -> String {
     match view.link {
         Link::Starting if view.is_host() => "Getting an invite link ready…".into(),
         Link::Starting | Link::Connecting => "Connecting to the host…".into(),
+        Link::Ended(EndReason::Reconnecting) => "Reconnecting…".into(),
         Link::Ended(_) => "Party ended".into(),
         Link::Live => {
             let count = view.roster.len().max(1);
@@ -566,20 +568,45 @@ fn status_line(view: &PartyView) -> String {
     }
 }
 
-/// Who the party is paused for, by the name the roster gives them.
-fn waiting_text(view: &PartyView) -> Option<String> {
-    let Some(Gate::Waiting(id)) = view.gate else {
-        return None;
-    };
+/// Who the party is paused for, by the name the roster gives them. A paused party that
+/// someone else is still opening the film for waits on them too, as after Play for everyone.
+fn waiting_text(view: &PartyView, paused: bool) -> Option<String> {
     if view.ended().is_some() {
         return None;
     }
-    let name = view
-        .roster
-        .iter()
-        .find(|row| row.member.member_id == id)
-        .map_or("someone", |row| row.member.name.as_str());
-    Some(format!("Waiting for {name}"))
+    let name = |row: &RosterRow| row.member.name.clone();
+    let names: Vec<String> = match view.gate? {
+        Gate::Waiting(id) => vec![
+            (view.roster.iter())
+                .find(|row| row.member.member_id == id)
+                .map_or("someone".to_owned(), name),
+        ],
+        Gate::Ready if paused => (view.roster.iter())
+            .filter(|row| !is_me(view, row))
+            .filter(|row| {
+                matches!(
+                    row.member.state,
+                    MemberState::Loading | MemberState::Buffering
+                )
+            })
+            .map(name)
+            .collect(),
+        _ => return None,
+    };
+    match names.as_slice() {
+        [] => None,
+        [one] => Some(format!("Waiting for {one}")),
+        [one, two] => Some(format!("Waiting for {one} and {two}")),
+        many => Some(format!("Waiting for {} people", many.len())),
+    }
+}
+
+fn is_me(view: &PartyView, row: &RosterRow) -> bool {
+    if view.is_host() {
+        row.member.is_host
+    } else {
+        view.me == Some(row.member.member_id)
+    }
 }
 
 fn notice_text(notice: &Notice) -> String {
@@ -626,10 +653,10 @@ pub(super) fn preview(kind: &str) -> PartyView {
         } else {
             Role::Member
         },
-        link: if kind == "ended" {
-            Link::Ended(EndReason::Bye(ByeReason::HostLeft))
-        } else {
-            Link::Live
+        link: match kind {
+            "ended" => Link::Ended(EndReason::Bye(ByeReason::HostLeft)),
+            "reconnecting" => Link::Ended(EndReason::Reconnecting),
+            _ => Link::Live,
         },
         roster: vec![
             person(
@@ -659,7 +686,7 @@ pub(super) fn preview(kind: &str) -> PartyView {
             person(
                 3,
                 "Rina",
-                MemberState::Playing,
+                MemberState::Away,
                 false,
                 false,
                 Some(PathKind::Direct),
@@ -676,7 +703,7 @@ pub(super) fn preview(kind: &str) -> PartyView {
         }],
         sync: PartySync::default(),
         me: None,
-        gate: (kind != "ended").then_some(Gate::Waiting(2)),
+        gate: matches!(kind, "host" | "member").then_some(Gate::Waiting(2)),
     }
 }
 
@@ -712,16 +739,48 @@ mod tests {
     fn waiting_pill_names_the_member_the_party_waits_for() {
         let mut view = preview("member");
         view.gate = Some(Gate::Waiting(2));
-        assert_eq!(waiting_text(&view).as_deref(), Some("Waiting for Sam"));
+        assert_eq!(
+            waiting_text(&view, false).as_deref(),
+            Some("Waiting for Sam")
+        );
         view.gate = Some(Gate::Waiting(9));
-        assert_eq!(waiting_text(&view).as_deref(), Some("Waiting for someone"));
+        assert_eq!(
+            waiting_text(&view, false).as_deref(),
+            Some("Waiting for someone")
+        );
         view.gate = Some(Gate::Ready);
-        assert_eq!(waiting_text(&view), None);
+        assert_eq!(waiting_text(&view, false), None);
         view.gate = None;
-        assert_eq!(waiting_text(&view), None);
+        assert_eq!(waiting_text(&view, true), None);
         let mut ended = preview("ended");
         ended.gate = Some(Gate::Waiting(2));
-        assert_eq!(waiting_text(&ended), None);
+        assert_eq!(waiting_text(&ended, false), None);
+    }
+
+    #[test]
+    fn a_held_start_names_who_is_still_opening_the_film() {
+        let mut view = preview("host");
+        view.gate = Some(Gate::Ready);
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for Sam")
+        );
+        view.roster[3].member.state = MemberState::Loading;
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for Sam and Rina")
+        );
+        view.roster[1].member.state = MemberState::Loading;
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for 3 people")
+        );
+        view.roster[0].member.state = MemberState::Loading;
+        assert_eq!(
+            waiting_text(&view, true).as_deref(),
+            Some("Waiting for 3 people")
+        );
+        assert_eq!(waiting_text(&view, false), None);
     }
 
     #[test]

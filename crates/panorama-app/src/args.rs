@@ -379,8 +379,10 @@ impl Args {
                     let kind = args
                         .next()
                         .and_then(|value| value.to_str().map(str::to_owned))
-                        .filter(|value| matches!(value.as_str(), "host" | "member" | "ended"))
-                        .ok_or("--party-preview needs host, member or ended")?;
+                        .filter(|value| {
+                            matches!(value.as_str(), "host" | "member" | "ended" | "reconnecting")
+                        })
+                        .ok_or("--party-preview needs host, member, ended or reconnecting")?;
                     result.party_preview = Some(kind);
                 }
                 "--runtime-problem" => {

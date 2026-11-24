@@ -408,6 +408,10 @@ impl AppShell {
             && self.lobby.is_none()
             && (self.state.read(cx).party.as_ref()).is_some_and(|party| !party.view.is_host());
         if browsing && !std::mem::take(&mut self.follow_next_film) {
+            // Until they say yes, the party starts without them.
+            self.state
+                .read(cx)
+                .party_report(panorama_core::party::MemberState::Away, 0.0, None);
             if self.prompt.is_none() {
                 let next = Box::new((film, video_id, pick));
                 self.ask_party(crate::party_prompt::Ask::JoinFilm(next), window, cx);

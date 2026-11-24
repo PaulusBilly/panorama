@@ -844,6 +844,7 @@ fn person(row: &RosterRow, view: &PartyView, look: Look) -> Div {
     let (label, ready) = match member.state {
         state if is_ready(state) => ("Ready", true),
         MemberState::Failed => ("Can't play", false),
+        MemberState::Away => ("Away", false),
         _ => ("Loading", false),
     };
     let marker = if ready {
@@ -852,7 +853,7 @@ fn person(row: &RosterRow, view: &PartyView, look: Look) -> Div {
             .rounded_full()
             .bg(theme.accent)
             .into_any_element()
-    } else if member.state == MemberState::Failed {
+    } else if matches!(member.state, MemberState::Failed | MemberState::Away) {
         div().into_any_element()
     } else {
         spinner(member.member_id, look)

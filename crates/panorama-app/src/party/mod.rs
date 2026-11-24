@@ -123,6 +123,8 @@ pub enum EndReason {
     Bye(ByeReason),
     /// The connection to the host dropped.
     Lost,
+    /// The connection dropped and this window is about to join again on its own.
+    Reconnecting,
     Failed(TransportError),
 }
 
@@ -347,6 +349,7 @@ pub(crate) fn ended_text(reason: EndReason, host: bool) -> &'static str {
             "The host removed you from the party."
         }
         EndReason::Lost => "Lost the connection to the host. You can keep watching.",
+        EndReason::Reconnecting => "Lost the connection to the host. Reconnecting…",
         EndReason::Failed(_) => "Couldn't reach the party. Check your internet connection.",
     }
 }
@@ -357,6 +360,7 @@ pub(crate) fn lobby_ended_text(reason: EndReason, host: bool) -> &'static str {
         EndReason::Left if host => "You ended the party.",
         EndReason::Bye(panorama_core::party::ByeReason::HostLeft) => "The host ended the party.",
         EndReason::Lost => "Lost the connection to the host.",
+        EndReason::Reconnecting => "Lost the connection. Reconnecting…",
         reason => ended_text(reason, host),
     }
 }

@@ -95,6 +95,8 @@ pub enum MemberState {
     Paused,
     Buffering,
     Failed,
+    /// The player is closed: this person is browsing, so the party never waits on them.
+    Away,
 }
 
 /// The party's timeline. At host time `T` the expected position is

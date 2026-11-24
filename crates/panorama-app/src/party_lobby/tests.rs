@@ -15,6 +15,19 @@ fn roster(friends: &[(&str, MemberState)]) -> Vec<RosterRow> {
 }
 
 #[test]
+fn a_friend_who_stepped_away_does_not_hold_start() {
+    let away = Readiness::of(&roster(&[
+        ("Sam", MemberState::Ready),
+        ("Kim", MemberState::Away),
+    ]));
+    assert!(away.can_start());
+    assert_eq!(
+        decide(true, &away, Command::StartWatching),
+        Some(Exit::Start)
+    );
+}
+
+#[test]
 fn start_is_disabled_until_every_joined_friend_is_ready() {
     let loading = Readiness::of(&roster(&[
         ("Sam", MemberState::Paused),

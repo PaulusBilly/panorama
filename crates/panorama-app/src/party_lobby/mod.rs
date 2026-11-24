@@ -69,7 +69,7 @@ impl Readiness {
             friends: friends.clone().count(),
             waiting: friends
                 .clone()
-                .filter(|row| !is_ready(row.member.state))
+                .filter(|row| !is_ready(row.member.state) && row.member.state != MemberState::Away)
                 .map(|row| row.member.name.clone())
                 .collect(),
             failed: friends
@@ -463,6 +463,7 @@ pub fn preview(host: bool) -> PartyView {
             person(0, "Billy", MemberState::Ready, true),
             person(1, "Sam", MemberState::Paused, false),
             person(2, "Rina", MemberState::Loading, false),
+            person(3, "Kim", MemberState::Away, false),
         ],
         anyone_controls: false,
         notices: Vec::new(),

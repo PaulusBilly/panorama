@@ -17,6 +17,7 @@ use panorama_core::{
     },
     store::Key,
 };
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
 const NAME: &str = "party.name";
@@ -37,12 +38,23 @@ pub struct Party {
     lookup_failed: bool,
     /// Member: this player's source failed, so the film can't play here.
     source_failed: bool,
-    /// Member: the link joined with, for one-press rejoin after a dropped connection.
+    /// Member: the link and name joined with, for rejoining after a dropped connection.
     invite: Option<String>,
+    joined_as: Option<String>,
     /// Member: the party has heard that this person can't play.
     told_blocked: bool,
+    /// Member: joins made on their own since the link was last live.
+    rejoins: u8,
+    _rejoin: Option<Task<()>>,
     _events: Task<()>,
 }
+
+/// How long a friend waits before each automatic rejoin. After the last, Rejoin is theirs.
+const REJOIN_AFTER: [Duration; 3] = [
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+    Duration::from_secs(10),
+];
 
 /// Why a friend can't play the party's film, each with its own way out.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,7 +101,10 @@ impl Party {
             lookup_failed: false,
             source_failed: false,
             invite: None,
+            joined_as: None,
             told_blocked: false,
+            rejoins: 0,
+            _rejoin: None,
             _events: Task::ready(()),
         }
     }
@@ -141,6 +156,12 @@ impl Party {
         )
         .then_some(self.invite.as_deref())
         .flatten()
+    }
+
+    /// When to join again on its own after the connection dropped, while tries remain.
+    fn rejoin_after(&self) -> Option<Duration> {
+        self.rejoin_invite()?;
+        REJOIN_AFTER.get(usize::from(self.rejoins)).copied()
     }
 
     fn send(&self, input: Input) {
@@ -278,15 +299,46 @@ impl AppState {
         let spawned = service::member(
             &services.runtime,
             services.store.clone(),
-            name,
+            name.clone(),
             invite,
             sync,
         );
         self.attach_party(spawned, Role::Member, cx);
         if let Some(party) = self.party.as_mut() {
             party.invite = Some(raw);
+            party.joined_as = Some(name);
         }
         Ok(())
+    }
+
+    /// Member: the connection dropped, so join again after a pause, the same as pressing
+    /// Rejoin. The party keeps its place: the host sends the film and position on welcome.
+    fn rejoin_later(&mut self, cx: &mut Context<Self>) {
+        let Some(party) = self.party.as_mut() else {
+            return;
+        };
+        let (Some(delay), Some(invite)) = (party.rejoin_after(), party.invite.clone()) else {
+            return;
+        };
+        let name = party.joined_as.clone();
+        let tries = party.rejoins + 1;
+        super::trace(|| format!("rejoin {tries} in {}s", delay.as_secs()));
+        party.view.link = super::Link::Ended(EndReason::Reconnecting);
+        party._rejoin = Some(cx.spawn(async move |state, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = state.update(cx, |state, cx| {
+                let still = state
+                    .party
+                    .as_ref()
+                    .is_some_and(|party| party.view.ended() == Some(EndReason::Reconnecting));
+                if still
+                    && state.join_party(&invite, name, cx).is_ok()
+                    && let Some(party) = state.party.as_mut()
+                {
+                    party.rejoins = tries;
+                }
+            });
+        }));
     }
 
     /// Leave, or as the host, end the party for everyone. Playback carries on.
@@ -383,15 +435,15 @@ impl AppState {
         }
     }
 
-    /// Member: the player closed on `film_id`, so nothing here holds the party up. A last
-    /// report of buffering would otherwise make everyone wait for a player that is gone. When
-    /// the party has moved to another film, this player's report no longer applies.
+    /// Member: the player closed on `film_id`, so this person is away and holds nothing up. A
+    /// last report of buffering would otherwise make everyone wait for a player that is gone.
+    /// When the party has moved to another film, this player's report no longer applies.
     pub fn party_left_film(&self, film_id: &str, position: f64, duration: Option<f64>) {
         let current = self.party.as_ref().is_some_and(|party| {
             !party.view.is_host() && party.media().is_some_and(|media| media.film_id == film_id)
         });
         if current {
-            self.party_report(MemberState::Paused, position, duration);
+            self.party_report(MemberState::Away, position, duration);
         }
     }
 
@@ -568,7 +620,10 @@ impl AppState {
             lookup_failed: false,
             source_failed: false,
             invite: None,
+            joined_as: None,
             told_blocked: false,
+            rejoins: 0,
+            _rejoin: None,
             _events: task,
         });
         cx.notify();
@@ -581,9 +636,13 @@ impl AppState {
         match event {
             Event::View(view) => {
                 let ended = view.ended().is_some();
+                if view.link == super::Link::Live {
+                    party.rejoins = 0;
+                }
                 party.view = view;
                 if ended {
                     self.drop_party_play();
+                    self.rejoin_later(cx);
                 }
             }
             Event::Player(command) => {
@@ -657,7 +716,10 @@ mod tests {
             lookup_failed: false,
             source_failed: false,
             invite: None,
+            joined_as: None,
             told_blocked: false,
+            rejoins: 0,
+            _rejoin: None,
             _events: Task::ready(()),
         };
         (party, received)
@@ -727,12 +789,32 @@ mod tests {
     }
 
     #[test]
+    fn a_dropped_friend_rejoins_on_their_own_three_times_then_by_hand() {
+        let mut party = member_watching("tt1");
+        party.invite = Some("panorama://party/x".into());
+        party.view.link = Link::Ended(EndReason::Lost);
+        let delays: Vec<u64> = (0..4)
+            .map_while(|tries| {
+                party.rejoins = tries;
+                party.rejoin_after().map(|delay| delay.as_secs())
+            })
+            .collect();
+        assert_eq!(delays, [2, 5, 10]);
+        assert_eq!(party.rejoin_invite(), Some("panorama://party/x"));
+        party.view.link = Link::Ended(EndReason::Reconnecting);
+        assert_eq!(party.rejoin_invite(), None);
+        party.view.link = Link::Ended(EndReason::Left);
+        party.rejoins = 0;
+        assert_eq!(party.rejoin_after(), None);
+    }
+
+    #[test]
     fn the_pill_counts_people_only_once_there_are_friends() {
         let (mut party, _) = hosting();
         assert_eq!(party.pill_label(), "Watch party");
         assert!(!party.plays_for_everyone());
         party.view = crate::party_lobby::preview(true);
-        assert_eq!(party.pill_label(), "Watch party · 3");
+        assert_eq!(party.pill_label(), "Watch party · 4");
         assert!(party.plays_for_everyone());
     }
 
