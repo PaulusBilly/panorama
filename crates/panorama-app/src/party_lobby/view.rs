@@ -321,7 +321,7 @@ impl PartyLobby {
                     Button::glass(
                         "party-lobby-copy",
                         match (ready, self.copied) {
-                            (false, _) => "Getting invite link",
+                            (false, _) => "Getting invite link…",
                             (true, true) => "Invite link copied",
                             (true, false) => "Copy invite link",
                         },
@@ -967,7 +967,7 @@ fn host_status(
 ) -> Stateful<Div> {
     let name = |text: String| div().text_color(theme.ink).child(text);
     match view.map(|view| view.link) {
-        Some(Link::Starting) => return status.child("Getting the party ready"),
+        Some(Link::Starting) => return status.child("Starting the party…"),
         Some(Link::Ended(reason)) => {
             return status.child(crate::party::lobby_ended_text(reason, true));
         }

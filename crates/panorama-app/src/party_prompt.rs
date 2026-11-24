@@ -92,7 +92,7 @@ impl Ask {
             },
             Self::StopFilm => Wording {
                 title: "Stop the film for everyone?".into(),
-                body: "Your friends go back to the lobby while you pick what's next. The party stays open."
+                body: "Your friends wait while you pick what's next. The party stays open."
                     .into(),
                 confirm: "Stop film",
                 stay: "Keep watching",
@@ -113,13 +113,16 @@ impl Ask {
             Self::JoinOther { hosting: false, .. } => Wording {
                 title: "Switch parties?".into(),
                 body: "Joining this invite takes you out of the party you're in.".into(),
-                confirm: "Switch",
+                confirm: "Switch parties",
                 stay: "Stay in party",
             },
             Self::JoinFilm(next) => Wording {
-                title: format!("{} is on", next.0.name),
-                body: "The host started a new film for the party.".into(),
-                confirm: "Join",
+                title: "The party started a film".into(),
+                body: format!(
+                    "{} is playing for everyone. Watch it now, or join later from Watch party.",
+                    next.0.name
+                ),
+                confirm: "Watch now",
                 stay: "Not now",
             },
         }

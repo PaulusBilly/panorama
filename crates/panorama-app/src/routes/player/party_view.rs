@@ -275,7 +275,7 @@ impl Player {
                 if invite.is_some() {
                     "Copy invite link"
                 } else {
-                    "Getting the invite link…"
+                    "Getting invite link…"
                 },
                 Tone::Accent,
                 invite.is_none(),
@@ -316,7 +316,8 @@ impl Player {
                     cx,
                 ))
                 .child(helper(
-                    "Pauses for anyone buffering, and after a jump until everyone is there. Up to 30 seconds at a time.".into(),
+                    "Holds everyone while someone catches up, for up to 30 seconds at a time."
+                        .into(),
                 ))
                 .child(self.checkbox(
                     "party-control",
@@ -553,7 +554,7 @@ fn member_label(row: &RosterRow) -> (&'static str, bool) {
 /// The line under the title: what the connection is doing, or how many are watching.
 fn status_line(view: &PartyView) -> String {
     match view.link {
-        Link::Starting if view.is_host() => "Getting an invite link ready…".into(),
+        Link::Starting if view.is_host() => "Starting the party…".into(),
         Link::Starting | Link::Connecting => "Connecting to the host…".into(),
         Link::Ended(EndReason::Reconnecting) => "Reconnecting…".into(),
         Link::Ended(_) => "Party ended".into(),

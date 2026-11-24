@@ -350,7 +350,9 @@ pub(crate) fn ended_text(reason: EndReason, host: bool) -> &'static str {
         }
         EndReason::Lost => "Lost the connection to the host. You can keep watching.",
         EndReason::Reconnecting => "Lost the connection to the host. Reconnecting…",
-        EndReason::Failed(_) => "Couldn't reach the party. Check your internet connection.",
+        EndReason::Failed(_) => {
+            "Couldn't reach the host. Check your connection, or ask for a new invite link."
+        }
     }
 }
 

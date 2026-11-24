@@ -69,7 +69,7 @@ impl Blocked {
     pub fn text(self) -> &'static str {
         match self {
             Self::SignedOut => "Sign in to watch with the party",
-            Self::NoAddons => "Add a streaming addon in Stremio, then rejoin",
+            Self::NoAddons => "Add a streaming addon in Stremio to watch with the party",
             Self::FilmNotFound => "Couldn't find this film in your addons",
             Self::SourceFailed => "Your copy of this film won't play",
         }
@@ -158,9 +158,13 @@ impl Party {
         .flatten()
     }
 
-    /// When to join again on its own after the connection dropped, while tries remain.
+    /// When to join again on its own after the connection dropped, while tries remain. A
+    /// first join that never got in has no connection to lose, so it stays a plain failure.
     fn rejoin_after(&self) -> Option<Duration> {
         self.rejoin_invite()?;
+        if self.view.me.is_none() && self.rejoins == 0 {
+            return None;
+        }
         REJOIN_AFTER.get(usize::from(self.rejoins)).copied()
     }
 
@@ -684,7 +688,10 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::party::{Link, PartyView};
-    use panorama_core::party::{HostInput, HostSession, PartyRelease, transport::PartySecret};
+    use panorama_core::party::{
+        HostInput, HostSession, PartyRelease,
+        transport::{PartySecret, TransportError},
+    };
 
     fn media() -> PartyMedia {
         PartyMedia {
@@ -792,6 +799,9 @@ mod tests {
     fn a_dropped_friend_rejoins_on_their_own_three_times_then_by_hand() {
         let mut party = member_watching("tt1");
         party.invite = Some("panorama://party/x".into());
+        party.view.link = Link::Ended(EndReason::Failed(TransportError::Timeout));
+        assert_eq!(party.rejoin_after(), None, "a first join that never got in");
+        party.view.me = Some(1);
         party.view.link = Link::Ended(EndReason::Lost);
         let delays: Vec<u64> = (0..4)
             .map_while(|tries| {
