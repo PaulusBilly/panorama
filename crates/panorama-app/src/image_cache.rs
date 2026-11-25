@@ -62,51 +62,114 @@ fn fade_down(decoded: DecodedImage, width: u32, height: u32) -> Result<DecodedIm
         (w, (w * height / width).max(1))
     };
     let rgba = image::imageops::crop(&mut rgba, (w - cw) / 2, (h - ch) / 2, cw, ch).to_image();
-    // Three blurs of a quarter-size copy, sampled back up and blended row by row, so the
-    // softening has no step to see. Rows above the fade are left as they are.
-    let small = image::imageops::resize(
-        &rgba,
-        (cw / FADE_SHRINK).max(1),
-        (ch / FADE_SHRINK).max(1),
-        image::imageops::FilterType::Triangle,
-    );
+    // Three blurs of a small copy, mixed per row into one soft image there, then sampled back
+    // up only where rows fade and blended over the sharp ones: no step to see, and the top
+    // rows are never touched.
+    let small = shrink(&rgba, FADE_SHRINK);
+    let (sw, sh) = small.dimensions();
     let levels: Vec<_> = FADE_SIGMAS
         .iter()
-        .map(|share| image::imageops::fast_blur(&small, share * small.height() as f32))
+        .map(|share| image::imageops::fast_blur(&small, share * sh as f32))
         .collect();
-    let mut out = rgba;
-    let shrink = FADE_SHRINK as f32;
-    for y in 0..ch {
-        let t = fade_at(y as f32 / ch as f32) * levels.len() as f32;
-        if t <= 0.0 {
+    // How far down the blur stack a row sits: 0 sharp, 1 the first blur, 3 the last.
+    let depth = |y: f32| fade_at(y) * levels.len() as f32;
+    let mut soft = vec![0u8; (sw * sh * 4) as usize];
+    for (y, row) in soft.chunks_exact_mut(sw as usize * 4).enumerate() {
+        let t = depth((y as f32 + 0.5) / sh as f32).max(1.0) - 1.0;
+        let lower = (t.floor() as usize).min(levels.len() - 1);
+        let upper = (lower + 1).min(levels.len() - 1);
+        let mix = t - lower as f32;
+        let span = y * sw as usize * 4..(y + 1) * sw as usize * 4;
+        let (a, b) = (
+            &levels[lower].as_raw()[span.clone()],
+            &levels[upper].as_raw()[span],
+        );
+        for ((out, a), b) in row.iter_mut().zip(a).zip(b) {
+            *out = (*a as f32 + (*b as f32 - *a as f32) * mix) as u8;
+        }
+    }
+    // Where each output column samples the small image, with its right neighbour's weight in
+    // 256ths.
+    let scale = |at: u32, of: u32| {
+        ((at as f32 + 0.5) / FADE_SHRINK as f32 - 0.5).clamp(0.0, (of - 1) as f32)
+    };
+    let columns: Vec<(usize, usize, u32)> = (0..cw)
+        .map(|x| {
+            let u = scale(x, sw);
+            let left = u as usize;
+            (
+                left * 4,
+                (left + 1).min(sw as usize - 1) * 4,
+                ((u - left as f32) * 256.0) as u32,
+            )
+        })
+        .collect();
+    let mut out = rgba.into_raw();
+    let stride = cw as usize * 4;
+    let soft_stride = sw as usize * 4;
+    let mut line = vec![0u32; soft_stride];
+    for (y, sharp) in out.chunks_exact_mut(stride).enumerate() {
+        // The sharp row's share, in 256ths, fading out over the first level.
+        let keep = ((1.0 - depth(y as f32 / ch as f32)).max(0.0) * 256.0) as u32;
+        if keep >= 256 {
             continue;
         }
-        let (lower, upper) = (t.floor() as usize, (t.ceil() as usize).min(levels.len()));
-        let mix = t - t.floor();
-        let v = (y as f32 / shrink).min(small.height() as f32 - 1.0);
-        for x in 0..cw {
-            let u = (x as f32 / shrink).min(small.width() as f32 - 1.0);
-            let sample = |level: usize, sharp: [u8; 4]| match level {
-                0 => sharp,
-                n => image::imageops::interpolate_bilinear(&levels[n - 1], u, v)
-                    .map_or(sharp, |pixel| pixel.0),
-            };
-            let sharp = out.get_pixel(x, y).0;
-            let (a, b) = (sample(lower, sharp), sample(upper, sharp));
-            let pixel =
-                std::array::from_fn(|i| (a[i] as f32 * (1.0 - mix) + b[i] as f32 * mix) as u8);
-            out.put_pixel(x, y, image::Rgba(pixel));
+        let v = scale(y as u32, sh);
+        let top = v as usize;
+        let down = ((v - top as f32) * 256.0) as u32;
+        let above = &soft[top * soft_stride..][..soft_stride];
+        let below = &soft[(top + 1).min(sh as usize - 1) * soft_stride..][..soft_stride];
+        // The soft row at this height, still small, in 256ths.
+        for ((line, &a), &b) in line.iter_mut().zip(above).zip(below) {
+            *line = a as u32 * (256 - down) + b as u32 * down;
+        }
+        for (pixel, &(left, right, across)) in sharp.as_chunks_mut::<4>().0.iter_mut().zip(&columns)
+        {
+            for c in 0..4 {
+                let blur = (line[left + c] * (256 - across) + line[right + c] * across) >> 16;
+                pixel[c] = ((pixel[c] as u32 * keep + blur * (256 - keep)) >> 8) as u8;
+            }
         }
     }
     Ok(DecodedImage {
         width: cw,
         height: ch,
-        rgba: out.into_raw(),
+        rgba: out,
     })
 }
 
 /// The blurs run on a copy this many times smaller; blur hides the lost detail.
-const FADE_SHRINK: u32 = 4;
+const FADE_SHRINK: u32 = 8;
+
+/// Average each `factor` by `factor` block into one pixel.
+fn shrink(rgba: &image::RgbaImage, factor: u32) -> image::RgbaImage {
+    let (w, h) = (
+        (rgba.width() / factor).max(1),
+        (rgba.height() / factor).max(1),
+    );
+    let raw = rgba.as_raw();
+    let stride = rgba.width() as usize * 4;
+    let (fx, fy) = (factor.min(rgba.width()), factor.min(rgba.height()));
+    let count = fx * fy;
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    for (y, row) in out.chunks_exact_mut(w as usize * 4).enumerate() {
+        for (x, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            let mut sum = [0u32; 4];
+            for dy in 0..fy as usize {
+                let start = (y * fy as usize + dy) * stride + x * fx as usize * 4;
+                for source in raw[start..start + fx as usize * 4].as_chunks::<4>().0 {
+                    for c in 0..4 {
+                        sum[c] += source[c] as u32;
+                    }
+                }
+            }
+            for c in 0..4 {
+                pixel[c] = (sum[c] / count) as u8;
+            }
+        }
+    }
+    image::RgbaImage::from_raw(w, h, out).expect("sized to fit")
+}
 /// Blur radii as shares of the height, from the first softening to the bottom edge.
 const FADE_SIGMAS: [f32; 3] = [0.008, 0.025, 0.06];
 
