@@ -8,16 +8,25 @@ use crate::{
     hero,
     home_layout::TILE_RATIO,
     tab_strip,
-    theme::{Typography, focus_ring},
+    theme::{Theme, Typography, caps, focus_ring},
 };
-use gpui::{Div, div, prelude::*, px, svg};
+use gpui::{Div, div, linear_color_stop, linear_gradient, prelude::*, px, svg};
 use panorama_core::addons::{Episode, next_after, today};
 use std::{collections::HashSet, ops::Range};
 
 /// A season past this many episodes is split, since one rail cannot hold a long anime.
 const TAB_LIMIT: usize = 100;
-const TILE_MIN: f32 = 240.0;
-const TILE_GAP: f32 = 6.0;
+const TILE_MIN: f32 = 280.0;
+const TILE_GAP: f32 = 16.0;
+/// Height over width: the still, then the copy overlapping its lower edge.
+const CARD_RATIO: f32 = 0.94;
+/// How dark the still and its blurred copy are where they meet: dark enough to hide the edge.
+const TONE: f32 = 0.95;
+/// How dark the blurred copy is at the bottom, enough for muted text to read on any still.
+const BENEATH: f32 = 0.62;
+const COPY_PAD: f32 = 16.0;
+/// Room for the copy at its longest, so every card's eyebrow sits at the same height.
+const COPY_HEIGHT: f32 = 168.0;
 const TILES: usize = 4;
 
 /// One stop on the strip: a season, or a stretch of a long one.
@@ -290,47 +299,74 @@ impl Film {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = view.theme;
-        let height = (width * TILE_RATIO).round();
+        let height = card_height(width);
+        let still_height = (width * TILE_RATIO).round();
         let unaired = unaired(episode, today);
         let backdrop = self.metadata.as_ref().and_then(|m| m.background.as_ref());
-        let image = episode
-            .thumbnail
-            .as_ref()
-            .or(backdrop)
-            .filter(|_| near)
-            .and_then(|url| self.image(url, (width, height), view, window, cx).0);
-        let progress = self
-            .resume
-            .as_ref()
-            .filter(|point| point.video_id.as_ref() == Some(&episode.id))
-            .map(|point| (point.offset_secs / point.duration_secs) as f32);
+        let url = episode.thumbnail.as_ref().or(backdrop).filter(|_| near);
+        let image = url.and_then(|url| self.image(url, (width, still_height), view, window, cx).0);
+        let blurred = url.and_then(|url| self.blurred(url, window, cx));
+        let resume = self.resume.as_ref().filter(|point| {
+            point.video_id.as_ref() == Some(&episode.id) && point.duration_secs > 0.0
+        });
         let watched = self.watched.contains(&episode.id);
         let group: gpui::SharedString = format!("film-episode-{index}").into();
-        let mut still = div()
+        // GPUI cannot mask, so the still and its blurred copy meet under one near-opaque tone:
+        // the still ramps into it, and the copy eases out of it toward the bottom.
+        let tone = theme.scrim.opacity(TONE);
+        let mut card = div()
             .relative()
             .w(px(width))
             .h(px(height))
             .overflow_hidden()
             .bg(theme.surface);
+        if let Some(blurred) = blurred {
+            let fade = crate::film_card::fade_in(&blurred, view.reduced);
+            card =
+                card.child(hero::cover(blurred.image, (width, height), false, 1.0).opacity(fade));
+        }
+        let mut still = div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .w(px(width))
+            .h(px(still_height));
         if let Some(image) = image {
             let fade = crate::film_card::fade_in(&image, view.reduced);
-            still =
-                still.child(hero::cover(image.image, (width, height), false, 1.0).opacity(fade));
+            still = still
+                .child(hero::cover(image.image, (width, still_height), false, 1.0).opacity(fade));
         }
-        let still = still
-            .when_some(progress, |still, share| {
-                still.child(
-                    div()
-                        .absolute()
-                        .bottom_0()
-                        .left_0()
-                        .h(px(3.0))
-                        .w(px(width * share.clamp(0.0, 1.0)))
-                        .bg(theme.ink),
-                )
-            })
-            .when(watched && progress.is_none(), |still| {
-                still.child(
+        let seam = still_height * 0.6;
+        let card = card
+            .child(still)
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .w_full()
+                    .top(px(still_height - seam))
+                    .h(px(seam))
+                    .bg(linear_gradient(
+                        180.0,
+                        linear_color_stop(tone.opacity(0.0), 0.0),
+                        linear_color_stop(tone, 1.0),
+                    )),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .w_full()
+                    .top(px(still_height))
+                    .bottom_0()
+                    .bg(linear_gradient(
+                        180.0,
+                        linear_color_stop(tone, 0.0),
+                        linear_color_stop(theme.scrim.opacity(BENEATH), 1.0),
+                    )),
+            )
+            .when(watched && resume.is_none(), |card| {
+                card.child(
                     div()
                         .absolute()
                         .top(px(10.0))
@@ -349,35 +385,25 @@ impl Film {
                         ),
                 )
             })
-            // Pointing at an aired episode shows it plays.
-            .when(!unaired, |still| {
-                still.child(
+            // Pointing at an aired episode lifts its still a little.
+            .when(!unaired, |card| {
+                card.child(
                     div()
                         .absolute()
                         .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(theme.scrim.opacity(0.32))
+                        .bg(theme.ink.opacity(0.06))
                         .opacity(0.0)
-                        .group_hover(group.clone(), |style| style.opacity(1.0))
-                        .child(
-                            div()
-                                .size(px(48.0))
-                                .rounded_full()
-                                .bg(theme.scrim.opacity(0.6))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    svg()
-                                        .path(Icon::Play.path())
-                                        .size(px(20.0))
-                                        .text_color(theme.ink),
-                                ),
-                        ),
+                        .group_hover(group.clone(), |style| style.opacity(1.0)),
                 )
             })
+            .child(self.episode_copy(
+                episode,
+                unaired,
+                resume,
+                watched,
+                height - COPY_HEIGHT,
+                theme,
+            ))
             .child(
                 div()
                     .absolute()
@@ -385,44 +411,13 @@ impl Film {
                     .border_1()
                     .border_color(theme.image_outline),
             );
-        // The number steps back so the title reads first.
-        let name = div()
-            .flex()
-            .gap(px(8.0))
-            .child(
-                div()
-                    .flex_none()
-                    .text_color(theme.ink_muted)
-                    .child(episode.number.to_string()),
-            )
-            .child(div().min_w_0().truncate().child(episode.title.clone()));
-        let note = if unaired {
-            episode
-                .released
-                .as_deref()
-                .map(|date| format!("Airs {date}"))
-        } else {
-            episode.overview.clone()
-        };
         let mut tile = div()
             .relative()
             .group(group)
             .w(px(width))
-            .flex()
-            .flex_col()
+            .h(px(height))
             .when(unaired, |tile| tile.opacity(0.5))
-            .child(still)
-            .child(div().label().mt(px(10.0)).text_color(theme.ink).child(name))
-            .when_some(note, |tile, note| {
-                tile.child(
-                    div()
-                        .caption()
-                        .mt(px(4.0))
-                        .text_color(theme.ink_muted)
-                        .line_clamp(2)
-                        .child(note),
-                )
-            });
+            .child(card);
         if !unaired && let Some(focus) = self.episode_focus.get(index) {
             let playing = episode.clone();
             tile = tile.child(
@@ -444,14 +439,118 @@ impl Film {
                     window,
                 )
                 .absolute()
-                .top_0()
-                .left_0()
-                .w(px(width))
-                .h(px(height)),
+                .inset_0(),
             );
         }
         tile
     }
+
+    /// The words laid over a card's lower half: which episode, its name, what happens, and
+    /// what pressing it does.
+    #[allow(clippy::too_many_arguments)]
+    fn episode_copy(
+        &self,
+        episode: &Episode,
+        unaired: bool,
+        resume: Option<&panorama_core::stremio::ResumePoint>,
+        watched: bool,
+        top: f32,
+        theme: Theme,
+    ) -> Div {
+        let kind = if episode.season == 0 {
+            "Special"
+        } else {
+            "Episode"
+        };
+        let eyebrow = if episode.numbered {
+            format!("{kind} {}", episode.number)
+        } else {
+            kind.to_owned()
+        };
+        let overview = episode.overview.clone().filter(|_| !unaired);
+        let state = match (unaired, resume) {
+            (true, _) => episode
+                .released
+                .as_deref()
+                .map(|date| format!("Airs {date}"))
+                .unwrap_or_else(|| "Coming soon".to_owned()),
+            (false, Some(point)) => {
+                let left = ((point.duration_secs - point.offset_secs).max(0.0) / 60.0).ceil();
+                format!("{left}m left")
+            }
+            (false, None) if watched => "Watched".to_owned(),
+            (false, None) => "Play".to_owned(),
+        };
+        let bar = resume.map(|point| {
+            let share = (point.offset_secs / point.duration_secs).clamp(0.0, 1.0) as f32;
+            div()
+                .w(px(36.0))
+                .h(px(3.0))
+                .rounded_full()
+                .overflow_hidden()
+                .bg(theme.progress_track)
+                .child(div().h_full().w(px(36.0 * share)).bg(theme.progress_fill))
+        });
+        let footer = div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .label()
+            .text_color(theme.ink)
+            .when(!unaired, |row| {
+                row.child(
+                    svg()
+                        .path(Icon::Play.path())
+                        .size(px(12.0))
+                        .flex_none()
+                        .text_color(theme.ink),
+                )
+            })
+            .children(bar)
+            .child(state);
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .top(px(top))
+            .bottom_0()
+            .p(px(COPY_PAD))
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .caption()
+                    .text_color(theme.ink.opacity(0.72))
+                    .child(caps(&eyebrow)),
+            )
+            .child(
+                div()
+                    .heading()
+                    .mt(px(2.0))
+                    .text_color(theme.ink)
+                    .truncate()
+                    .child(episode.title.clone()),
+            )
+            .when_some(overview, |copy, overview| {
+                copy.child(
+                    div()
+                        .label()
+                        .font_weight(gpui::FontWeight::NORMAL)
+                        .mt(px(6.0))
+                        .text_color(theme.ink.opacity(0.78))
+                        .line_clamp(3)
+                        .child(overview),
+                )
+            })
+            // The footer keeps to the bottom edge whatever the overview's length.
+            .child(div().flex_1().min_h(px(12.0)))
+            .child(footer)
+    }
+}
+
+/// A card is its 16:9 still plus room beneath for three lines of copy.
+fn card_height(width: f32) -> f32 {
+    (width * CARD_RATIO).round()
 }
 
 #[cfg(test)]
