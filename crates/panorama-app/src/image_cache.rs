@@ -50,13 +50,94 @@ fn blur(decoded: DecodedImage) -> Result<DecodedImage, ImageError> {
     })
 }
 
+/// Crop to `width` by `height`'s shape around the centre, then blur ever harder toward the
+/// bottom, the way a TV app lays copy over a still: sharp above, soft where the words sit.
+fn fade_down(decoded: DecodedImage, width: u32, height: u32) -> Result<DecodedImage, ImageError> {
+    let mut rgba = image::RgbaImage::from_raw(decoded.width, decoded.height, decoded.rgba)
+        .ok_or(ImageError::Decode)?;
+    let (w, h) = (rgba.width(), rgba.height());
+    let (cw, ch) = if w * height > h * width {
+        ((h * width / height).max(1), h)
+    } else {
+        (w, (w * height / width).max(1))
+    };
+    let rgba = image::imageops::crop(&mut rgba, (w - cw) / 2, (h - ch) / 2, cw, ch).to_image();
+    // Three blurs of a quarter-size copy, sampled back up and blended row by row, so the
+    // softening has no step to see. Rows above the fade are left as they are.
+    let small = image::imageops::resize(
+        &rgba,
+        (cw / FADE_SHRINK).max(1),
+        (ch / FADE_SHRINK).max(1),
+        image::imageops::FilterType::Triangle,
+    );
+    let levels: Vec<_> = FADE_SIGMAS
+        .iter()
+        .map(|share| image::imageops::fast_blur(&small, share * small.height() as f32))
+        .collect();
+    let mut out = rgba;
+    let shrink = FADE_SHRINK as f32;
+    for y in 0..ch {
+        let t = fade_at(y as f32 / ch as f32) * levels.len() as f32;
+        if t <= 0.0 {
+            continue;
+        }
+        let (lower, upper) = (t.floor() as usize, (t.ceil() as usize).min(levels.len()));
+        let mix = t - t.floor();
+        let v = (y as f32 / shrink).min(small.height() as f32 - 1.0);
+        for x in 0..cw {
+            let u = (x as f32 / shrink).min(small.width() as f32 - 1.0);
+            let sample = |level: usize, sharp: [u8; 4]| match level {
+                0 => sharp,
+                n => image::imageops::interpolate_bilinear(&levels[n - 1], u, v)
+                    .map_or(sharp, |pixel| pixel.0),
+            };
+            let sharp = out.get_pixel(x, y).0;
+            let (a, b) = (sample(lower, sharp), sample(upper, sharp));
+            let pixel =
+                std::array::from_fn(|i| (a[i] as f32 * (1.0 - mix) + b[i] as f32 * mix) as u8);
+            out.put_pixel(x, y, image::Rgba(pixel));
+        }
+    }
+    Ok(DecodedImage {
+        width: cw,
+        height: ch,
+        rgba: out.into_raw(),
+    })
+}
+
+/// The blurs run on a copy this many times smaller; blur hides the lost detail.
+const FADE_SHRINK: u32 = 4;
+/// Blur radii as shares of the height, from the first softening to the bottom edge.
+const FADE_SIGMAS: [f32; 3] = [0.008, 0.025, 0.06];
+
+/// How far toward the strongest blur a row sits, `y` running 0 at the top to 1 at the bottom:
+/// none above 40%, all of it by 85%, eased at both ends.
+fn fade_at(y: f32) -> f32 {
+    let t = ((y - 0.4) / 0.45).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// What a load does to the decoded pixels.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Look {
+    Sharp,
+    Blurred,
+    /// Cropped to the key's bounds and blurred toward the bottom.
+    Fading,
+}
+
 /// Everything a finished load needs, computed before the pixels reach GPUI.
 fn prepare(
     decoded: DecodedImage,
-    blurred: bool,
+    look: Look,
+    bounds: (u32, u32),
 ) -> Result<(Arc<RenderImage>, Option<Hsla>), ImageError> {
     let tint = crate::tint::dominant(&decoded.rgba);
-    let decoded = if blurred { blur(decoded)? } else { decoded };
+    let decoded = match look {
+        Look::Sharp => decoded,
+        Look::Blurred => blur(decoded)?,
+        Look::Fading => fade_down(decoded, bounds.0, bounds.1)?,
+    };
     Ok((render_image(decoded)?, tint))
 }
 
@@ -136,7 +217,7 @@ struct Key {
     url: Source,
     width: u32,
     height: u32,
-    blurred: bool,
+    look: Look,
 }
 
 /// Cached renderer handle and its fade-in origin.
@@ -226,7 +307,7 @@ impl ImageCache {
             url,
             width: bucket(bounds.0, scale),
             height: bucket(bounds.1, scale),
-            blurred: false,
+            look: Look::Sharp,
         })
     }
     /// Read a cached offscreen tile without keeping a load alive.
@@ -244,7 +325,7 @@ impl ImageCache {
         let key = self.key(url, (0.0, 0.0), 1.0)?;
         let found = self
             .lru
-            .latest(|cached| cached.url == key.url && !cached.blurred)?;
+            .latest(|cached| cached.url == key.url && cached.look == Look::Sharp)?;
         Some(found.image.clone())
     }
     /// Request only images used by this frame; conversion also stays off GPUI.
@@ -290,8 +371,23 @@ impl ImageCache {
         cx: &mut Context<Self>,
     ) -> Option<CachedImage> {
         let key = Key {
-            blurred: true,
+            look: Look::Blurred,
             ..self.key(url, BLURRED, 1.0)?
+        };
+        self.fetch(key, services, window, cx)
+    }
+    /// A copy cropped to fill `bounds`, sharp at the top and blurred toward the bottom.
+    pub fn request_fading(
+        &mut self,
+        url: &str,
+        bounds: (f32, f32),
+        services: &Arc<Services>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<CachedImage> {
+        let key = Key {
+            look: Look::Fading,
+            ..self.key(url, bounds, window.scale_factor())?
         };
         self.fetch(key, services, window, cx)
     }
@@ -312,28 +408,34 @@ impl ImageCache {
         // size until this one decodes, otherwise the artwork blanks for the whole drag.
         let stale = self
             .lru
-            .latest(|cached| cached.url == key.url && cached.blurred == key.blurred)
+            .latest(|cached| cached.url == key.url && cached.look == key.look)
             .cloned();
         let busy = self.pending.len() >= 6 && !self.prefetched.contains(&key);
         if self.failed.contains(&key) || self.pending.contains_key(&key) || busy {
             return stale;
         }
-        let blurred = key.blurred;
+        let look = key.look;
+        let bounds = (key.width, key.height);
         let (sender, mut receiver) = mpsc::unbounded();
         let job = match &key.url {
             Source::Remote(url) => {
                 let loader = services.images.clone()?;
+                // A fading copy fills its bounds, so it decodes tall enough to be cropped.
+                let max_width = match look {
+                    Look::Fading => key.height * 2,
+                    _ => key.width,
+                };
                 let request = ImageRequest {
-                    url: url.sized_for(key.width),
+                    url: url.sized_for(max_width),
                     target: ImageTarget {
-                        max_width: key.width,
+                        max_width,
                         max_height: key.height,
                     },
                 };
                 Job(services.runtime.spawn(async move {
                     let result = match loader.load(request).await {
                         Ok(decoded) => {
-                            tokio::task::spawn_blocking(move || prepare(decoded, blurred))
+                            tokio::task::spawn_blocking(move || prepare(decoded, look, bounds))
                                 .await
                                 .unwrap_or(Err(ImageError::Decode))
                         }
@@ -355,7 +457,8 @@ impl ImageCache {
                                 height: rgba.height(),
                                 rgba: rgba.into_raw(),
                             },
-                            blurred,
+                            look,
+                            bounds,
                         )
                     })
                     .await
@@ -379,8 +482,7 @@ impl ImageCache {
                                 let loaded = cache
                                     .lru
                                     .latest(|cached| {
-                                        cached.url == completed.url
-                                            && cached.blurred == completed.blurred
+                                        cached.url == completed.url && cached.look == completed.look
                                     })
                                     .map_or_else(Instant::now, |entry| entry.loaded);
                                 cache.lru.insert(
@@ -420,6 +522,36 @@ impl ImageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fading_copy_fills_the_card_sharp_on_top_and_soft_below() {
+        // Stripes one pixel wide: any blur averages them toward grey.
+        let (width, height) = (320, 180);
+        let rgba = (0..width * height)
+            .flat_map(|i| {
+                let v = if i % 2 == 0 { 255 } else { 0 };
+                [v, v, v, 255]
+            })
+            .collect();
+        let faded = fade_down(
+            DecodedImage {
+                width,
+                height,
+                rgba,
+            },
+            100,
+            100,
+        )
+        .unwrap();
+        assert_eq!((faded.width, faded.height), (180, 180));
+        let contrast = |y: u32| {
+            let row = &faded.rgba[(y * faded.width * 4) as usize..][..8];
+            row[0].abs_diff(row[4])
+        };
+        assert_eq!(contrast(10), 255);
+        assert!(contrast(170) < 40, "{}", contrast(170));
+        assert_eq!((fade_at(0.3), fade_at(0.9)), (0.0, 1.0));
+    }
     #[test]
     fn physical_size_buckets() {
         for (logical, scale, expected) in [

@@ -8,9 +8,12 @@ use crate::{
     hero,
     home_layout::TILE_RATIO,
     tab_strip,
-    theme::{Theme, Typography, caps, focus_ring},
+    theme::{
+        Theme, Typography, caps, focus_ring,
+        scrim::{Edge, scrim},
+    },
 };
-use gpui::{Div, div, linear_color_stop, linear_gradient, prelude::*, px, svg};
+use gpui::{Div, div, prelude::*, px, relative, svg};
 use panorama_core::addons::{Episode, next_after, today};
 use std::{collections::HashSet, ops::Range};
 
@@ -20,10 +23,8 @@ const TILE_MIN: f32 = 280.0;
 const TILE_GAP: f32 = 16.0;
 /// Height over width: the still, then the copy overlapping its lower edge.
 const CARD_RATIO: f32 = 0.94;
-/// How dark the still and its blurred copy are where they meet: dark enough to hide the edge.
-const TONE: f32 = 0.95;
-/// How dark the blurred copy is at the bottom, enough for muted text to read on any still.
-const BENEATH: f32 = 0.62;
+/// How dark the shade under the words gets at the bottom edge.
+const SHADE: f32 = 0.7;
 const COPY_PAD: f32 = 16.0;
 /// Room for the copy at its longest, so every card's eyebrow sits at the same height.
 const COPY_HEIGHT: f32 = 168.0;
@@ -300,71 +301,32 @@ impl Film {
     ) -> Div {
         let theme = view.theme;
         let height = card_height(width);
-        let still_height = (width * TILE_RATIO).round();
         let unaired = unaired(episode, today);
         let backdrop = self.metadata.as_ref().and_then(|m| m.background.as_ref());
-        let url = episode.thumbnail.as_ref().or(backdrop).filter(|_| near);
-        let image = url.and_then(|url| self.image(url, (width, still_height), view, window, cx).0);
-        let blurred = url.and_then(|url| self.blurred(url, window, cx));
+        let image = episode
+            .thumbnail
+            .as_ref()
+            .or(backdrop)
+            .filter(|_| near)
+            .and_then(|url| self.fading(url, (width, height), view, window, cx));
         let resume = self.resume.as_ref().filter(|point| {
             point.video_id.as_ref() == Some(&episode.id) && point.duration_secs > 0.0
         });
         let watched = self.watched.contains(&episode.id);
         let group: gpui::SharedString = format!("film-episode-{index}").into();
-        // GPUI cannot mask, so the still and its blurred copy meet under one near-opaque tone:
-        // the still ramps into it, and the copy eases out of it toward the bottom.
-        let tone = theme.scrim.opacity(TONE);
         let mut card = div()
             .relative()
             .w(px(width))
             .h(px(height))
             .overflow_hidden()
             .bg(theme.surface);
-        if let Some(blurred) = blurred {
-            let fade = crate::film_card::fade_in(&blurred, view.reduced);
-            card =
-                card.child(hero::cover(blurred.image, (width, height), false, 1.0).opacity(fade));
-        }
-        let mut still = div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .w(px(width))
-            .h(px(still_height));
         if let Some(image) = image {
             let fade = crate::film_card::fade_in(&image, view.reduced);
-            still = still
-                .child(hero::cover(image.image, (width, still_height), false, 1.0).opacity(fade));
+            card = card.child(hero::cover(image.image, (width, height), false, 1.0).opacity(fade));
         }
-        let seam = still_height * 0.6;
+        // The still is baked soft toward the bottom; this shade only lifts the words off it.
         let card = card
-            .child(still)
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .w_full()
-                    .top(px(still_height - seam))
-                    .h(px(seam))
-                    .bg(linear_gradient(
-                        180.0,
-                        linear_color_stop(tone.opacity(0.0), 0.0),
-                        linear_color_stop(tone, 1.0),
-                    )),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .w_full()
-                    .top(px(still_height))
-                    .bottom_0()
-                    .bg(linear_gradient(
-                        180.0,
-                        linear_color_stop(tone, 0.0),
-                        linear_color_stop(theme.scrim.opacity(BENEATH), 1.0),
-                    )),
-            )
+            .child(scrim(theme, Edge::Bottom, relative(0.62), SHADE))
             .when(watched && resume.is_none(), |card| {
                 card.child(
                     div()
