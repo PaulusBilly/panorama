@@ -74,6 +74,7 @@ pub struct Film {
     /// The tab picked by hand; until then the strip follows `target`.
     tab: Option<usize>,
     tab_focus: Vec<FocusHandle>,
+    season_slide: crate::tab_strip::Slide,
     episode_focus: Vec<FocusHandle>,
     episode_rail: crate::carousel::Carousel,
     watched: HashSet<String>,
@@ -182,6 +183,7 @@ impl Film {
             tabs: vec![],
             tab: None,
             tab_focus: vec![],
+            season_slide: Default::default(),
             episode_focus: vec![],
             episode_rail: Default::default(),
             watched: HashSet::new(),

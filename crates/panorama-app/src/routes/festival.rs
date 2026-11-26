@@ -74,6 +74,7 @@ pub struct Festival {
     back: FocusHandle,
     retry: FocusHandle,
     years: Vec<FocusHandle>,
+    year_slide: crate::tab_strip::Slide,
     request: Option<Task<()>>,
     _images: Subscription,
     _state: Subscription,
@@ -117,6 +118,7 @@ impl Festival {
             back: cx.focus_handle(),
             retry: cx.focus_handle(),
             years: vec![],
+            year_slide: Default::default(),
             request: None,
             _images: image_observer,
             _state: state_observer,
@@ -678,9 +680,20 @@ impl Render for Festival {
             .bg(theme.artwork_empty);
         if let Some(cover) = cover {
             let fade = film_card::fade_in(&cover, view.reduced);
+            // The cover scrolls with the hero at half speed, as Home's and a film's do; the
+            // scrims stay with the hero, so its bottom always fades to black.
+            let top = crate::hero::scrolled(&self.scroll);
             hero = hero.child(
-                crate::hero::cover(cover.image, (view.width, hero_height), false, 1.0)
-                    .opacity(fade),
+                div()
+                    .absolute()
+                    .left_0()
+                    .w_full()
+                    .top(px(top - crate::hero::parallax(top, view.reduced)))
+                    .h(px(hero_height))
+                    .child(
+                        crate::hero::cover(cover.image, (view.width, hero_height), false, 1.0)
+                            .opacity(fade),
+                    ),
             );
         }
         hero = hero
@@ -700,8 +713,10 @@ impl Render for Festival {
             let handle = self.years.get(index).unwrap_or(&self.retry);
             crate::tab_strip::tab(
                 ("festival-year", index),
+                index,
                 &year.to_string(),
                 self.year == Some(year),
+                &self.year_slide,
                 handle,
                 view,
                 window,
@@ -744,6 +759,9 @@ impl Render for Festival {
                     "festival-years",
                     "Editions",
                     col.width,
+                    view,
+                    &self.year_slide,
+                    window,
                     tabs,
                 )))
             });

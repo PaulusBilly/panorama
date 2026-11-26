@@ -6,22 +6,24 @@ use super::{
 use crate::assets::Weighted;
 use crate::{
     button::Icon,
-    hero,
-    home_layout::TILE_RATIO,
-    tab_strip,
+    hero, tab_strip,
     theme::{
         Theme, Typography, caps, focus_ring,
         scrim::{Edge, scrim},
     },
 };
-use gpui::{Div, FontWeight, div, prelude::*, px, relative, svg};
+use crate::{
+    theme::{DURATION_STANDARD, EASE_EDITORIAL},
+    transition::bezier,
+};
+use gpui::{Animation, AnimationExt, Div, FontWeight, div, prelude::*, px, relative, svg};
 use panorama_core::addons::{Episode, next_after, today};
 use std::{collections::HashSet, ops::Range};
 
 /// A season past this many episodes is split, since one rail cannot hold a long anime.
 const TAB_LIMIT: usize = 100;
 /// Height over width: the still, then the copy overlapping its lower edge.
-const CARD_RATIO: f32 = 0.82;
+const CARD_RATIO: f32 = 0.74;
 /// How dark the shade under the words gets at the bottom edge.
 const SHADE: f32 = 0.7;
 const COPY_PAD: f32 = 16.0;
@@ -247,15 +249,25 @@ impl Film {
             let labels = self.tabs.iter().enumerate().map(|(index, tab)| {
                 tab_strip::tab(
                     ("film-season", index),
+                    index,
                     &tab.label,
                     index == selected,
+                    &self.season_slide,
                     &self.tab_focus[index],
                     view,
                     window,
                 )
                 .on_click(cx.listener(move |film, _, _, cx| film.pick_tab(index, cx)))
             });
-            tab_strip::strip("film-seasons", "Seasons", col.width, labels)
+            tab_strip::strip(
+                "film-seasons",
+                "Seasons",
+                col.width,
+                view,
+                &self.season_slide,
+                window,
+                labels,
+            )
         });
         Some(
             div()
@@ -265,17 +277,32 @@ impl Film {
                     Some(strip) => div().ml(px(col.left)).mb(px(16.0)).child(strip),
                     None => heading("Episodes", theme).ml(px(col.left)).w(px(col.width)),
                 })
-                .child(rail(
-                    "film-episodes",
-                    cards,
-                    grid.gap,
-                    false,
-                    Some((tile * TILE_RATIO).round()),
-                    &self.episode_rail,
-                    view,
-                    |film| &mut film.episode_rail,
-                    cx,
-                )),
+                .child({
+                    let row = rail(
+                        "film-episodes",
+                        cards,
+                        grid.gap,
+                        false,
+                        // The words are part of the card, so the arrows centre on all of it.
+                        Some(card_height(tile)),
+                        &self.episode_rail,
+                        view,
+                        |film| &mut film.episode_rail,
+                        cx,
+                    );
+                    // A season picked by hand fades its episodes in.
+                    if self.tab.is_some() && !view.reduced {
+                        row.with_animation(
+                            ("film-season", selected),
+                            Animation::new(DURATION_STANDARD)
+                                .with_easing(|t| bezier(t, EASE_EDITORIAL)),
+                            |row, t| row.opacity(t),
+                        )
+                        .into_any_element()
+                    } else {
+                        row.into_any_element()
+                    }
+                }),
         )
     }
 
@@ -419,8 +446,8 @@ impl Film {
             kind.to_owned()
         };
         let overview = episode.overview.clone().filter(|_| !unaired);
-        // What is left to know before pressing play, after the number: when it airs, how much
-        // is left of it, or how long it runs.
+        // What is left to know before pressing play, after the number: when it airs, or how
+        // much is left of it.
         let note = match (unaired, resume) {
             (true, _) => Some(
                 episode
@@ -433,9 +460,7 @@ impl Film {
                 crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
                     .map(|left| format!("{left} left"))
             }
-            (false, None) => episode
-                .runtime
-                .map(|minutes| crate::film_display::runtime(&minutes.to_string())),
+            (false, None) => None,
         };
         let eyebrow = match note {
             Some(note) => format!("{eyebrow} · {note}"),
@@ -492,6 +517,7 @@ impl Film {
                         .mt(px(6.0))
                         .text_color(theme.ink.opacity(0.78))
                         .line_clamp(2)
+                        .text_ellipsis()
                         .child(overview),
                 )
             })

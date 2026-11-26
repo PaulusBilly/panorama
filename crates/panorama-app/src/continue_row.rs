@@ -8,7 +8,7 @@ use crate::{
     image_cache::ImageCache,
     routes::home::Home,
     services::Services,
-    theme::{SIDEBAR_WIDTH, caps, focus_ring, typography::SECTION},
+    theme::{caps, focus_ring, typography::SECTION},
     zoom::CardArt,
 };
 use gpui::{
@@ -82,7 +82,6 @@ impl ContinueRow {
         self.rail.settle(pitch, view.reduced);
         let theme = view.theme;
         let col = view.column();
-        let position = self.rail.position();
         // Full window width from x = 0; a leading spacer puts the first card on the column.
         let mut row = div()
             .id("continue-cards")
@@ -110,13 +109,11 @@ impl ContinueRow {
             }
             let (image, poster, _) =
                 artwork(images, services, &card.film, size, visible, window, cx);
-            let x = col.left + index as f32 * pitch - position;
             row = row.child(self.card(
                 card,
                 index,
                 image.map(|i| (i, poster)),
                 focus,
-                x,
                 view,
                 window,
                 cx,
@@ -162,14 +159,12 @@ impl ContinueRow {
         index: usize,
         image: Option<(crate::image_cache::CachedImage, bool)>,
         focus: &FocusHandle,
-        x: f32,
         view: ViewSettings,
         window: &Window,
         cx: &mut Context<Home>,
     ) -> Div {
         let theme = view.theme;
         let film = card.film.clone();
-        let col = view.column();
         let size = card_size(view);
         let on_screen = Rc::new(Cell::new(gpui::Bounds::default()));
         let note = card
@@ -279,24 +274,7 @@ impl ContinueRow {
                     .inset_0()
                     .border_1()
                     .border_color(theme.image_outline),
-            )
-            // A card in the gutter fades toward the sidebar. GPUI cannot mask or blur, so the
-            // fade is backdrop-coloured: one window-anchored gradient, gone by the column edge.
-            .when(x < col.left, |tile| {
-                tile.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left(px(-x))
-                        .w(px(col.left))
-                        .bg(linear_gradient(
-                            90.0,
-                            linear_color_stop(theme.scrim, SIDEBAR_WIDTH * 0.5 / col.left),
-                            linear_color_stop(theme.scrim.opacity(0.0), 1.0),
-                        )),
-                )
-            });
+            );
         div()
             .relative()
             .flex_shrink_0()

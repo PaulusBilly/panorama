@@ -10,7 +10,8 @@ use crate::{
 };
 use gpui::{
     Context, DispatchPhase, Div, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ScrollHandle, Stateful, canvas, div, point, prelude::*, px, svg,
+    ScrollHandle, Stateful, canvas, div, linear_color_stop, linear_gradient, point, prelude::*, px,
+    svg,
 };
 use std::time::{Duration, Instant};
 
@@ -50,7 +51,7 @@ struct Drag {
 }
 
 /// A scroll offset as a position inside `0..=max`.
-fn clamped(offset: gpui::Pixels, max: f32) -> f32 {
+pub(crate) fn clamped(offset: gpui::Pixels, max: f32) -> f32 {
     (-f32::from(offset)).clamp(0.0, max)
 }
 
@@ -233,14 +234,18 @@ impl Carousel {
 
 /// Arrow pill size.
 const ARROW: (f32, f32) = (30.0, 52.0);
+/// Scroll, in pixels, over which a margin's fade comes in as cards move into it.
+const FADE_IN: f32 = 48.0;
+/// Where a back arrow may start: past the sidebar's icons with room to spare.
+const SIDEBAR_CLEAR: f32 = 60.0;
 /// Closest an arrow comes to the window edge on a narrow window.
 const ARROW_MARGIN: f32 = 8.0;
 
 /// Make a carousel `row` draggable and overlay edge arrows, each shown only while the row can
-/// move that way. Each arrow centres one column gap outside the column, in the middle of the
-/// gutter, so arrows line up down the page and sit over the next card's sliver, not a whole card. `col` is the column the row rests on; `rail` finds this row's carousel on the
-/// view. `art` is the height of the items' image from the row's top: the arrows centre on it,
-/// or on the whole row when the items have none.
+/// move that way. Each centres in its margin beside the row, as on Apple TV, so neither covers a
+/// card. `col` is the column the row rests on; `rail` finds this row's carousel on the view.
+/// `art` is the height of the items' image from the row's top: the arrows centre on it, or on
+/// the whole row when the items have none.
 #[allow(clippy::too_many_arguments)]
 pub fn controls<V: 'static>(
     id: &'static str,
@@ -406,16 +411,60 @@ pub fn controls<V: 'static>(
     )
     .absolute()
     .inset_0();
-    let mut wrap = div().relative().child(row).child(pointer);
+    // Each arrow's centre, in the middle of its margin, so the two mirror each other; on a
+    // narrow window the back one keeps clear of the sidebar's icons, which end 52 px in.
+    let back = (col.left / 2.0).max(SIDEBAR_CLEAR + ARROW.0 / 2.0);
+    let forward = {
+        let right = col.left + col.width;
+        right + (view.width - right) / 2.0
+    };
+    // As on Apple TV the row ends at each arrow's centre, but through a fade rather than a cut:
+    // clear at the column's edge, the page's own colour by the arrow's centre and beyond it.
+    // GPUI cannot mask, so the fade is page-coloured, over the cards and under the arrows. Each
+    // side's comes in as the row gains cards there, so it never darkens an empty margin.
+    let (position, max) = (carousel.position(), carousel.max());
+    let presence = |room: f32| (room / FADE_IN).clamp(0.0, 1.0);
+    let right = col.left + col.width;
+    // Two stops, left to right, each an opacity of the page colour at a share of the band.
+    let band = |left: f32, width: f32, stops: [(f32, f32); 2]| {
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(left))
+            .w(px(width))
+            .bg(linear_gradient(
+                90.0,
+                linear_color_stop(theme.scrim.opacity(stops[0].0), stops[0].1),
+                linear_color_stop(theme.scrim.opacity(stops[1].0), stops[1].1),
+            ))
+    };
+    let edge = |x: f32, from: f32, width: f32| ((x - from) / width.max(1.0)).clamp(0.0, 1.0);
+    let mut wrap = div()
+        .relative()
+        .child(row)
+        .child(band(
+            0.0,
+            col.left,
+            [(presence(position), edge(back, 0.0, col.left)), (0.0, 1.0)],
+        ))
+        .child(band(
+            right,
+            view.width - right,
+            [
+                (0.0, 0.0),
+                (
+                    presence(max - position),
+                    edge(forward, right, view.width - right),
+                ),
+            ],
+        ))
+        .child(pointer);
     if arrows[0].0 > 0.0 {
-        wrap = wrap.child(arrow(false, col.left - col.gap - ARROW.0 / 2.0, cx));
+        wrap = wrap.child(arrow(false, back - ARROW.0 / 2.0, cx));
     }
     if arrows[1].0 > 0.0 {
-        wrap = wrap.child(arrow(
-            true,
-            col.left + col.width + col.gap - ARROW.0 / 2.0,
-            cx,
-        ));
+        wrap = wrap.child(arrow(true, forward - ARROW.0 / 2.0, cx));
     }
     wrap
 }

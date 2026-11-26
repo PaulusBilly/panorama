@@ -29,16 +29,6 @@ const SYNOPSIS_WIDTH: f32 = 620.0;
 const REVEAL_LIMIT: Duration = Duration::from_secs(4);
 /// A text title wraps here. On wide windows it has its own row, so it never moves the synopsis.
 const TITLE_WIDTH: f32 = 560.0;
-/// The hero stays sharp until this share of the window has scrolled by.
-const BLUR_START: f32 = 0.12;
-/// Fully blurred by here, just before the sections below the hero reach mid-window.
-const BLUR_END: f32 = 0.45;
-/// How far the blurred still dims under the sections' text.
-const BLUR_WASH: f32 = 0.6;
-
-fn blur_progress(top: f32, height: f32) -> f32 {
-    ((top / height.max(1.0) - BLUR_START) / (BLUR_END - BLUR_START)).clamp(0.0, 1.0)
-}
 use film_display::BADGE;
 /// The clock glyph's disc is 20 of the icon's 24 units, so the icon is drawn this much larger.
 const CLOCK_INSET: f32 = 24.0 / 20.0;
@@ -217,11 +207,7 @@ impl Render for Film {
         if view.active {
             self.images.update(cx, |images, _| images.begin_frame());
         }
-        let (artwork, poster, source) = self.artwork(view, window, cx);
-        let blurred = source
-            .as_ref()
-            .filter(|_| view.active)
-            .and_then(|url| self.blurred(url, window, cx));
+        let (artwork, poster) = self.artwork(view, window, cx);
         if self.revealed.is_none() {
             let logo = self.metadata.as_ref().and_then(|meta| meta.logo.clone());
             let logo_pending = logo.is_some_and(|url| {
@@ -246,10 +232,11 @@ impl Render for Film {
             .w_full()
             .min_h(px(view.height))
             .text_color(theme.ink);
-        let blur = blur_progress(-f32::from(self.scroll.offset().y), view.height);
-        // The page scrolls over this. The card's still shows at once, its color first if it has
-        // to load. The scrims belong to the still, so the bare color has none. Past the threshold
-        // the blurred copy takes over under an even wash. The bottom scrim stays.
+        // As on Home the still scrolls away with the page into black, at half its speed. The
+        // card's still shows at once, its color first if it has to load. The scrims belong to
+        // the still, so the bare color has none.
+        let top = hero::scrolled(&self.scroll);
+        let shift = hero::parallax(top, view.reduced);
         let bounds = (view.width, view.height);
         let services = self.state.read(cx).services.clone();
         let (kind, id) = (self.kind, self.id.clone());
@@ -264,16 +251,17 @@ impl Render for Film {
             cx,
             |film: &mut Self| &mut film.banner_trailer,
         );
-        // Under the scrims like the still, and gone with it as the blurred copy takes over.
-        let trailer = self.banner_trailer.layer(bounds, 1.0 - blur, view.reduced);
+        // Under the scrims like the still.
+        let trailer = self.banner_trailer.layer(bounds, 1.0, view.reduced);
         let scrims = artwork
             .as_ref()
             .map_or(0.0, |art| film_card::fade_in(art, view.reduced));
         let backdrop = div()
             .absolute()
-            .inset_0()
-            .overflow_hidden()
-            .bg(theme.canvas)
+            .left_0()
+            .w_full()
+            .top(px(-shift))
+            .h(px(view.height))
             .when_some(self.tint, |backdrop, tint| {
                 backdrop.child(div().absolute().inset_0().bg(tint))
             })
@@ -288,27 +276,34 @@ impl Render for Film {
                 )
             })
             .children(trailer)
-            .when_some(blurred.filter(|_| blur > 0.0), |backdrop, art| {
-                backdrop.child(hero::cover(art.image, bounds, poster, 1.0).opacity(blur))
-            })
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .opacity(scrims * (1.0 - blur))
-                    .child(scrim(theme, Edge::Top, relative(0.3), 0.6)),
-            )
             .child(div().absolute().inset_0().opacity(scrims).child(scrim(
                 theme,
-                Edge::Bottom,
-                relative(0.45),
-                1.0,
-            )))
+                Edge::Top,
+                relative(0.3),
+                0.6,
+            )));
+        // The still lags the page, so it is cut off at the hero's bottom, which keeps pace with
+        // the page, and fades to black there: every section below sits on black.
+        let backdrop = div()
+            .absolute()
+            .inset_0()
+            .overflow_hidden()
+            .bg(theme.canvas)
             .child(
                 div()
                     .absolute()
-                    .inset_0()
-                    .bg(theme.canvas.opacity(BLUR_WASH * blur)),
+                    .top_0()
+                    .left_0()
+                    .w_full()
+                    .h(px((view.height - top).max(0.0)))
+                    .overflow_hidden()
+                    .child(backdrop)
+                    .child(div().absolute().inset_0().opacity(scrims).child(scrim(
+                        theme,
+                        Edge::Bottom,
+                        px(view.height * 0.45),
+                        1.0,
+                    ))),
             );
         let metadata = self.metadata.clone();
         let mut content = div()
@@ -409,19 +404,5 @@ impl Render for Film {
             .child(backdrop)
             .child(scroller)
             .child(back)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blur_holds_off_until_the_threshold_then_finishes() {
-        assert_eq!(blur_progress(0.0, 1000.0), 0.0);
-        assert_eq!(blur_progress(120.0, 1000.0), 0.0);
-        assert!((blur_progress(285.0, 1000.0) - 0.5).abs() < 0.001);
-        assert_eq!(blur_progress(450.0, 1000.0), 1.0);
-        assert_eq!(blur_progress(5000.0, 1000.0), 1.0);
     }
 }

@@ -27,7 +27,8 @@ impl Home {
         let hero_height = hero::height(view);
         // The artwork fades out midway between the hero actions and the Continue heading.
         let art_height = hero_height - hero::ROW_GAP / 2.0;
-        let visible = view.active && -f32::from(self.scroll.offset().y) < fold;
+        let top = hero::scrolled(&self.scroll);
+        let visible = view.active && top < fold;
         let film = lineup.hero.map(|hero| hero.film().clone());
         self.track_saved(film.as_ref().map(|film| film.id.as_str()), cx);
 
@@ -97,12 +98,29 @@ impl Home {
             .child(
                 div()
                     .absolute()
-                    .top_0()
+                    // The art scrolls with the hero at half speed, falling behind the words.
+                    .top(px(top - hero::parallax(top, view.reduced)))
                     .left_0()
                     .w_full()
                     .h(px(art_height))
                     .child(hero::backdrop(art, (view.width, art_height), view.reduced))
                     .child(hero::scrims(view.theme, view.column(), view.width)),
+            )
+            // The lagging art reaches past the hero's clipped bottom edge; this fades it out
+            // above that edge, behind the Continue row.
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(px(hero::ROW_GAP * 3.0))
+                    .child(crate::theme::scrim::scrim(
+                        view.theme,
+                        crate::theme::scrim::Edge::Bottom,
+                        gpui::relative(1.0),
+                        1.0,
+                    )),
             )
             .child(content)
     }

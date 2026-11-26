@@ -43,20 +43,20 @@ impl Film {
         });
         (image, false)
     }
-    /// The backdrop (or poster fallback), whether it is the poster, and where it came from.
+    /// The backdrop (or poster fallback), and whether it is the poster.
     pub(super) fn artwork(
         &self,
         view: ViewSettings,
         window: &Window,
         cx: &mut Context<Self>,
-    ) -> (Option<CachedImage>, bool, Option<url::Url>) {
+    ) -> (Option<CachedImage>, bool) {
         for (url, poster) in banners(self.card.as_ref(), self.metadata.as_ref()) {
             let (image, failed) = self.image(url, (view.width, view.height), view, window, cx);
             if !failed {
-                return (image, poster, Some(url.clone()));
+                return (image, poster);
             }
         }
-        (None, false, None)
+        (None, false)
     }
     /// A copy cropped to fill `bounds`, sharp at the top and blurred toward the bottom.
     pub(super) fn fading(
@@ -75,17 +75,6 @@ impl Film {
             .filter(|_| view.active)?;
         self.images.update(cx, |images, cx| {
             images.request_fading(url.as_str(), bounds, &services, window, cx)
-        })
-    }
-    pub(super) fn blurred(
-        &self,
-        url: &url::Url,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<CachedImage> {
-        let services = self.state.read(cx).services.clone()?;
-        self.images.update(cx, |images, cx| {
-            images.request_blurred(url.as_str(), &services, window, cx)
         })
     }
 }

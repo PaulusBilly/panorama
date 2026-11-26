@@ -40,9 +40,9 @@ impl Grid {
     pub fn total_width(self) -> f32 {
         self.width * self.columns as f32 + self.gap * self.columns.saturating_sub(1) as f32
     }
-    /// Space between rows, about a tenth of a tile so larger cards breathe more.
+    /// Space between rows, an eighth of a tile as on MUBI, so larger cards breathe more.
     pub fn row_gap(self) -> f32 {
-        (self.width * 0.1).round()
+        (self.width * 0.125).round()
     }
     /// Fixed virtualization stride including the row gap.
     pub fn stride(self) -> f32 {

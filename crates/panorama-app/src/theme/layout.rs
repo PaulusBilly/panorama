@@ -1,35 +1,31 @@
 /// Width of the navigation sidebar every route except the player reserves.
 pub const SIDEBAR_WIDTH: f32 = 80.0;
+/// Each margin's share of the window, as on MUBI: the page is one centred column.
+const MARGIN_SHARE: f32 = 0.115;
+/// The narrowest margin: the sidebar, which sits inside the left one, and room beside it.
+const MARGIN_MIN: f32 = SIDEBAR_WIDTH + 24.0;
+/// The hairline between cards side by side.
+const GAP: f32 = 6.0;
 
-/// The content column every route aligns to: the window after the sidebar, less an equal gutter
-/// on both sides, so wide screens get more columns instead of an empty right edge.
+/// The content column every route aligns to: centred in the window between equal margins, the
+/// sidebar sitting inside the left one, so the page is balanced against the window's edges.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Column {
     pub left: f32,
     /// Usable width.
     pub width: f32,
-    /// Space between cards side by side. The gutter is twice it, so a row's next card shows one
-    /// gap's worth past the column, and a carousel arrow centres in the gutter over that sliver.
+    /// Space between cards side by side.
     pub gap: f32,
 }
 
 impl Column {
-    /// Place the column for a window width: cards 24, 20 or 12 px apart, and a gutter of twice
-    /// that on both sides.
+    /// Place the column for a window width.
     pub fn at(window_width: f32) -> Self {
-        let gap = if window_width > 1100.0 {
-            24.0
-        } else if window_width > 700.0 {
-            20.0
-        } else {
-            12.0
-        };
-        let gutter = gap * 2.0;
-        let left = SIDEBAR_WIDTH + gutter;
+        let margin = (window_width * MARGIN_SHARE).round().max(MARGIN_MIN);
         Self {
-            left,
-            width: (window_width - left - gutter).max(0.0),
-            gap,
+            left: margin,
+            width: (window_width - margin * 2.0).max(0.0),
+            gap: GAP,
         }
     }
 }
@@ -37,35 +33,21 @@ impl Column {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn the_gutter_is_twice_the_gap_on_both_sides() {
-        for window in [480.0, 800.0, 1440.0, 1920.0] {
-            let col = Column::at(window);
-            assert_eq!(col.left - SIDEBAR_WIDTH, col.gap * 2.0, "{window}");
-            assert_eq!(window - col.left - col.width, col.gap * 2.0, "{window}");
-        }
-    }
 
     #[test]
-    fn column_breakpoints() {
-        for (width, left, column, gap) in [
-            (480.0, 104.0, 352.0, 12.0),
-            (700.0, 104.0, 572.0, 12.0),
-            (701.0, 120.0, 541.0, 20.0),
-            (1100.0, 120.0, 940.0, 20.0),
-            (1101.0, 128.0, 925.0, 24.0),
-            (1440.0, 128.0, 1264.0, 24.0),
-            (1920.0, 128.0, 1744.0, 24.0),
-            (100.0, 104.0, 0.0, 12.0),
+    fn the_column_is_centred_with_margins_that_hold_the_sidebar() {
+        for (window, left, width) in [
+            (100.0, 104.0, 0.0),
+            (800.0, 104.0, 592.0),
+            (1280.0, 147.0, 986.0),
+            (1440.0, 166.0, 1108.0),
+            (1920.0, 221.0, 1478.0),
         ] {
+            let col = Column::at(window);
             assert_eq!(
-                Column::at(width),
-                Column {
-                    left,
-                    width: column,
-                    gap
-                },
-                "{width}"
+                (col.left, col.width, col.gap),
+                (left, width, 6.0),
+                "{window}"
             );
         }
     }
