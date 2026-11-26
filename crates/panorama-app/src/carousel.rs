@@ -236,6 +236,8 @@ impl Carousel {
 const ARROW: (f32, f32) = (30.0, 52.0);
 /// Scroll, in pixels, over which a margin's fade comes in as cards move into it.
 const FADE_IN: f32 = 48.0;
+/// Where a back arrow may start: past the sidebar's icons with room to spare.
+const SIDEBAR_CLEAR: f32 = 60.0;
 /// Closest an arrow comes to the window edge on a narrow window.
 const ARROW_MARGIN: f32 = 8.0;
 
@@ -409,8 +411,9 @@ pub fn controls<V: 'static>(
     )
     .absolute()
     .inset_0();
-    // Each arrow's centre, in the middle of its margin, so the two mirror each other.
-    let back = col.left / 2.0;
+    // Each arrow's centre, in the middle of its margin, so the two mirror each other; on a
+    // narrow window the back one keeps clear of the sidebar's icons, which end 52 px in.
+    let back = (col.left / 2.0).max(SIDEBAR_CLEAR + ARROW.0 / 2.0);
     let forward = {
         let right = col.left + col.width;
         right + (view.width - right) / 2.0

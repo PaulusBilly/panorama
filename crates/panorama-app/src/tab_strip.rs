@@ -25,6 +25,8 @@ const GAP: f32 = 36.0;
 const BAR: f32 = 3.0;
 /// The buttons that page a row longer than the column.
 const PAGER: f32 = 28.0;
+/// Between the column's edge and a paging button in the margin.
+const PAGER_GAP: f32 = 16.0;
 /// Under a label: the space down to its bar, then the bar.
 const UNDER: f32 = 12.0 + BAR;
 /// Where a label's line of text centres down a tab, so the paging buttons sit level with it.
@@ -42,6 +44,8 @@ pub struct Slide {
     scroll: ScrollHandle,
     /// A page the buttons asked for, gliding there as the carousels do.
     glide: Rc<Cell<Option<Tween>>>,
+    /// A picked tab waiting to be brought into view once the row has laid out and overflows.
+    reveal: Cell<bool>,
 }
 
 impl Slide {
@@ -52,8 +56,10 @@ impl Slide {
             self.from
                 .set(previous.and_then(|i| self.spans.borrow().get(i).copied()));
             self.shown.set(Some(index));
-            // A picked tab, or the one a page opens on, is brought into view.
-            self.scroll.scroll_to_item(index);
+            // A picked tab, or the one a page opens on, is brought into view, and no paging
+            // glide may carry it back out.
+            self.reveal.set(true);
+            self.glide.set(None);
         }
         self.from.get()
     }
@@ -143,8 +149,8 @@ pub fn tab(
 }
 
 /// The tabs in a row across `width`, over a hairline the selected tab's bar rests on. A row
-/// longer than the column scrolls sideways under a sideways gesture, and a button beside each
-/// clipped end pages it for a mouse with only a vertical wheel.
+/// longer than the column scrolls sideways under a sideways gesture, and a button in the margin
+/// beside each clipped end pages it for a mouse with only a vertical wheel.
 #[allow(clippy::too_many_arguments)]
 pub fn strip(
     id: &'static str,
@@ -158,6 +164,16 @@ pub fn strip(
     let theme = view.theme;
     let scroll = slide.scroll.clone();
     let glide = slide.glide.clone();
+    // GPUI drops a reveal asked for before the row has laid out, so the strip places it itself
+    // once it knows where the tabs sat, and only then lets the request go.
+    if slide.reveal.get()
+        && let Some(index) = slide.shown.get()
+        && let Some(offset) = revealing(&slide.spans.borrow(), index, width, &scroll)
+    {
+        scroll.set_offset(point(px(offset), scroll.offset().y));
+        slide.reveal.set(false);
+        window.request_animation_frame();
+    }
     if let Some(tween) = glide.get() {
         let now = Instant::now();
         scroll.set_offset(point(
@@ -177,8 +193,7 @@ pub fn strip(
         .id(id)
         .role(gpui::Role::TabList)
         .aria_label(label)
-        .flex_1()
-        .min_w_0()
+        .w(px(width))
         // A scroll container takes no height from its row; this is one tab.
         .h(px(ROW))
         .overflow_x_scroll()
@@ -192,13 +207,29 @@ pub fn strip(
             held.set(None);
             window.refresh();
         })
-        .children(tabs);
+        .children(tabs)
+        // The buttons follow the laid-out row, which can change without a render: after a
+        // resize, or on the first frame, before the row knows its length.
+        .child({
+            let (scroll, shown) = (scroll.clone(), (position > 1.0, position < max - 1.0));
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, _| {
+                    let max = f32::from(scroll.max_offset().x).max(0.0);
+                    let position = crate::carousel::clamped(scroll.offset().x, max);
+                    if (position > 1.0, position < max - 1.0) != shown {
+                        window.request_animation_frame();
+                    }
+                },
+            )
+            .absolute()
+            .size_0()
+        });
     let pager = |forward: bool| {
         let (scroll, glide) = (scroll.clone(), glide.clone());
         div()
             .id((id, usize::from(forward)))
             .flex_none()
-            .mt(px(LABEL_MIDDLE - PAGER / 2.0))
             .size(px(PAGER))
             .rounded_full()
             .bg(theme.arrow)
@@ -241,23 +272,76 @@ pub fn strip(
                     .text_color(theme.ink),
             )
     };
-    // The buttons sit beside the row on its hairline rather than over the tabs, which a
-    // page-coloured fade cannot hide against a hero's photograph.
+    // The buttons sit just outside the column, in its margins, so the row keeps the column's
+    // exact width and left edge whether or not they show, and a reveal lands where aimed.
+    let pager_at = |forward: bool| {
+        div()
+            .absolute()
+            .top(px(LABEL_MIDDLE - PAGER / 2.0))
+            .map(|slot| {
+                if forward {
+                    slot.left(px(width + PAGER_GAP))
+                } else {
+                    slot.left(px(-PAGER_GAP - PAGER))
+                }
+            })
+            .child(pager(forward))
+    };
     div()
+        .relative()
         .w(px(width))
-        .flex()
-        .items_start()
-        .gap(px(12.0))
         .border_b_1()
         .border_color(theme.rule)
-        .when(position > 1.0, |strip| strip.child(pager(false)))
         .child(row)
-        .when(position < max - 1.0, |strip| strip.child(pager(true)))
+        .when(position > 1.0, |strip| strip.child(pager_at(false)))
+        .when(position < max - 1.0, |strip| strip.child(pager_at(true)))
+}
+
+/// The scroll offset that brings tab `index` wholly into a row `width` wide, from the labels'
+/// window positions last frame; `None` until the row has laid out.
+fn revealing(spans: &[(f32, f32)], index: usize, width: f32, scroll: &ScrollHandle) -> Option<f32> {
+    let max = f32::from(scroll.max_offset().x);
+    let (&(first, _), &(x, w)) = (spans.first()?, spans.get(index)?);
+    if max <= 0.0 || w <= 0.0 {
+        return None;
+    }
+    // Where the tab starts along the row, whatever the row has scrolled to.
+    let along = x - first;
+    let shown = -f32::from(scroll.offset().x);
+    Some(-reveal(along, w, shown, width).clamp(0.0, max))
+}
+
+/// How far a row `width` wide should have scrolled to show a tab starting `along` it and `w`
+/// wide, moving as little as it can from `shown`.
+fn reveal(along: f32, w: f32, shown: f32, width: f32) -> f32 {
+    if along < shown {
+        along
+    } else if along + w > shown + width {
+        along + w - width
+    } else {
+        shown
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Slide;
+
+    #[test]
+    fn a_reveal_moves_the_row_only_as_far_as_the_tab_needs() {
+        use super::reveal;
+        assert_eq!(
+            reveal(1900.0, 60.0, 0.0, 1100.0),
+            860.0,
+            "off the right end"
+        );
+        assert_eq!(
+            reveal(100.0, 60.0, 400.0, 1100.0),
+            100.0,
+            "off the left end"
+        );
+        assert_eq!(reveal(500.0, 60.0, 400.0, 1100.0), 400.0, "already in view");
+    }
 
     #[test]
     fn the_bar_slides_from_the_tab_picked_before() {
