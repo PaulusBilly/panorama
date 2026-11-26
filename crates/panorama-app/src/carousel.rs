@@ -10,7 +10,8 @@ use crate::{
 };
 use gpui::{
     Context, DispatchPhase, Div, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ScrollHandle, Stateful, canvas, div, point, prelude::*, px, svg,
+    ScrollHandle, Stateful, canvas, div, linear_color_stop, linear_gradient, point, prelude::*, px,
+    svg,
 };
 use std::time::{Duration, Instant};
 
@@ -233,6 +234,8 @@ impl Carousel {
 
 /// Arrow pill size.
 const ARROW: (f32, f32) = (30.0, 52.0);
+/// Scroll, in pixels, over which a margin's fade comes in as cards move into it.
+const FADE_IN: f32 = 48.0;
 /// Closest an arrow comes to the window edge on a narrow window.
 const ARROW_MARGIN: f32 = 8.0;
 
@@ -407,15 +410,47 @@ pub fn controls<V: 'static>(
     )
     .absolute()
     .inset_0();
-    let mut wrap = div().relative().child(row).child(pointer);
+    // Each arrow's centre, in the middle of its margin; the left one past the sidebar in it.
+    let back = (crate::theme::SIDEBAR_WIDTH + col.left) / 2.0;
+    let forward = {
+        let right = col.left + col.width;
+        right + (view.width - right) / 2.0
+    };
+    // Cards in the margins fade into the page, clear by the arrows' centres. GPUI cannot mask,
+    // so the fade is page-coloured, laid over the cards and under the arrows. Each side's comes
+    // in as the row gains cards there, so it never darkens an empty margin.
+    let (position, max) = (carousel.position(), carousel.max());
+    let presence = |room: f32| (room / FADE_IN).clamp(0.0, 1.0);
+    let band = |left: f32, width: f32, from: f32, to: f32, strength: f32| {
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(left))
+            .w(px(width))
+            .bg(linear_gradient(
+                90.0,
+                linear_color_stop(theme.scrim.opacity(from * strength), 0.0),
+                linear_color_stop(theme.scrim.opacity(to * strength), 1.0),
+            ))
+    };
+    let mut wrap = div()
+        .relative()
+        .child(row)
+        .child(band(0.0, back, 1.0, 0.0, presence(position)))
+        .child(band(
+            forward,
+            view.width - forward,
+            0.0,
+            1.0,
+            presence(max - position),
+        ))
+        .child(pointer);
     if arrows[0].0 > 0.0 {
-        let free = (crate::theme::SIDEBAR_WIDTH + col.left) / 2.0;
-        wrap = wrap.child(arrow(false, free - ARROW.0 / 2.0, cx));
+        wrap = wrap.child(arrow(false, back - ARROW.0 / 2.0, cx));
     }
     if arrows[1].0 > 0.0 {
-        let right = col.left + col.width;
-        let margin = (view.width - right) / 2.0;
-        wrap = wrap.child(arrow(true, right + margin - ARROW.0 / 2.0, cx));
+        wrap = wrap.child(arrow(true, forward - ARROW.0 / 2.0, cx));
     }
     wrap
 }
