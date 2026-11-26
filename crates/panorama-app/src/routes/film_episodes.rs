@@ -6,15 +6,17 @@ use super::{
 use crate::assets::Weighted;
 use crate::{
     button::Icon,
-    hero,
-    home_layout::TILE_RATIO,
-    tab_strip,
+    hero, tab_strip,
     theme::{
         Theme, Typography, caps, focus_ring,
         scrim::{Edge, scrim},
     },
 };
-use gpui::{Div, FontWeight, div, prelude::*, px, relative, svg};
+use crate::{
+    theme::{DURATION_STANDARD, EASE_EDITORIAL},
+    transition::bezier,
+};
+use gpui::{Animation, AnimationExt, Div, FontWeight, div, prelude::*, px, relative, svg};
 use panorama_core::addons::{Episode, next_after, today};
 use std::{collections::HashSet, ops::Range};
 
@@ -265,17 +267,32 @@ impl Film {
                     Some(strip) => div().ml(px(col.left)).mb(px(16.0)).child(strip),
                     None => heading("Episodes", theme).ml(px(col.left)).w(px(col.width)),
                 })
-                .child(rail(
-                    "film-episodes",
-                    cards,
-                    grid.gap,
-                    false,
-                    Some((tile * TILE_RATIO).round()),
-                    &self.episode_rail,
-                    view,
-                    |film| &mut film.episode_rail,
-                    cx,
-                )),
+                .child({
+                    let row = rail(
+                        "film-episodes",
+                        cards,
+                        grid.gap,
+                        false,
+                        // The words are part of the card, so the arrows centre on all of it.
+                        Some(card_height(tile)),
+                        &self.episode_rail,
+                        view,
+                        |film| &mut film.episode_rail,
+                        cx,
+                    );
+                    // A season picked by hand fades its episodes in.
+                    if self.tab.is_some() && !view.reduced {
+                        row.with_animation(
+                            ("film-season", selected),
+                            Animation::new(DURATION_STANDARD)
+                                .with_easing(|t| bezier(t, EASE_EDITORIAL)),
+                            |row, t| row.opacity(t),
+                        )
+                        .into_any_element()
+                    } else {
+                        row.into_any_element()
+                    }
+                }),
         )
     }
 

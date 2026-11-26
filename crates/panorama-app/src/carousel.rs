@@ -241,8 +241,7 @@ const ARROW_MARGIN: f32 = 8.0;
 
 /// Make a carousel `row` draggable and overlay edge arrows, each shown only while the row can
 /// move that way. Each centres in its margin beside the row, as on Apple TV, so neither covers a
-/// card; the left margin's centre is taken past the sidebar inside it. `col` is the column the
-/// row rests on; `rail` finds this row's carousel on the view.
+/// card. `col` is the column the row rests on; `rail` finds this row's carousel on the view.
 /// `art` is the height of the items' image from the row's top: the arrows centre on it, or on
 /// the whole row when the items have none.
 #[allow(clippy::too_many_arguments)]
@@ -410,8 +409,8 @@ pub fn controls<V: 'static>(
     )
     .absolute()
     .inset_0();
-    // Each arrow's centre, in the middle of its margin; the left one past the sidebar in it.
-    let back = (crate::theme::SIDEBAR_WIDTH + col.left) / 2.0;
+    // Each arrow's centre, in the middle of its margin, so the two mirror each other.
+    let back = col.left / 2.0;
     let forward = {
         let right = col.left + col.width;
         right + (view.width - right) / 2.0

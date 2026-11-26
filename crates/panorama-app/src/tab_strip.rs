@@ -1,9 +1,13 @@
 //! A row of text tabs, as MUBI sets a show's seasons: festival editions, a show's seasons.
 use crate::{
     home_layout::ViewSettings,
-    theme::{Theme, caps, focus_ring, typography::SECTION},
+    theme::{DURATION_STANDARD, EASE_EDITORIAL, Theme, caps, focus_ring, typography::SECTION},
+    transition::bezier,
 };
-use gpui::{Div, ElementId, FocusHandle, Stateful, Window, div, prelude::*, px};
+use gpui::{
+    Animation, AnimationExt, Div, ElementId, FocusHandle, Stateful, Window, div, prelude::*, px,
+    relative,
+};
 
 /// One tab: its label, the space under it, and its bar.
 const ROW: f32 = 44.0;
@@ -22,6 +26,20 @@ pub fn tab(
     window: &Window,
 ) -> Stateful<Div> {
     let theme = view.theme;
+    // A newly picked tab's bar grows out from its middle.
+    let bar = div().h(px(BAR)).w_full().flex().justify_center();
+    let bar = if !selected {
+        bar.into_any_element()
+    } else if view.reduced {
+        bar.bg(theme.ink).into_any_element()
+    } else {
+        bar.child(div().h_full().bg(theme.ink).with_animation(
+            "tab-bar",
+            Animation::new(DURATION_STANDARD).with_easing(|t| bezier(t, EASE_EDITORIAL)),
+            |bar, t| bar.w(relative(t)),
+        ))
+        .into_any_element()
+    };
     focus_ring(
         div()
             .id(id)
@@ -42,7 +60,7 @@ pub fn tab(
                     .pb(px(12.0))
                     .child(caps(label)),
             )
-            .child(div().h(px(BAR)).when(selected, |bar| bar.bg(theme.ink))),
+            .child(bar),
         focus,
         theme,
         view.active,
