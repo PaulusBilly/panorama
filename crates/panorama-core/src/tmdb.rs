@@ -1,6 +1,9 @@
 //! A film's English and foreign titles straight from TMDB, with the user's own API key. Addons
 //! send one localized name and rarely the original, so the film page asks TMDB for both.
-use crate::{addons::Kind, credits::text};
+use crate::{
+    addons::{Episode, Kind},
+    credits::text,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -24,6 +27,18 @@ pub struct Titles {
     /// A series' main directors; empty for films, whose addons already name theirs.
     #[serde(default)]
     pub directors: Vec<String>,
+}
+
+/// One episode as TMDB lists it, matched to an addon's by season and number.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TmdbEpisode {
+    pub season: u32,
+    pub number: u32,
+    pub title: Option<String>,
+    pub overview: Option<String>,
+    /// The full-size still; the image cache sizes it to its card.
+    pub still: Option<String>,
+    pub air_date: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,6 +72,64 @@ impl TmdbClient {
         self.get(key, "/configuration", &[]).await.map(|_| ())
     }
 
+    /// TMDB's own id for an IMDb or `tmdb:` film id; `None` when TMDB does not know it.
+    async fn tmdb_id(
+        &self,
+        key: &str,
+        kind: Kind,
+        film_id: &str,
+    ) -> Result<Option<u64>, TmdbError> {
+        if let Some(id) = film_id.strip_prefix("tmdb:") {
+            return id.parse().map(Some).map_err(|_| TmdbError::Invalid);
+        }
+        if !is_imdb(film_id) {
+            return Err(TmdbError::Invalid);
+        }
+        let found = self
+            .get(
+                key,
+                &format!("/find/{film_id}"),
+                &[("external_source", "imdb_id")],
+            )
+            .await?;
+        let results = if kind == Kind::Movie {
+            "movie_results"
+        } else {
+            "tv_results"
+        };
+        Ok(found[results][0]["id"].as_u64())
+    }
+
+    /// A series' episodes in `seasons`, as TMDB lists them; `None` when TMDB does not know it.
+    pub async fn episodes(
+        &self,
+        key: &str,
+        film_id: &str,
+        seasons: &[u32],
+    ) -> Result<Option<Vec<TmdbEpisode>>, TmdbError> {
+        let Some(id) = self.tmdb_id(key, Kind::Series, film_id).await? else {
+            return Ok(None);
+        };
+        let mut episodes = vec![];
+        // TMDB appends at most twenty seasons to one request.
+        for chunk in seasons.chunks(20) {
+            let append = chunk
+                .iter()
+                .map(|season| format!("season/{season}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let details = self
+                .get(
+                    key,
+                    &format!("/tv/{id}"),
+                    &[("language", "en-US"), ("append_to_response", &append)],
+                )
+                .await?;
+            episodes.extend(episodes_from_details(&details));
+        }
+        Ok(Some(episodes))
+    }
+
     /// A film's titles; `None` when TMDB does not know it.
     pub async fn titles(
         &self,
@@ -65,29 +138,8 @@ impl TmdbClient {
         film_id: &str,
     ) -> Result<Option<Titles>, TmdbError> {
         let path = if kind == Kind::Movie { "movie" } else { "tv" };
-        let id = match film_id.strip_prefix("tmdb:") {
-            Some(id) => id.parse::<u64>().map_err(|_| TmdbError::Invalid)?,
-            None => {
-                if !is_imdb(film_id) {
-                    return Err(TmdbError::Invalid);
-                }
-                let found = self
-                    .get(
-                        key,
-                        &format!("/find/{film_id}"),
-                        &[("external_source", "imdb_id")],
-                    )
-                    .await?;
-                let results = if kind == Kind::Movie {
-                    "movie_results"
-                } else {
-                    "tv_results"
-                };
-                match found[results][0]["id"].as_u64() {
-                    Some(id) => id,
-                    None => return Ok(None),
-                }
-            }
+        let Some(id) = self.tmdb_id(key, kind, film_id).await? else {
+            return Ok(None);
         };
         let details = self
             .get(
@@ -126,6 +178,66 @@ impl TmdbClient {
             _ => {}
         }
         response.json().await.map_err(|_| TmdbError::Invalid)
+    }
+}
+
+/// Every episode of the `season/N` responses appended to a show's details.
+pub fn episodes_from_details(details: &Value) -> Vec<TmdbEpisode> {
+    let Some(details) = details.as_object() else {
+        return vec![];
+    };
+    details
+        .iter()
+        .filter(|(key, _)| key.starts_with("season/"))
+        .flat_map(|(_, season)| season["episodes"].as_array().into_iter().flatten())
+        .filter_map(|episode| {
+            Some(TmdbEpisode {
+                season: u32::try_from(episode["season_number"].as_u64()?).ok()?,
+                number: u32::try_from(episode["episode_number"].as_u64()?).ok()?,
+                title: text(&episode["name"]),
+                // Whole: `text` stops at 200 characters, which a synopsis often passes.
+                overview: episode["overview"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|overview| !overview.is_empty())
+                    .map(str::to_owned),
+                still: episode["still_path"]
+                    .as_str()
+                    .filter(|path| path.starts_with('/'))
+                    .map(|path| format!("https://image.tmdb.org/t/p/original{path}")),
+                air_date: text(&episode["air_date"]),
+            })
+        })
+        .collect()
+}
+
+/// Lay TMDB's stills and synopses over an addon's episodes, matched by season and number. The
+/// addon's ids stay, since its streams are found by them, and so do its titles, which are often
+/// typeset better; TMDB names only an episode the addon left blank or called "Episode 5".
+pub fn enrich(episodes: &mut [Episode], tmdb: &[TmdbEpisode]) {
+    for episode in episodes.iter_mut().filter(|episode| episode.numbered) {
+        let Some(found) = tmdb
+            .iter()
+            .find(|found| (found.season, found.number) == (episode.season, episode.number))
+        else {
+            continue;
+        };
+        if let Some(still) = found.still.as_deref().and_then(|url| url.parse().ok()) {
+            episode.thumbnail = Some(still);
+        }
+        if let Some(overview) = &found.overview {
+            episode.overview = Some(overview.clone());
+        }
+        let stand_in =
+            |title: &str| title.is_empty() || title == format!("Episode {}", episode.number);
+        if stand_in(episode.title.trim())
+            && let Some(title) = found.title.as_ref().filter(|title| !stand_in(title))
+        {
+            episode.title = title.clone();
+        }
+        if episode.released.is_none() {
+            episode.released = found.air_date.clone();
+        }
     }
 }
 
@@ -239,6 +351,68 @@ fn transliteration(details: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn tmdb_episodes_dress_the_addons_and_keep_their_ids() {
+        let details = json!({
+            "name": "Silo",
+            "season/1": {"episodes": [
+                {"season_number": 1, "episode_number": 1, "name": "Freedom Day",
+                 "overview": "Sheriff Becker's plans...", "still_path": "/a.jpg",
+                 "air_date": "2023-05-05"},
+                {"season_number": 1, "episode_number": 2, "name": "Episode 2",
+                 "overview": "", "still_path": null, "air_date": "2023-05-05"},
+            ]},
+        });
+        let tmdb = episodes_from_details(&details);
+        assert_eq!(tmdb.len(), 2);
+        assert_eq!(
+            tmdb[0].still.as_deref(),
+            Some("https://image.tmdb.org/t/p/original/a.jpg")
+        );
+        let addon = |number: u32, title: &str| Episode {
+            id: format!("tt14688458:1:{number}"),
+            season: 1,
+            number,
+            numbered: true,
+            title: title.into(),
+            overview: Some("Cinemeta's".into()),
+            thumbnail: None,
+            released: None,
+        };
+        let mut episodes = vec![
+            addon(1, "Episode 1"),
+            addon(2, "Holston’s Pick"),
+            addon(3, "Machines"),
+        ];
+        enrich(&mut episodes, &tmdb);
+        assert_eq!(episodes[0].id, "tt14688458:1:1");
+        assert_eq!(episodes[0].title, "Freedom Day", "TMDB names a stand-in");
+        assert_eq!(
+            episodes[0].thumbnail.as_ref().map(|url| url.as_str()),
+            Some("https://image.tmdb.org/t/p/original/a.jpg")
+        );
+        assert_eq!(
+            episodes[0].overview.as_deref(),
+            Some("Sheriff Becker's plans...")
+        );
+        assert_eq!(episodes[0].released.as_deref(), Some("2023-05-05"));
+        assert_eq!(
+            episodes[1].title, "Holston’s Pick",
+            "the addon's own title stays"
+        );
+        assert_eq!(
+            episodes[1].overview.as_deref(),
+            Some("Cinemeta's"),
+            "an empty synopsis neither"
+        );
+        assert_eq!(episodes[1].thumbnail, None);
+        assert_eq!(
+            episodes[2].overview.as_deref(),
+            Some("Cinemeta's"),
+            "TMDB lacks it"
+        );
+    }
 
     #[test]
     fn a_latin_original_sits_under_the_english_title() {

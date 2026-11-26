@@ -97,7 +97,10 @@ pub(super) fn code(episode: &Episode) -> String {
 impl Film {
     /// Replace the episodes; the rest of the page keeps reading them from here, so a render
     /// does not copy thousands of them.
-    pub(super) fn set_episodes(&mut self, episodes: Vec<Episode>) {
+    pub(super) fn set_episodes(&mut self, mut episodes: Vec<Episode>) {
+        if let Some(tmdb) = &self.tmdb_episodes {
+            panorama_core::tmdb::enrich(&mut episodes, tmdb);
+        }
         self.tabs = tabs(&episodes);
         self.episodes = Arc::new(episodes);
         self.tab_focus

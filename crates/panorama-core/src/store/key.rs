@@ -90,6 +90,12 @@ impl Key {
         Ok(Self(format!("meta:tmdb3|{}", &meta["meta:".len()..])))
     }
 
+    /// Identifies a series' cached TMDB episodes, under `meta:` so they age out with the cache.
+    pub fn tmdb_episodes(film_id: &str) -> Result<Self, StoreError> {
+        let Self(meta) = Self::meta(film_id)?;
+        Ok(Self(format!("meta:tmdbeps|{}", &meta["meta:".len()..])))
+    }
+
     /// Identifies the source a film or episode last played from, under `meta:` so it ages out
     /// with the cache and goes on sign-out.
     pub fn last_source(video_id: &str) -> Result<Self, StoreError> {

@@ -66,6 +66,9 @@ pub struct Film {
     /// A show's episodes in watch order. `metadata` keeps none, since it is cloned to render.
     episodes: Arc<Vec<Episode>>,
     tabs: Vec<episodes::Tab>,
+    /// TMDB's stills and synopses, laid over `episodes` whenever either arrives.
+    tmdb_episodes: Option<Arc<Vec<panorama_core::tmdb::TmdbEpisode>>>,
+    tmdb_task: Option<Task<()>>,
     /// The tab picked by hand; until then the strip follows `target`.
     tab: Option<usize>,
     tab_focus: Vec<FocusHandle>,
@@ -233,6 +236,8 @@ impl Film {
             save_task: None,
             credits_task: None,
             original_task: None,
+            tmdb_episodes: None,
+            tmdb_task: None,
             _state: observer,
             _shell: shell_observer,
             _images: image_observer,

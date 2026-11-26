@@ -33,4 +33,6 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Built into the app so episodes come from TMDB without a key of the user's own.
+          PANORAMA_TMDB_KEY: ${{ secrets.PANORAMA_TMDB_KEY }}
         run: pwsh scripts/package-windows-installer.ps1 -Publish
