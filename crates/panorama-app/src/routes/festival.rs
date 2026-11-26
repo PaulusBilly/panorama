@@ -595,7 +595,7 @@ impl GridHost for Festival {
         } else {
             let next = if forward { index + 1 } else { index - 1 };
             let y = Self::grid_top(view) + FilmGrid::row_top(next, col);
-            reveal(&self.scroll, y, Grid::fit(col.width).height(), view.height);
+            reveal(&self.scroll, y, Grid::fit(col).height(), view.height);
             if let Some(card) = self.grid.focus(next) {
                 card.focus(window, cx);
             }

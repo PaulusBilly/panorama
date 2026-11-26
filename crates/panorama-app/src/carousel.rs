@@ -233,16 +233,12 @@ impl Carousel {
 
 /// Arrow pill size.
 const ARROW: (f32, f32) = (30.0, 52.0);
-/// Space between an arrow and the column edge. The same for every row, so arrows line up down
-/// the page. It equals the tightest item gap, the cast cards': there the pill's edge lands
-/// exactly on the neighbouring card's edge instead of half-covering the gap, and in the award
-/// tiles' wider gap it sits wholly inside it.
-const ARROW_GAP: f32 = 6.0;
 /// Closest an arrow comes to the window edge on a narrow window.
 const ARROW_MARGIN: f32 = 8.0;
 
 /// Make a carousel `row` draggable and overlay edge arrows, each shown only while the row can
-/// move that way. `col` is the column the row rests on; `rail` finds this row's carousel on the
+/// move that way. Each arrow centres one column gap outside the column, in the middle of the
+/// gutter, so arrows line up down the page and sit over the next card's sliver, not a whole card. `col` is the column the row rests on; `rail` finds this row's carousel on the
 /// view. `art` is the height of the items' image from the row's top: the arrows centre on it,
 /// or on the whole row when the items have none.
 #[allow(clippy::too_many_arguments)]
@@ -412,10 +408,14 @@ pub fn controls<V: 'static>(
     .inset_0();
     let mut wrap = div().relative().child(row).child(pointer);
     if arrows[0].0 > 0.0 {
-        wrap = wrap.child(arrow(false, col.left - ARROW_GAP - ARROW.0, cx));
+        wrap = wrap.child(arrow(false, col.left - col.gap - ARROW.0 / 2.0, cx));
     }
     if arrows[1].0 > 0.0 {
-        wrap = wrap.child(arrow(true, col.left + col.width + ARROW_GAP, cx));
+        wrap = wrap.child(arrow(
+            true,
+            col.left + col.width + col.gap - ARROW.0 / 2.0,
+            cx,
+        ));
     }
     wrap
 }

@@ -1,8 +1,9 @@
 //! A show's seasons and episodes, the first section under its hero.
 use super::{
-    credits::{columns, heading, rail, span},
+    credits::{heading, rail},
     *,
 };
+use crate::assets::Weighted;
 use crate::{
     button::Icon,
     hero,
@@ -13,22 +14,19 @@ use crate::{
         scrim::{Edge, scrim},
     },
 };
-use gpui::{Div, div, prelude::*, px, relative, svg};
+use gpui::{Div, FontWeight, div, prelude::*, px, relative, svg};
 use panorama_core::addons::{Episode, next_after, today};
 use std::{collections::HashSet, ops::Range};
 
 /// A season past this many episodes is split, since one rail cannot hold a long anime.
 const TAB_LIMIT: usize = 100;
-const TILE_MIN: f32 = 280.0;
-const TILE_GAP: f32 = 16.0;
 /// Height over width: the still, then the copy overlapping its lower edge.
-const CARD_RATIO: f32 = 0.94;
+const CARD_RATIO: f32 = 0.82;
 /// How dark the shade under the words gets at the bottom edge.
 const SHADE: f32 = 0.7;
 const COPY_PAD: f32 = 16.0;
 /// Room for the copy at its longest, so every card's eyebrow sits at the same height.
-const COPY_HEIGHT: f32 = 168.0;
-const TILES: usize = 4;
+const COPY_HEIGHT: f32 = 146.0;
 
 /// One stop on the strip: a season, or a stretch of a long one.
 #[derive(Debug, PartialEq)]
@@ -199,7 +197,7 @@ impl Film {
             return None;
         }
         let theme = view.theme;
-        let col = view.column().mirrored();
+        let col = view.column();
         let episodes = self.episodes.clone();
         let target_index = self
             .target
@@ -215,12 +213,9 @@ impl Film {
             .resize_with(self.tabs.len(), || cx.focus_handle());
         self.episode_focus
             .resize_with(range.len(), || cx.focus_handle());
-        let tile = span(
-            col.width,
-            columns(col.width, TILE_MIN, TILE_GAP, TILES),
-            TILE_GAP,
-        );
-        let pitch = tile + TILE_GAP;
+        // As wide as a Home card, so a show's episodes read at the same size as the films.
+        let grid = crate::home_layout::Grid::fit(view.column());
+        let (tile, pitch) = (grid.width, grid.pitch());
         self.episode_rail.settle(pitch, view.reduced);
         let focused = self.episode_focus[..range.len()]
             .iter()
@@ -270,7 +265,7 @@ impl Film {
                 .child(rail(
                     "film-episodes",
                     cards,
-                    TILE_GAP,
+                    grid.gap,
                     false,
                     Some((tile * TILE_RATIO).round()),
                     &self.episode_rail,
@@ -476,22 +471,29 @@ impl Film {
             .right_0()
             .top(px(top))
             .bottom_0()
-            .p(px(COPY_PAD))
+            // Set like a Home card's caption: the note over the name, both in capitals.
+            .px(px(20.0))
+            .pt(px(COPY_PAD))
+            .pb(px(16.0))
             .flex()
             .flex_col()
+            .text_color(theme.ink)
             .child(
                 div()
-                    .caption()
-                    .text_color(theme.ink.opacity(0.72))
+                    .text_size(px(14.0))
+                    .weight(FontWeight::SEMIBOLD)
+                    .line_height(relative(1.15))
+                    .truncate()
                     .child(caps(&eyebrow)),
             )
             .child(
                 div()
-                    .heading()
+                    .text_size(px(22.0))
+                    .weight(FontWeight::MEDIUM)
+                    .line_height(relative(1.05))
                     .mt(px(2.0))
-                    .text_color(theme.ink)
                     .truncate()
-                    .child(episode.title.clone()),
+                    .child(caps(&episode.title)),
             )
             .when_some(overview, |copy, overview| {
                 copy.child(
@@ -500,17 +502,17 @@ impl Film {
                         .font_weight(gpui::FontWeight::NORMAL)
                         .mt(px(6.0))
                         .text_color(theme.ink.opacity(0.78))
-                        .line_clamp(3)
+                        .line_clamp(2)
                         .child(overview),
                 )
             })
             // The footer keeps to the bottom edge whatever the overview's length.
-            .child(div().flex_1().min_h(px(12.0)))
+            .child(div().flex_1().min_h(px(10.0)))
             .child(footer)
     }
 }
 
-/// A card is its 16:9 still plus room beneath for three lines of copy.
+/// A card is its still plus room beneath for two lines of description.
 fn card_height(width: f32) -> f32 {
     (width * CARD_RATIO).round()
 }

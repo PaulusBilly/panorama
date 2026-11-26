@@ -1,7 +1,7 @@
 use crate::{
     button::{Button, Icon},
     film_card::{self, CardProps},
-    home_layout::{GAP, Grid, TILE_RATIO, ViewSettings},
+    home_layout::{Grid, TILE_RATIO, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
     theme::{Column, Theme, motion::*},
@@ -222,7 +222,7 @@ impl FilmGrid {
     }
     /// Top of card `index`'s row, relative to the grid's top edge.
     pub fn row_top(index: usize, col: Column) -> f32 {
-        let grid = Grid::fit(col.width);
+        let grid = Grid::fit(col);
         (index / grid.columns) as f32 * grid.stride()
     }
     /// The pointer entered or left card `index`. Entering starts the dwell; leaving a card only
@@ -278,7 +278,7 @@ impl FilmGrid {
         window: &Window,
         cx: &mut Context<V>,
     ) -> Div {
-        let grid = Grid::fit(view.column().width);
+        let grid = Grid::fit(view.column());
         let count = if skeletons && self.films.is_empty() {
             SKELETONS
         } else {
@@ -315,7 +315,7 @@ impl FilmGrid {
                 .w_full()
                 .h(px(grid.height()))
                 .flex()
-                .gap(px(GAP));
+                .gap(px(grid.gap));
             for index in row * grid.columns..((row + 1) * grid.columns).min(count) {
                 let film = films.get(index);
                 if visible && let Some(film) = film {
@@ -482,7 +482,7 @@ impl FilmGrid {
         let theme = view.theme;
         let width = grid.width * (1.0 + LIFT * lift);
         let height = width * TILE_RATIO;
-        let x = (index % grid.columns) as f32 * (grid.width + GAP) - (width - grid.width) / 2.0;
+        let x = (index % grid.columns) as f32 * grid.pitch() - (width - grid.width) / 2.0;
         // The artwork grows upward so its bottom stays on the row's baseline, like the tiles beside it.
         let y = (index / grid.columns) as f32 * grid.stride() - (height - grid.height());
         // Details are laid out once at the open size and pinned there, so the synopsis never
@@ -525,7 +525,7 @@ impl FilmGrid {
         let origin = self.origin.clone();
         let note = self.note(index).map(str::to_owned);
         let rest = point(
-            px((index % grid.columns) as f32 * (grid.width + GAP)),
+            px((index % grid.columns) as f32 * grid.pitch()),
             px((index / grid.columns) as f32 * grid.stride()),
         );
         let art = art.child(card_face(

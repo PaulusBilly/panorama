@@ -8,31 +8,28 @@ pub struct Column {
     pub left: f32,
     /// Usable width.
     pub width: f32,
+    /// Space between cards side by side. The gutter is twice it, so a row's next card shows one
+    /// gap's worth past the column, and a carousel arrow centres in the gutter over that sliver.
+    pub gap: f32,
 }
 
 impl Column {
-    /// Place the column for a window width, with a 60, 40 or 24 px gutter on both sides.
+    /// Place the column for a window width: cards 24, 20 or 12 px apart, and a gutter of twice
+    /// that on both sides.
     pub fn at(window_width: f32) -> Self {
-        let gutter = if window_width > 1100.0 {
-            60.0
-        } else if window_width > 700.0 {
-            40.0
-        } else {
+        let gap = if window_width > 1100.0 {
             24.0
+        } else if window_width > 700.0 {
+            20.0
+        } else {
+            12.0
         };
+        let gutter = gap * 2.0;
         let left = SIDEBAR_WIDTH + gutter;
         Self {
             left,
             width: (window_width - left - gutter).max(0.0),
-        }
-    }
-
-    /// The same column with a right margin as wide as the left, for a page that hides the
-    /// sidebar but keeps its left edge, so a row scrolled to its end sits evenly framed.
-    pub fn mirrored(self) -> Self {
-        Self {
-            width: (self.width - SIDEBAR_WIDTH).max(0.0),
-            ..self
+            gap,
         }
     }
 }
@@ -41,31 +38,32 @@ impl Column {
 mod tests {
     use super::*;
     #[test]
-    fn a_mirrored_column_has_equal_margins() {
-        for window in [800.0, 1280.0, 1920.0] {
-            let col = Column::at(window).mirrored();
-            assert_eq!(window - col.left - col.width, col.left, "{window}");
+    fn the_gutter_is_twice_the_gap_on_both_sides() {
+        for window in [480.0, 800.0, 1440.0, 1920.0] {
+            let col = Column::at(window);
+            assert_eq!(col.left - SIDEBAR_WIDTH, col.gap * 2.0, "{window}");
+            assert_eq!(window - col.left - col.width, col.gap * 2.0, "{window}");
         }
     }
 
     #[test]
     fn column_breakpoints() {
-        for (width, left, column) in [
-            (480.0, 104.0, 352.0),
-            (700.0, 104.0, 572.0),
-            (701.0, 120.0, 541.0),
-            (1100.0, 120.0, 940.0),
-            (1101.0, 140.0, 901.0),
-            (1280.0, 140.0, 1080.0),
-            (1920.0, 140.0, 1720.0),
-            (2400.0, 140.0, 2200.0),
-            (100.0, 104.0, 0.0),
+        for (width, left, column, gap) in [
+            (480.0, 104.0, 352.0, 12.0),
+            (700.0, 104.0, 572.0, 12.0),
+            (701.0, 120.0, 541.0, 20.0),
+            (1100.0, 120.0, 940.0, 20.0),
+            (1101.0, 128.0, 925.0, 24.0),
+            (1440.0, 128.0, 1264.0, 24.0),
+            (1920.0, 128.0, 1744.0, 24.0),
+            (100.0, 104.0, 0.0, 12.0),
         ] {
             assert_eq!(
                 Column::at(width),
                 Column {
                     left,
-                    width: column
+                    width: column,
+                    gap
                 },
                 "{width}"
             );

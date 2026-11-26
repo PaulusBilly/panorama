@@ -67,7 +67,7 @@ impl Home {
     pub(crate) fn focus_first_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let lead = self.lead(cx);
         if let Some(first) = self.grid.focus(0) {
-            let grid = crate::home_layout::Grid::fit(self.settings(window, cx).column().width);
+            let grid = crate::home_layout::Grid::fit(self.settings(window, cx).column());
             self.scroll.set_offset(point(
                 px(0.0),
                 px(-(self.fold - self.settings(window, cx).height + lead + grid.height())),
@@ -102,7 +102,7 @@ impl Home {
         }
         let index = index.min(self.grid.len());
         let view = self.settings(window, cx);
-        let grid = crate::home_layout::Grid::fit(view.column().width);
+        let grid = crate::home_layout::Grid::fit(view.column());
         if !forward && index == 0 {
             if self.switcher_visible(cx) {
                 self.focus_switcher(window, cx);
