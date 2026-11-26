@@ -237,9 +237,9 @@ const ARROW: (f32, f32) = (30.0, 52.0);
 const ARROW_MARGIN: f32 = 8.0;
 
 /// Make a carousel `row` draggable and overlay edge arrows, each shown only while the row can
-/// move that way. Each arrow centres one column gap outside the column, in the middle of the
-/// gutter, so arrows line up down the page and sit over the next card's sliver, not a whole card. `col` is the column the row rests on; `rail` finds this row's carousel on the
-/// view. `art` is the height of the items' image from the row's top: the arrows centre on it,
+/// move that way. The forward arrow centres in the right margin, over the next card's sliver; the
+/// left margin is the sidebar, so the back arrow sits just inside the column's left edge. `col`
+/// is the column the row rests on; `rail` finds this row's carousel on the view. `art` is the height of the items' image from the row's top: the arrows centre on it,
 /// or on the whole row when the items have none.
 #[allow(clippy::too_many_arguments)]
 pub fn controls<V: 'static>(
@@ -408,12 +408,13 @@ pub fn controls<V: 'static>(
     .inset_0();
     let mut wrap = div().relative().child(row).child(pointer);
     if arrows[0].0 > 0.0 {
-        wrap = wrap.child(arrow(false, col.left - col.gap - ARROW.0 / 2.0, cx));
+        wrap = wrap.child(arrow(false, col.left + ARROW_MARGIN, cx));
     }
     if arrows[1].0 > 0.0 {
+        let right = col.left + col.width;
         wrap = wrap.child(arrow(
             true,
-            col.left + col.width + col.gap - ARROW.0 / 2.0,
+            right + (view.width - right - ARROW.0) / 2.0,
             cx,
         ));
     }
