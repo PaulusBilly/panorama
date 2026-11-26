@@ -759,8 +759,9 @@ impl Render for Festival {
                     "festival-years",
                     "Editions",
                     col.width,
-                    theme,
+                    view,
                     &self.year_slide,
+                    window,
                     tabs,
                 )))
             });

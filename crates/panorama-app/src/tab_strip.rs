@@ -1,8 +1,11 @@
 //! A row of text tabs, as MUBI sets a show's seasons: festival editions, a show's seasons.
 use crate::{
     home_layout::ViewSettings,
-    theme::{DURATION_STANDARD, EASE_EDITORIAL, Theme, caps, focus_ring, typography::SECTION},
-    transition::bezier,
+    theme::{
+        DURATION_DELIBERATE, DURATION_STANDARD, EASE_EDITORIAL, caps, focus_ring,
+        typography::SECTION,
+    },
+    transition::{Tween, bezier},
 };
 use gpui::{
     Animation, AnimationExt, Div, ElementId, FocusHandle, ScrollHandle, ScrollWheelEvent, Stateful,
@@ -11,6 +14,7 @@ use gpui::{
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    time::Instant,
 };
 
 /// One tab: its label, the space under it, and its bar.
@@ -21,6 +25,10 @@ const GAP: f32 = 36.0;
 const BAR: f32 = 3.0;
 /// The buttons that page a row longer than the column.
 const PAGER: f32 = 28.0;
+/// Under a label: the space down to its bar, then the bar.
+const UNDER: f32 = 12.0 + BAR;
+/// Where a label's line of text centres down a tab, so the paging buttons sit level with it.
+const LABEL_MIDDLE: f32 = ROW - UNDER - (SECTION.size + 2.0) * SECTION.line_height / 2.0;
 
 /// Where a strip's tabs sat last frame, so the bar can slide from the old tab to a new one.
 #[derive(Default)]
@@ -32,6 +40,8 @@ pub struct Slide {
     from: Cell<Option<(f32, f32)>>,
     /// The strip's sideways scroll, for a row longer than the column.
     scroll: ScrollHandle,
+    /// A page the buttons asked for, gliding there as the carousels do.
+    glide: Rc<Cell<Option<Tween>>>,
 }
 
 impl Slide {
@@ -118,7 +128,7 @@ pub fn tab(
                     .apply(div())
                     .text_size(px(SECTION.size + 2.0))
                     .relative()
-                    .pb(px(12.0 + BAR))
+                    .pb(px(UNDER))
                     .child(caps(label))
                     .child(measure),
             )
@@ -135,18 +145,34 @@ pub fn tab(
 /// The tabs in a row across `width`, over a hairline the selected tab's bar rests on. A row
 /// longer than the column scrolls sideways: a mouse's vertical wheel turns it, as a Windows
 /// mouse has no other, and a button beside each clipped end pages it.
+#[allow(clippy::too_many_arguments)]
 pub fn strip(
     id: &'static str,
     label: &'static str,
     width: f32,
-    theme: Theme,
+    view: ViewSettings,
     slide: &Slide,
+    window: &Window,
     tabs: impl IntoIterator<Item = Stateful<Div>>,
 ) -> Div {
+    let theme = view.theme;
     let scroll = slide.scroll.clone();
+    let glide = slide.glide.clone();
+    if let Some(tween) = glide.get() {
+        let now = Instant::now();
+        scroll.set_offset(point(
+            px(-tween.value(now, view.reduced)),
+            scroll.offset().y,
+        ));
+        if tween.moving(now, view.reduced) {
+            window.request_animation_frame();
+        } else {
+            glide.set(None);
+        }
+    }
     let max = f32::from(scroll.max_offset().x).max(0.0);
     let position = crate::carousel::clamped(scroll.offset().x, max);
-    let wheel = scroll.clone();
+    let (wheel, held) = (scroll.clone(), glide.clone());
     let row = div()
         .id(id)
         .role(gpui::Role::TabList)
@@ -165,6 +191,8 @@ pub fn strip(
                 return;
             }
             let delta = event.delta.pixel_delta(px(20.0));
+            // The wheel takes over from a glide under way.
+            held.set(None);
             if delta.y.abs() > delta.x.abs() {
                 let x = (f32::from(wheel.offset().x) + f32::from(delta.y)).clamp(-max, 0.0);
                 wheel.set_offset(point(px(x), wheel.offset().y));
@@ -174,10 +202,11 @@ pub fn strip(
         })
         .children(tabs);
     let pager = |forward: bool| {
-        let scroll = scroll.clone();
+        let (scroll, glide) = (scroll.clone(), glide.clone());
         div()
             .id((id, usize::from(forward)))
             .flex_none()
+            .mt(px(LABEL_MIDDLE - PAGER / 2.0))
             .size(px(PAGER))
             .rounded_full()
             .bg(theme.arrow)
@@ -195,10 +224,18 @@ pub fn strip(
                 "Earlier tabs"
             })
             .on_click(move |_, window, _| {
-                let max = f32::from(scroll.max_offset().x);
-                let step = width * 0.7 * if forward { -1.0 } else { 1.0 };
-                let x = (f32::from(scroll.offset().x) + step).clamp(-max, 0.0);
-                scroll.set_offset(point(px(x), scroll.offset().y));
+                let max = f32::from(scroll.max_offset().x).max(0.0);
+                let from = crate::carousel::clamped(scroll.offset().x, max);
+                let step = width * 0.7 * if forward { 1.0 } else { -1.0 };
+                let now = Instant::now();
+                let mut tween = Tween::fixed(from);
+                tween.retarget(
+                    (from + step).clamp(0.0, max),
+                    DURATION_DELIBERATE,
+                    Some(EASE_EDITORIAL),
+                    now,
+                );
+                glide.set(Some(tween));
                 window.refresh();
             })
             .child(
@@ -217,7 +254,7 @@ pub fn strip(
     div()
         .w(px(width))
         .flex()
-        .items_center()
+        .items_start()
         .gap(px(12.0))
         .border_b_1()
         .border_color(theme.rule)

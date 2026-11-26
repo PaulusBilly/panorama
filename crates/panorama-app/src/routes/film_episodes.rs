@@ -263,8 +263,9 @@ impl Film {
                 "film-seasons",
                 "Seasons",
                 col.width,
-                theme,
+                view,
                 &self.season_slide,
+                window,
                 labels,
             )
         });
