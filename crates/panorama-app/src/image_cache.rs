@@ -35,21 +35,6 @@ pub fn render_image(mut decoded: DecodedImage) -> Result<Arc<RenderImage>, Image
     Ok(Arc::new(RenderImage::new(vec![image::Frame::new(rgba)])))
 }
 
-/// GPUI has no blur filter, so a blurred copy is baked here: small, since it is all low
-/// frequencies and scales up without showing it.
-const BLURRED: (f32, f32) = (640.0, 360.0);
-const BLUR_SIGMA: f32 = 18.0;
-
-fn blur(decoded: DecodedImage) -> Result<DecodedImage, ImageError> {
-    let (width, height) = (decoded.width, decoded.height);
-    let rgba = image::RgbaImage::from_raw(width, height, decoded.rgba).ok_or(ImageError::Decode)?;
-    Ok(DecodedImage {
-        width,
-        height,
-        rgba: image::imageops::fast_blur(&rgba, BLUR_SIGMA).into_raw(),
-    })
-}
-
 /// Crop to `width` by `height`'s shape around the centre, then blur ever harder toward the
 /// bottom, the way a TV app lays copy over a still: sharp above, soft where the words sit.
 fn fade_down(decoded: DecodedImage, width: u32, height: u32) -> Result<DecodedImage, ImageError> {
@@ -184,7 +169,6 @@ fn fade_at(y: f32) -> f32 {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Look {
     Sharp,
-    Blurred,
     /// Cropped to the key's bounds and blurred toward the bottom.
     Fading,
 }
@@ -198,7 +182,6 @@ fn prepare(
     let tint = crate::tint::dominant(&decoded.rgba);
     let decoded = match look {
         Look::Sharp => decoded,
-        Look::Blurred => blur(decoded)?,
         Look::Fading => fade_down(decoded, bounds.0, bounds.1)?,
     };
     Ok((render_image(decoded)?, tint))
@@ -424,20 +407,6 @@ impl ImageCache {
         if !self.pending.contains_key(&key) {
             self.prefetched.remove(&key);
         }
-    }
-    /// The heavily blurred copy of an image, for crossfading over the sharp one.
-    pub fn request_blurred(
-        &mut self,
-        url: &str,
-        services: &Arc<Services>,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<CachedImage> {
-        let key = Key {
-            look: Look::Blurred,
-            ..self.key(url, BLURRED, 1.0)?
-        };
-        self.fetch(key, services, window, cx)
     }
     /// A copy cropped to fill `bounds`, sharp at the top and blurred toward the bottom.
     pub fn request_fading(
@@ -670,22 +639,6 @@ mod tests {
         assert!(key(&fixtures, "fixture://missing.jpg").is_none());
         assert!(key(&fixtures, "http://dusk.jpg").is_none());
         assert!(key(&live, "fixture://dusk.jpg").is_none());
-    }
-    #[test]
-    fn blur_spreads_a_hard_edge() {
-        let (width, height) = (64, 8);
-        let rgba = (0..width * height)
-            .flat_map(|i| [if i % width < width / 2 { 0 } else { 255 }, 0, 0, 255])
-            .collect();
-        let blurred = blur(DecodedImage {
-            width,
-            height,
-            rgba,
-        })
-        .unwrap();
-        let red = |x: u32| blurred.rgba[(x * 4) as usize];
-        assert!(red(30) > 40 && red(33) < 215, "{} {}", red(30), red(33));
-        assert!(red(30) < red(33));
     }
     #[test]
     fn tint_is_found_from_any_decoded_size() {

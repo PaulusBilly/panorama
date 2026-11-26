@@ -25,6 +25,14 @@ const CREDITS_GAP_AFTER_ORIGINAL: f32 = 8.0;
 const PLACE_GAP: f32 = 2.0;
 const ACTIONS_GAP: f32 = 28.0;
 pub const ROW_GAP: f32 = 56.0;
+/// How fast a hero's image scrolls against the page: half, so it falls behind the words.
+const PARALLAX: f32 = 0.5;
+
+/// How far a hero's image has moved up once the page has scrolled `top`. Without motion it
+/// moves with the page.
+pub fn parallax(top: f32, reduced: bool) -> f32 {
+    if reduced { top } else { top * PARALLAX }
+}
 pub const FOLD_PAD: f32 = 48.0;
 /// Share of the window the hero takes, leaving the Continue row in view beneath it.
 const HERO_SHARE: f32 = 0.72;
