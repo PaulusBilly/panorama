@@ -10,6 +10,7 @@ fn ep(id: &str, season: u32, number: u32, released: Option<&str>) -> Episode {
         overview: None,
         thumbnail: None,
         released: released.map(Into::into),
+        runtime: None,
     }
 }
 

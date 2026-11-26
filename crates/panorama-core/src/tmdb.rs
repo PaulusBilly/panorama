@@ -39,6 +39,9 @@ pub struct TmdbEpisode {
     /// The full-size still; the image cache sizes it to its card.
     pub still: Option<String>,
     pub air_date: Option<String>,
+    /// Minutes.
+    #[serde(default)]
+    pub runtime: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -206,6 +209,10 @@ pub fn episodes_from_details(details: &Value) -> Vec<TmdbEpisode> {
                     .filter(|path| path.starts_with('/'))
                     .map(|path| format!("https://image.tmdb.org/t/p/original{path}")),
                 air_date: text(&episode["air_date"]),
+                runtime: episode["runtime"]
+                    .as_u64()
+                    .and_then(|minutes| u32::try_from(minutes).ok())
+                    .filter(|minutes| *minutes > 0),
             })
         })
         .collect()
@@ -238,6 +245,7 @@ pub fn enrich(episodes: &mut [Episode], tmdb: &[TmdbEpisode]) {
         if episode.released.is_none() {
             episode.released = found.air_date.clone();
         }
+        episode.runtime = found.runtime.or(episode.runtime);
     }
 }
 
@@ -359,7 +367,7 @@ mod tests {
             "season/1": {"episodes": [
                 {"season_number": 1, "episode_number": 1, "name": "Freedom Day",
                  "overview": "Sheriff Becker's plans...", "still_path": "/a.jpg",
-                 "air_date": "2023-05-05"},
+                 "air_date": "2023-05-05", "runtime": 61},
                 {"season_number": 1, "episode_number": 2, "name": "Episode 2",
                  "overview": "", "still_path": null, "air_date": "2023-05-05"},
             ]},
@@ -379,6 +387,7 @@ mod tests {
             overview: Some("Cinemeta's".into()),
             thumbnail: None,
             released: None,
+            runtime: None,
         };
         let mut episodes = vec![
             addon(1, "Episode 1"),
@@ -397,6 +406,8 @@ mod tests {
             Some("Sheriff Becker's plans...")
         );
         assert_eq!(episodes[0].released.as_deref(), Some("2023-05-05"));
+        assert_eq!(episodes[0].runtime, Some(61));
+        assert_eq!(episodes[1].runtime, None, "TMDB gave none");
         assert_eq!(
             episodes[1].title, "Holston’s Pick",
             "the addon's own title stays"

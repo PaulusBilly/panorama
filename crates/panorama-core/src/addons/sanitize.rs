@@ -488,6 +488,7 @@ pub(super) fn episodes(videos: &[Video]) -> Vec<Episode> {
                     .and_then(|value| Url::parse(value).ok())
                     .and_then(|url| image(Some(url))),
                 released: video.released.map(|date| date.format("%F").to_string()),
+                runtime: None,
             }
         })
         .collect::<Vec<_>>();

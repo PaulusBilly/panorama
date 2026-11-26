@@ -133,6 +133,7 @@ fn show() -> FilmDetails {
         ))
         .ok(),
         released: Some(released.into()),
+        runtime: Some(42 + number % 9),
     };
     film.episodes = (1..=6)
         .map(|number| episode(1, number, "2024-03-01"))

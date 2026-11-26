@@ -26,7 +26,7 @@ const CARD_RATIO: f32 = 0.82;
 const SHADE: f32 = 0.7;
 const COPY_PAD: f32 = 16.0;
 /// Room for the copy at its longest, so every card's eyebrow sits at the same height.
-const COPY_HEIGHT: f32 = 146.0;
+const COPY_HEIGHT: f32 = 120.0;
 
 /// One stop on the strip: a season, or a stretch of a long one.
 #[derive(Debug, PartialEq)]
@@ -356,14 +356,7 @@ impl Film {
                         .group_hover(group.clone(), |style| style.opacity(1.0)),
                 )
             })
-            .child(self.episode_copy(
-                episode,
-                unaired,
-                resume,
-                watched,
-                height - COPY_HEIGHT,
-                theme,
-            ))
+            .child(self.episode_copy(episode, unaired, resume, height - COPY_HEIGHT, theme))
             .child(
                 div()
                     .absolute()
@@ -407,13 +400,11 @@ impl Film {
 
     /// The words laid over a card's lower half: which episode, its name, what happens, and
     /// what pressing it does.
-    #[allow(clippy::too_many_arguments)]
     fn episode_copy(
         &self,
         episode: &Episode,
         unaired: bool,
         resume: Option<&panorama_core::stremio::ResumePoint>,
-        watched: bool,
         top: f32,
         theme: Theme,
     ) -> Div {
@@ -428,46 +419,40 @@ impl Film {
             kind.to_owned()
         };
         let overview = episode.overview.clone().filter(|_| !unaired);
-        let state = match (unaired, resume) {
-            (true, _) => episode
-                .released
-                .as_deref()
-                .map(|date| format!("Airs {date}"))
-                .unwrap_or_else(|| "Coming soon".to_owned()),
+        // What is left to know before pressing play, after the number: when it airs, how much
+        // is left of it, or how long it runs.
+        let note = match (unaired, resume) {
+            (true, _) => Some(
+                episode
+                    .released
+                    .as_deref()
+                    .map(|date| format!("Airs {date}"))
+                    .unwrap_or_else(|| "Coming soon".to_owned()),
+            ),
             (false, Some(point)) => {
-                let left = ((point.duration_secs - point.offset_secs).max(0.0) / 60.0).ceil();
-                format!("{left}m left")
+                crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
+                    .map(|left| format!("{left} left"))
             }
-            (false, None) if watched => "Watched".to_owned(),
-            (false, None) => "Play".to_owned(),
+            (false, None) => episode
+                .runtime
+                .map(|minutes| crate::film_display::runtime(&minutes.to_string())),
         };
-        let bar = resume.map(|point| {
+        let eyebrow = match note {
+            Some(note) => format!("{eyebrow} · {note}"),
+            None => eyebrow,
+        };
+        // Along the card's bottom edge, as on a Continue card.
+        let progress = resume.map(|point| {
             let share = (point.offset_secs / point.duration_secs).clamp(0.0, 1.0) as f32;
             div()
-                .w(px(36.0))
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
                 .h(px(3.0))
-                .rounded_full()
-                .overflow_hidden()
                 .bg(theme.progress_track)
-                .child(div().h_full().w(px(36.0 * share)).bg(theme.progress_fill))
+                .child(div().h_full().w(relative(share)).bg(theme.progress_fill))
         });
-        let footer = div()
-            .flex()
-            .items_center()
-            .gap(px(8.0))
-            .label()
-            .text_color(theme.ink)
-            .when(!unaired, |row| {
-                row.child(
-                    svg()
-                        .path(Icon::Play.path())
-                        .size(px(12.0))
-                        .flex_none()
-                        .text_color(theme.ink),
-                )
-            })
-            .children(bar)
-            .child(state);
         div()
             .absolute()
             .left_0()
@@ -484,8 +469,9 @@ impl Film {
             .child(
                 div()
                     .text_size(px(14.0))
-                    .weight(FontWeight::SEMIBOLD)
+                    .weight(FontWeight::NORMAL)
                     .line_height(relative(1.15))
+                    .text_color(theme.ink.opacity(0.82))
                     .truncate()
                     .child(caps(&eyebrow)),
             )
@@ -509,9 +495,7 @@ impl Film {
                         .child(overview),
                 )
             })
-            // The footer keeps to the bottom edge whatever the overview's length.
-            .child(div().flex_1().min_h(px(10.0)))
-            .child(footer)
+            .children(progress)
     }
 }
 
@@ -534,6 +518,7 @@ mod tests {
             overview: None,
             thumbnail: None,
             released: None,
+            runtime: None,
         }
     }
 
