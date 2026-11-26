@@ -774,7 +774,12 @@ impl Render for Festival {
             .ml(px(col.left))
             .w(px(col.width))
             .pt(px(GRID_GAP))
-            .pb(px(112.0));
+            .pb(px(112.0))
+            .relative()
+            .children(
+                (self.loading && !self.films.is_empty())
+                    .then(|| crate::film_grid::loading_more(view)),
+            );
         if let Some(message) = self.error {
             section = section.child(
                 AlertRow {

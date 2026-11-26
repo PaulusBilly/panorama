@@ -163,7 +163,9 @@ impl Render for Home {
         let mut section = div()
             .ml(px(view.column().left))
             .w(px(view.column().width))
-            .pb(px(112.0));
+            .pb(px(112.0))
+            .relative()
+            .children(fetching.then(|| crate::film_grid::loading_more(view)));
         if self.switcher_visible(cx) {
             section = section.child(self.catalog_row(view, window, cx));
         }
