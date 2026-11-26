@@ -21,7 +21,7 @@ use std::{collections::HashSet, ops::Range};
 /// A season past this many episodes is split, since one rail cannot hold a long anime.
 const TAB_LIMIT: usize = 100;
 /// Height over width: the still, then the copy overlapping its lower edge.
-const CARD_RATIO: f32 = 0.82;
+const CARD_RATIO: f32 = 0.74;
 /// How dark the shade under the words gets at the bottom edge.
 const SHADE: f32 = 0.7;
 const COPY_PAD: f32 = 16.0;
@@ -419,8 +419,8 @@ impl Film {
             kind.to_owned()
         };
         let overview = episode.overview.clone().filter(|_| !unaired);
-        // What is left to know before pressing play, after the number: when it airs, how much
-        // is left of it, or how long it runs.
+        // What is left to know before pressing play, after the number: when it airs, or how
+        // much is left of it.
         let note = match (unaired, resume) {
             (true, _) => Some(
                 episode
@@ -433,9 +433,7 @@ impl Film {
                 crate::film_display::format_time_left(point.offset_secs, Some(point.duration_secs))
                     .map(|left| format!("{left} left"))
             }
-            (false, None) => episode
-                .runtime
-                .map(|minutes| crate::film_display::runtime(&minutes.to_string())),
+            (false, None) => None,
         };
         let eyebrow = match note {
             Some(note) => format!("{eyebrow} · {note}"),
