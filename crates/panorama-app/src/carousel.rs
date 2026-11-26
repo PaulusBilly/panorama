@@ -416,12 +416,15 @@ pub fn controls<V: 'static>(
         let right = col.left + col.width;
         right + (view.width - right) / 2.0
     };
-    // Cards in the margins fade into the page, clear by the arrows' centres. GPUI cannot mask,
-    // so the fade is page-coloured, laid over the cards and under the arrows. Each side's comes
-    // in as the row gains cards there, so it never darkens an empty margin.
+    // As on Apple TV the row ends at each arrow's centre, but through a fade rather than a cut:
+    // clear at the column's edge, the page's own colour by the arrow's centre and beyond it.
+    // GPUI cannot mask, so the fade is page-coloured, over the cards and under the arrows. Each
+    // side's comes in as the row gains cards there, so it never darkens an empty margin.
     let (position, max) = (carousel.position(), carousel.max());
     let presence = |room: f32| (room / FADE_IN).clamp(0.0, 1.0);
-    let band = |left: f32, width: f32, from: f32, to: f32, strength: f32| {
+    let right = col.left + col.width;
+    // Two stops, left to right, each an opacity of the page colour at a share of the band.
+    let band = |left: f32, width: f32, stops: [(f32, f32); 2]| {
         div()
             .absolute()
             .top_0()
@@ -430,20 +433,29 @@ pub fn controls<V: 'static>(
             .w(px(width))
             .bg(linear_gradient(
                 90.0,
-                linear_color_stop(theme.scrim.opacity(from * strength), 0.0),
-                linear_color_stop(theme.scrim.opacity(to * strength), 1.0),
+                linear_color_stop(theme.scrim.opacity(stops[0].0), stops[0].1),
+                linear_color_stop(theme.scrim.opacity(stops[1].0), stops[1].1),
             ))
     };
+    let edge = |x: f32, from: f32, width: f32| ((x - from) / width.max(1.0)).clamp(0.0, 1.0);
     let mut wrap = div()
         .relative()
         .child(row)
-        .child(band(0.0, back, 1.0, 0.0, presence(position)))
         .child(band(
-            forward,
-            view.width - forward,
             0.0,
-            1.0,
-            presence(max - position),
+            col.left,
+            [(presence(position), edge(back, 0.0, col.left)), (0.0, 1.0)],
+        ))
+        .child(band(
+            right,
+            view.width - right,
+            [
+                (0.0, 0.0),
+                (
+                    presence(max - position),
+                    edge(forward, right, view.width - right),
+                ),
+            ],
         ))
         .child(pointer);
     if arrows[0].0 > 0.0 {
