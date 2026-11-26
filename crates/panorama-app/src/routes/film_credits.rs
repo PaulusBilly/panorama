@@ -543,7 +543,7 @@ impl Film {
                             .h(px(NAME_HEIGHT))
                             .text_color(theme.ink)
                             .line_clamp(2)
-                            .child(caps(ceremony.body)),
+                            .child(ceremony.body.to_string()),
                     )
                     .child(
                         div()
