@@ -1,7 +1,7 @@
 use crate::{
     button::{Button, Icon},
     film_card::{self, CardProps},
-    home_layout::{GAP, Grid, TILE_RATIO, ViewSettings},
+    home_layout::{Grid, TILE_RATIO, ViewSettings},
     image_cache::{CachedImage, ImageCache},
     services::Services,
     theme::{Column, Theme, motion::*},
@@ -222,7 +222,7 @@ impl FilmGrid {
     }
     /// Top of card `index`'s row, relative to the grid's top edge.
     pub fn row_top(index: usize, col: Column) -> f32 {
-        let grid = Grid::fit(col.width);
+        let grid = Grid::fit(col);
         (index / grid.columns) as f32 * grid.stride()
     }
     /// The pointer entered or left card `index`. Entering starts the dwell; leaving a card only
@@ -278,7 +278,7 @@ impl FilmGrid {
         window: &Window,
         cx: &mut Context<V>,
     ) -> Div {
-        let grid = Grid::fit(view.column().width);
+        let grid = Grid::fit(view.column());
         let count = if skeletons && self.films.is_empty() {
             SKELETONS
         } else {
@@ -315,7 +315,7 @@ impl FilmGrid {
                 .w_full()
                 .h(px(grid.height()))
                 .flex()
-                .gap(px(GAP));
+                .gap(px(grid.gap));
             for index in row * grid.columns..((row + 1) * grid.columns).min(count) {
                 let film = films.get(index);
                 if visible && let Some(film) = film {
@@ -482,7 +482,7 @@ impl FilmGrid {
         let theme = view.theme;
         let width = grid.width * (1.0 + LIFT * lift);
         let height = width * TILE_RATIO;
-        let x = (index % grid.columns) as f32 * (grid.width + GAP) - (width - grid.width) / 2.0;
+        let x = (index % grid.columns) as f32 * grid.pitch() - (width - grid.width) / 2.0;
         // The artwork grows upward so its bottom stays on the row's baseline, like the tiles beside it.
         let y = (index / grid.columns) as f32 * grid.stride() - (height - grid.height());
         // Details are laid out once at the open size and pinned there, so the synopsis never
@@ -525,7 +525,7 @@ impl FilmGrid {
         let origin = self.origin.clone();
         let note = self.note(index).map(str::to_owned);
         let rest = point(
-            px((index % grid.columns) as f32 * (grid.width + GAP)),
+            px((index % grid.columns) as f32 * grid.pitch()),
             px((index / grid.columns) as f32 * grid.stride()),
         );
         let art = art.child(card_face(
@@ -848,8 +848,71 @@ pub fn reveal(scroll: &ScrollHandle, y: f32, height: f32, viewport: f32) {
     }
 }
 
+/// A spinner in a section's bottom padding while the next page loads. Put it first in the section,
+/// which must be `relative`, so a card preview hanging below the last row paints over it.
+pub fn loading_more(view: ViewSettings) -> gpui::Stateful<Div> {
+    use gpui::AnimationExt as _;
+    let spinner = gpui::svg()
+        .path("loader-2.svg")
+        .size(px(20.0))
+        .text_color(view.theme.ink_muted);
+    div()
+        .id("loading-more")
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .h(px(112.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .role(gpui::Role::ProgressIndicator)
+        .aria_label("Loading more films")
+        .child(if view.reduced {
+            spinner.into_any_element()
+        } else {
+            spinner
+                .with_animation(
+                    "loading-more",
+                    gpui::Animation::new(Duration::from_secs(1)).repeat(),
+                    |icon, delta| {
+                        icon.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                            delta * std::f32::consts::TAU,
+                        )))
+                    },
+                )
+                .into_any_element()
+        })
+}
+
+/// The page has scrolled to within a screen of its end, so the next page of films should load
+/// now and be there before the reader gets to it.
+pub fn near_end(scroll: &gpui::ScrollHandle, height: f32) -> bool {
+    left_to_scroll(scroll.offset().y.into(), scroll.max_offset().y.into()) < height
+}
+
+fn left_to_scroll(offset: f32, max: f32) -> f32 {
+    (max + offset).max(0.0)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_is_left_to_scroll() {
+        assert_eq!(super::left_to_scroll(0.0, 3000.0), 3000.0);
+        assert_eq!(super::left_to_scroll(-2500.0, 3000.0), 500.0);
+        assert_eq!(
+            super::left_to_scroll(-3100.0, 3000.0),
+            0.0,
+            "an overshoot is the end"
+        );
+        assert_eq!(
+            super::left_to_scroll(0.0, 0.0),
+            0.0,
+            "a page that fits is at its end"
+        );
+    }
+
     use super::*;
 
     #[test]

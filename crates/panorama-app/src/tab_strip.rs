@@ -27,17 +27,21 @@ pub fn tab(
             .flex_none()
             .px(px(PAD))
             .pt(px(8.0))
-            .pb(px(6.0))
-            .border_b_2()
-            .border_color(if selected {
-                theme.ink
-            } else {
-                gpui::transparent_black().into()
-            })
             .label()
             .text_color(if selected { theme.ink } else { theme.ink_muted })
             .hover(|style| style.text_color(theme.ink))
-            .child(label.to_owned()),
+            // The underline hugs the label, not the padding around it.
+            .child(
+                div()
+                    .pb(px(6.0))
+                    .border_b_2()
+                    .border_color(if selected {
+                        theme.ink
+                    } else {
+                        gpui::transparent_black().into()
+                    })
+                    .child(label.to_owned()),
+            ),
         focus,
         theme,
         view.active,

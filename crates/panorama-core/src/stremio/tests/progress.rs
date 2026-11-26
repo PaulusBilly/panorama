@@ -337,6 +337,7 @@ fn episode(id: &str, number: u32) -> Episode {
         overview: None,
         thumbnail: None,
         released: None,
+        runtime: None,
     }
 }
 

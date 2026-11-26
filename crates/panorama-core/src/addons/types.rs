@@ -83,6 +83,9 @@ pub struct Episode {
     pub thumbnail: Option<Url>,
     /// `YYYY-MM-DD` air date; a later date is shown but not playable.
     pub released: Option<String>,
+    /// Length in minutes, from TMDB; addons rarely give one.
+    #[serde(default)]
+    pub runtime: Option<u32>,
 }
 
 /// The episode after `video_id` in watch order, crossing seasons and skipping any released

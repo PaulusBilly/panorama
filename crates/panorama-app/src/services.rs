@@ -491,6 +491,54 @@ impl Services {
         String::from_utf8(bytes).ok().filter(|key| !key.is_empty())
     }
 
+    /// The key TMDB calls use: the user's own when saved, else the one the release was built
+    /// with from `PANORAMA_TMDB_KEY`. A local build without it asks TMDB only with a saved key.
+    pub fn tmdb_api_key(&self) -> Option<String> {
+        self.tmdb_key().or_else(|| {
+            option_env!("PANORAMA_TMDB_KEY")
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_owned)
+        })
+    }
+
+    /// A series' episodes from TMDB, for [`panorama_core::tmdb::enrich`]. A cached answer comes
+    /// back at once and is refreshed behind it, so a newly aired episode shows on the next
+    /// visit; a series TMDB does not know, or an id it cannot look up, gives `None`.
+    pub fn tmdb_episodes(
+        self: &Arc<Self>,
+        id: String,
+        seasons: Vec<u32>,
+    ) -> Job<Option<Vec<panorama_core::tmdb::TmdbEpisode>>> {
+        let services = self.clone();
+        Job(self.runtime.spawn(async move {
+            let (tmdb, api_key) = (services.tmdb.clone()?, services.tmdb_api_key()?);
+            let key = panorama_core::store::Key::tmdb_episodes(&id).ok();
+            let store = services.store.clone();
+            let cached = store
+                .as_ref()
+                .zip(key.as_ref())
+                .and_then(|(store, key)| store.get(key).ok().flatten())
+                .and_then(|bytes| serde_json::from_slice::<Option<Vec<_>>>(&bytes).ok());
+            let fetch = async move {
+                let episodes = tmdb.episodes(&api_key, &id, &seasons).await.ok()?;
+                if let (Some(store), Some(key), Ok(bytes)) =
+                    (&store, &key, serde_json::to_vec(&episodes))
+                {
+                    let _ = store.set(key, &bytes);
+                }
+                episodes
+            };
+            match cached {
+                Some(cached) => {
+                    services.runtime.spawn(fetch);
+                    cached
+                }
+                None => fetch.await,
+            }
+        }))
+    }
+
     /// Check a key with TMDB, then keep it; `None` forgets the saved key.
     pub fn set_tmdb_key(
         self: &Arc<Self>,
@@ -535,7 +583,7 @@ impl Services {
                     let _ = store.set(key, &bytes);
                 }
             };
-            if let (Some(tmdb), Some(api_key)) = (&services.tmdb, services.tmdb_key()) {
+            if let (Some(tmdb), Some(api_key)) = (&services.tmdb, services.tmdb_api_key()) {
                 let key = panorama_core::store::Key::tmdb_titles(&id).ok();
                 let titles = match cached(key.as_ref())
                     .and_then(|bytes| serde_json::from_slice::<Option<_>>(&bytes).ok())

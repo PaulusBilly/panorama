@@ -14,7 +14,6 @@ const SECTION_GAP: f32 = 72.0;
 /// Between Cast & Crew, Awards & Festivals and the sources line.
 const ROW_GAP: f32 = 48.0;
 const HEADING_GAP: f32 = 16.0;
-const CARD_GAP: f32 = 6.0;
 /// Narrowest portrait card. Wide screens add cards rather than growing them, so they stay near
 /// this size everywhere.
 const CARD_MIN: f32 = 190.0;
@@ -152,7 +151,7 @@ pub(super) fn rail(
     get: fn(&mut Film) -> &mut Carousel,
     cx: &mut Context<Film>,
 ) -> Div {
-    let col = view.column().mirrored();
+    let col = view.column();
     let row = div()
         .id(id)
         .flex()
@@ -222,7 +221,7 @@ impl Film {
         if people.is_empty() && self.awards.is_empty() && episodes.is_none() {
             return None;
         }
-        let col = view.column().mirrored();
+        let col = view.column();
         let mut sections = div()
             .w(px(view.width))
             .pt(px(SECTION_GAP))
@@ -259,9 +258,10 @@ impl Film {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = view.theme;
-        let count = columns(width, CARD_MIN, CARD_GAP, CARDS_MAX);
-        let card = span(width, count, CARD_GAP);
-        self.people_rail.settle(card + CARD_GAP, view.reduced);
+        let gap = view.column().gap;
+        let count = columns(width, CARD_MIN, gap, CARDS_MAX);
+        let card = span(width, count, gap);
+        self.people_rail.settle(card + gap, view.reduced);
         let cards: Vec<gpui::AnyElement> = all
             .iter()
             .map(|person| {
@@ -270,7 +270,7 @@ impl Film {
                     .into_any_element()
             })
             .collect();
-        let col = view.column().mirrored();
+        let col = view.column();
         div()
             .flex()
             .flex_col()
@@ -282,7 +282,7 @@ impl Film {
             .child(rail(
                 "film-people",
                 cards,
-                CARD_GAP,
+                gap,
                 true,
                 Some((card * PHOTO_RATIO).round()),
                 &self.people_rail,
@@ -543,7 +543,7 @@ impl Film {
                             .h(px(NAME_HEIGHT))
                             .text_color(theme.ink)
                             .line_clamp(2)
-                            .child(caps(ceremony.body)),
+                            .child(ceremony.body.to_string()),
                     )
                     .child(
                         div()
@@ -596,7 +596,7 @@ impl Film {
         {
             self.awards_rail.follow(index, pitch);
         }
-        let col = view.column().mirrored();
+        let col = view.column();
         div()
             .flex()
             .flex_col()
@@ -625,9 +625,9 @@ mod tests {
 
     #[test]
     fn grids_and_groups() {
-        assert_eq!(columns(1240.0, CARD_MIN, CARD_GAP, CARDS_MAX), 6);
-        assert_eq!(columns(1720.0, CARD_MIN, CARD_GAP, CARDS_MAX), 8);
-        assert_eq!(columns(400.0, CARD_MIN, CARD_GAP, CARDS_MAX), 2);
+        assert_eq!(columns(1240.0, CARD_MIN, 24.0, CARDS_MAX), 5);
+        assert_eq!(columns(1720.0, CARD_MIN, 24.0, CARDS_MAX), 8);
+        assert_eq!(columns(400.0, CARD_MIN, 24.0, CARDS_MAX), 2);
         assert_eq!(initials("Celia Rowlson-Hall"), "CR");
         assert_eq!(initials("Madonna"), "M");
         let award = |body: &str, year, result| Award {

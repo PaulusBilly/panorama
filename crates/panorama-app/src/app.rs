@@ -209,7 +209,7 @@ impl AppShell {
             });
         }
         if let Some(host) = args.open_party_lobby {
-            shell.open_party_lobby_preview(host, window, cx);
+            shell.open_party_lobby_preview(host, args.party_alone, window, cx);
         }
         if let Some(kind) = args.open_party_prompt.as_deref()
             && let Some(film) = crate::fixtures::films().into_iter().next()

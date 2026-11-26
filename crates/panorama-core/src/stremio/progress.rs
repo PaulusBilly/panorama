@@ -381,6 +381,7 @@ mod watched_tests {
             overview: None,
             thumbnail: None,
             released: None,
+            runtime: None,
         }
     }
 

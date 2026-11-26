@@ -1,6 +1,3 @@
-/// Hairline between tiles in a row.
-pub const GAP: f32 = 6.0;
-
 /// Height of a tile as a share of its width: 16:9.
 pub const TILE_RATIO: f32 = 9.0 / 16.0;
 
@@ -13,32 +10,35 @@ pub struct Grid {
     pub columns: usize,
     /// Fixed tile width in logical pixels.
     pub width: f32,
+    /// Space between tiles, the column's.
+    pub gap: f32,
 }
 impl Grid {
     /// The most columns whose tiles stay wide enough: 280 up to three, 360 for four, and 400
     /// from five on, up to eight. Tiles stretch so the grid's right edge meets the column's.
-    pub fn fit(column_width: f32) -> Self {
-        let column_width = column_width.max(0.0);
+    pub fn fit(col: crate::theme::Column) -> Self {
+        let (column_width, gap) = (col.width.max(0.0), col.gap);
         let min_tile = |columns: usize| match columns {
             0..=3 => 280.0,
             4 => 360.0,
             _ => 400.0,
         };
         let columns = (2..=MAX_COLUMNS)
-            .take_while(|&n| column_width >= n as f32 * min_tile(n) + (n - 1) as f32 * GAP)
+            .take_while(|&n| column_width >= n as f32 * min_tile(n) + (n - 1) as f32 * gap)
             .last()
             .unwrap_or(1);
-        let gaps = GAP * (columns - 1) as f32;
+        let gaps = gap * (columns - 1) as f32;
         Self {
             columns,
             width: ((column_width - gaps) / columns as f32).floor(),
+            gap,
         }
     }
     pub fn height(self) -> f32 {
         (self.width * TILE_RATIO).round()
     }
     pub fn total_width(self) -> f32 {
-        self.width * self.columns as f32 + GAP * self.columns.saturating_sub(1) as f32
+        self.width * self.columns as f32 + self.gap * self.columns.saturating_sub(1) as f32
     }
     /// Space between rows, about a tenth of a tile so larger cards breathe more.
     pub fn row_gap(self) -> f32 {
@@ -47,6 +47,10 @@ impl Grid {
     /// Fixed virtualization stride including the row gap.
     pub fn stride(self) -> f32 {
         self.height() + self.row_gap()
+    }
+    /// Distance from one tile's left edge to the next.
+    pub fn pitch(self) -> f32 {
+        self.width + self.gap
     }
 }
 
@@ -97,7 +101,11 @@ mod tests {
             (3640.0, 8, 449.0),
             (6000.0, 8, 744.0),
         ] {
-            let grid = Grid::fit(column);
+            let grid = Grid::fit(crate::theme::Column {
+                left: 0.0,
+                width: column,
+                gap: 6.0,
+            });
             assert_eq!((grid.columns, grid.width), (columns, width), "{column}");
         }
     }
@@ -106,7 +114,8 @@ mod tests {
         assert_eq!(
             Grid {
                 columns: 3,
-                width: 480.0
+                width: 480.0,
+                gap: 24.0
             }
             .height(),
             270.0

@@ -4,7 +4,7 @@ use crate::{
     film_card::{caption, fade_in},
     film_grid::{GridHost, NextCard, PreviousCard, artwork},
     hero,
-    home_layout::{GAP, Grid, ViewSettings},
+    home_layout::{Grid, ViewSettings},
     image_cache::ImageCache,
     routes::home::Home,
     services::Services,
@@ -23,13 +23,13 @@ const RING: f32 = 4.0;
 
 /// The main grid's tile, so both sit on the same columns.
 pub fn card_size(view: ViewSettings) -> (f32, f32) {
-    let grid = Grid::fit(view.column().width);
+    let grid = Grid::fit(view.column());
     (grid.width, grid.height())
 }
 
 /// Distance from one card's left edge to the next.
 fn pitch(view: ViewSettings) -> f32 {
-    card_size(view).0 + GAP
+    Grid::fit(view.column()).pitch()
 }
 
 /// The Continue row, a [`Carousel`] that runs the full window width, so cards scrolled past
@@ -87,7 +87,7 @@ impl ContinueRow {
         let mut row = div()
             .id("continue-cards")
             .flex()
-            .gap(px(GAP))
+            .gap(px(col.gap))
             .py(px(RING))
             .w(px(view.width))
             .overflow_x_scroll()
@@ -98,7 +98,12 @@ impl ContinueRow {
                 home.row.wheel();
                 cx.notify();
             }))
-            .child(div().flex_shrink_0().w(px(col.left - GAP)).h(px(size.1)));
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(col.left - col.gap))
+                    .h(px(size.1)),
+            );
         for (index, (card, focus)) in cards.iter().zip(&self.cards).enumerate() {
             if visible {
                 crate::series_directors::want(&card.film, services, cx);
@@ -121,7 +126,7 @@ impl ContinueRow {
         row = row.child(
             div()
                 .flex_shrink_0()
-                .w(px((view.width - col.left - col.width - GAP).max(0.0)))
+                .w(px((view.width - col.left - col.width - col.gap).max(0.0)))
                 .h(px(size.1)),
         );
         div()

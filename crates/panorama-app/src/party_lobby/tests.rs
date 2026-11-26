@@ -47,7 +47,8 @@ fn start_is_disabled_until_every_joined_friend_is_ready() {
     );
 
     let alone = Readiness::of(&roster(&[]));
-    assert!(alone.can_start(), "a host on their own can start");
+    assert!(!alone.can_start(), "nobody to start for yet");
+    assert_eq!(decide(true, &alone, Command::StartWatching), None);
 }
 
 #[test]
@@ -75,12 +76,12 @@ fn start_anyway_is_offered_while_someone_loads() {
 }
 
 #[test]
-fn escape_keeps_a_party_friends_joined_and_leaves_an_empty_one() {
+fn closing_the_lobby_never_ends_or_leaves_the_party() {
     let joined = Readiness::of(&roster(&[("Sam", MemberState::Loading)]));
     assert_eq!(decide(true, &joined, Command::Escape), Some(Exit::Browse));
-    assert_eq!(decide(false, &joined, Command::Escape), Some(Exit::Leave));
+    assert_eq!(decide(false, &joined, Command::Escape), None);
     let alone = Readiness::of(&roster(&[]));
-    assert_eq!(decide(true, &alone, Command::Escape), Some(Exit::Leave));
+    assert_eq!(decide(true, &alone, Command::Escape), Some(Exit::Browse));
 }
 
 #[test]

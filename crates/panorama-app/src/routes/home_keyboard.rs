@@ -67,7 +67,7 @@ impl Home {
     pub(crate) fn focus_first_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let lead = self.lead(cx);
         if let Some(first) = self.grid.focus(0) {
-            let grid = crate::home_layout::Grid::fit(self.settings(window, cx).column().width);
+            let grid = crate::home_layout::Grid::fit(self.settings(window, cx).column());
             self.scroll.set_offset(point(
                 px(0.0),
                 px(-(self.fold - self.settings(window, cx).height + lead + grid.height())),
@@ -77,16 +77,6 @@ impl Home {
             cx.notify();
         }
         cx.stop_propagation();
-    }
-    /// Wrap catalog keyboard navigation to the visible header.
-    pub(crate) fn focus_top(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.scroll.set_offset(point(px(0.0), px(0.0)));
-        self.tick(window, cx);
-        let _ = self
-            .shell
-            .update(cx, |shell, cx| shell.focus_sidebar(window, cx));
-        cx.stop_propagation();
-        cx.notify();
     }
     /// Keep focused cards visible while navigating virtual rows.
     pub(crate) fn step_card(
@@ -102,7 +92,7 @@ impl Home {
         }
         let index = index.min(self.grid.len());
         let view = self.settings(window, cx);
-        let grid = crate::home_layout::Grid::fit(view.column().width);
+        let grid = crate::home_layout::Grid::fit(view.column());
         if !forward && index == 0 {
             if self.switcher_visible(cx) {
                 self.focus_switcher(window, cx);
@@ -123,16 +113,7 @@ impl Home {
                     .shell
                     .update(cx, |shell, cx| shell.focus_sidebar(window, cx));
             } else {
-                self.more.focus(window, cx);
-                self.scroll.set_offset(point(
-                    px(0.0),
-                    px(-(self.fold
-                        + self.lead(cx)
-                        + self.grid.len().div_ceil(grid.columns) as f32 * grid.stride()
-                        + 64.0
-                        - view.height
-                        + 40.0)),
-                ));
+                self.state.update(cx, |state, cx| state.load(true, cx));
             }
         } else {
             let next = if forward { index + 1 } else { index - 1 };
