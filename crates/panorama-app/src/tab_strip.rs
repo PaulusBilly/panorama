@@ -5,8 +5,12 @@ use crate::{
     transition::bezier,
 };
 use gpui::{
-    Animation, AnimationExt, Div, ElementId, FocusHandle, Stateful, Window, div, prelude::*, px,
-    relative,
+    Animation, AnimationExt, Div, ElementId, FocusHandle, Stateful, Window, canvas, div,
+    prelude::*, px,
+};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
 };
 
 /// One tab: its label, the space under it, and its bar.
@@ -16,30 +20,79 @@ const GAP: f32 = 36.0;
 /// The selected tab's bar, which sits on the strip's hairline.
 const BAR: f32 = 3.0;
 
+/// Where a strip's tabs sat last frame, so the bar can slide from the old tab to a new one.
+#[derive(Default)]
+pub struct Slide {
+    /// Each label's left edge in the window and its width, by tab.
+    spans: Rc<RefCell<Vec<(f32, f32)>>>,
+    shown: Cell<Option<usize>>,
+    /// The span the bar is sliding from, kept until the next pick.
+    from: Cell<Option<(f32, f32)>>,
+}
+
+impl Slide {
+    /// Tab `index` is selected this frame: where its bar slides from, if it just was picked.
+    fn select(&self, index: usize) -> Option<(f32, f32)> {
+        if self.shown.get() != Some(index) {
+            let previous = self.shown.get();
+            self.from
+                .set(previous.and_then(|i| self.spans.borrow().get(i).copied()));
+            self.shown.set(Some(index));
+        }
+        self.from.get()
+    }
+}
+
 /// A tab, its label set in capitals like a section heading.
+#[allow(clippy::too_many_arguments)]
 pub fn tab(
     id: impl Into<ElementId>,
+    index: usize,
     label: &str,
     selected: bool,
+    slide: &Slide,
     focus: &FocusHandle,
     view: ViewSettings,
     window: &Window,
 ) -> Stateful<Div> {
     let theme = view.theme;
-    // A newly picked tab's bar grows out from its middle.
-    let bar = div().h(px(BAR)).w_full().flex().justify_center();
-    let bar = if !selected {
-        bar.into_any_element()
-    } else if view.reduced {
-        bar.bg(theme.ink).into_any_element()
-    } else {
-        bar.child(div().h_full().bg(theme.ink).with_animation(
-            "tab-bar",
-            Animation::new(DURATION_STANDARD).with_easing(|t| bezier(t, EASE_EDITORIAL)),
-            |bar, t| bar.w(relative(t)),
-        ))
-        .into_any_element()
-    };
+    let spans = slide.spans.clone();
+    let measure = canvas(
+        move |bounds, _, _| {
+            let mut spans = spans.borrow_mut();
+            if spans.len() <= index {
+                spans.resize(index + 1, (0.0, 0.0));
+            }
+            spans[index] = (f32::from(bounds.origin.x), f32::from(bounds.size.width));
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .inset_0();
+    let bar = selected.then(|| {
+        let bar = div()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .h(px(BAR))
+            .w_full()
+            .bg(theme.ink);
+        let here = slide.spans.borrow().get(index).copied();
+        match (slide.select(index), here) {
+            // From the old tab's place and width to this one's, as one bar moving along.
+            (Some((from_x, from_w)), Some((x, w))) if !view.reduced && w > 0.0 => bar
+                .with_animation(
+                    ("tab-bar", index),
+                    Animation::new(DURATION_STANDARD).with_easing(|t| bezier(t, EASE_EDITORIAL)),
+                    move |bar, t| {
+                        let left = (from_x - x) * (1.0 - t);
+                        bar.left(px(left)).w(px(from_w + (w - from_w) * t))
+                    },
+                )
+                .into_any_element(),
+            _ => bar.into_any_element(),
+        }
+    });
     focus_ring(
         div()
             .id(id)
@@ -47,6 +100,7 @@ pub fn tab(
             .aria_label(label.to_owned())
             .cursor_pointer()
             .flex_none()
+            .relative()
             .h(px(ROW))
             .flex()
             .flex_col()
@@ -57,10 +111,12 @@ pub fn tab(
                 SECTION
                     .apply(div())
                     .text_size(px(SECTION.size + 2.0))
-                    .pb(px(12.0))
-                    .child(caps(label)),
+                    .relative()
+                    .pb(px(12.0 + BAR))
+                    .child(caps(label))
+                    .child(measure),
             )
-            .child(bar),
+            .children(bar),
         focus,
         theme,
         view.active,
@@ -91,4 +147,28 @@ pub fn strip(
         .flex()
         .gap(px(GAP))
         .children(tabs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Slide;
+
+    #[test]
+    fn the_bar_slides_from_the_tab_picked_before() {
+        let slide = Slide::default();
+        assert_eq!(
+            slide.select(0),
+            None,
+            "the first tab shown has nowhere to come from"
+        );
+        *slide.spans.borrow_mut() = vec![(100.0, 80.0), (216.0, 90.0)];
+        assert_eq!(slide.select(0), None, "staying put does not slide");
+        assert_eq!(slide.select(1), Some((100.0, 80.0)));
+        assert_eq!(
+            slide.select(1),
+            Some((100.0, 80.0)),
+            "the slide holds through its frames"
+        );
+        assert_eq!(slide.select(0), Some((216.0, 90.0)));
+    }
 }

@@ -249,8 +249,10 @@ impl Film {
             let labels = self.tabs.iter().enumerate().map(|(index, tab)| {
                 tab_strip::tab(
                     ("film-season", index),
+                    index,
                     &tab.label,
                     index == selected,
+                    &self.season_slide,
                     &self.tab_focus[index],
                     view,
                     window,

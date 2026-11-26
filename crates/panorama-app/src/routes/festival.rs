@@ -74,6 +74,7 @@ pub struct Festival {
     back: FocusHandle,
     retry: FocusHandle,
     years: Vec<FocusHandle>,
+    year_slide: crate::tab_strip::Slide,
     request: Option<Task<()>>,
     _images: Subscription,
     _state: Subscription,
@@ -117,6 +118,7 @@ impl Festival {
             back: cx.focus_handle(),
             retry: cx.focus_handle(),
             years: vec![],
+            year_slide: Default::default(),
             request: None,
             _images: image_observer,
             _state: state_observer,
@@ -700,8 +702,10 @@ impl Render for Festival {
             let handle = self.years.get(index).unwrap_or(&self.retry);
             crate::tab_strip::tab(
                 ("festival-year", index),
+                index,
                 &year.to_string(),
                 self.year == Some(year),
+                &self.year_slide,
                 handle,
                 view,
                 window,
