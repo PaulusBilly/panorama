@@ -51,7 +51,7 @@ struct Drag {
 }
 
 /// A scroll offset as a position inside `0..=max`.
-fn clamped(offset: gpui::Pixels, max: f32) -> f32 {
+pub(crate) fn clamped(offset: gpui::Pixels, max: f32) -> f32 {
     (-f32::from(offset)).clamp(0.0, max)
 }
 

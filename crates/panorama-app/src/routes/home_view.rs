@@ -27,7 +27,7 @@ impl Home {
         let hero_height = hero::height(view);
         // The artwork fades out midway between the hero actions and the Continue heading.
         let art_height = hero_height - hero::ROW_GAP / 2.0;
-        let top = -f32::from(self.scroll.offset().y);
+        let top = hero::scrolled(&self.scroll);
         let visible = view.active && top < fold;
         let film = lineup.hero.map(|hero| hero.film().clone());
         self.track_saved(film.as_ref().map(|film| film.id.as_str()), cx);

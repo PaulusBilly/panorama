@@ -28,6 +28,12 @@ pub const ROW_GAP: f32 = 56.0;
 /// How fast a hero's image scrolls against the page: half, so it falls behind the words.
 const PARALLAX: f32 = 0.5;
 
+/// How far a page has scrolled, within its range. A wheel past either end reads beyond it until
+/// the next layout clamps it, which would jolt anything placed from it.
+pub fn scrolled(scroll: &gpui::ScrollHandle) -> f32 {
+    crate::carousel::clamped(scroll.offset().y, f32::from(scroll.max_offset().y).max(0.0))
+}
+
 /// How far a hero's image has moved up once the page has scrolled `top`. Without motion it
 /// moves with the page.
 pub fn parallax(top: f32, reduced: bool) -> f32 {

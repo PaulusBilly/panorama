@@ -235,7 +235,7 @@ impl Render for Film {
         // As on Home the still scrolls away with the page into black, at half its speed. The
         // card's still shows at once, its color first if it has to load. The scrims belong to
         // the still, so the bare color has none.
-        let shift = hero::parallax(-f32::from(self.scroll.offset().y), view.reduced);
+        let shift = hero::parallax(hero::scrolled(&self.scroll), view.reduced);
         let bounds = (view.width, view.height);
         let services = self.state.read(cx).services.clone();
         let (kind, id) = (self.kind, self.id.clone());
