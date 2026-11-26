@@ -680,9 +680,20 @@ impl Render for Festival {
             .bg(theme.artwork_empty);
         if let Some(cover) = cover {
             let fade = film_card::fade_in(&cover, view.reduced);
+            // The cover scrolls with the hero at half speed, as Home's and a film's do; the
+            // scrims stay with the hero, so its bottom always fades to black.
+            let top = crate::hero::scrolled(&self.scroll);
             hero = hero.child(
-                crate::hero::cover(cover.image, (view.width, hero_height), false, 1.0)
-                    .opacity(fade),
+                div()
+                    .absolute()
+                    .left_0()
+                    .w_full()
+                    .top(px(top - crate::hero::parallax(top, view.reduced)))
+                    .h(px(hero_height))
+                    .child(
+                        crate::hero::cover(cover.image, (view.width, hero_height), false, 1.0)
+                            .opacity(fade),
+                    ),
             );
         }
         hero = hero
@@ -749,6 +760,7 @@ impl Render for Festival {
                     "Editions",
                     col.width,
                     theme,
+                    &self.year_slide,
                     tabs,
                 )))
             });

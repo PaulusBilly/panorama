@@ -5,8 +5,8 @@ use crate::{
     transition::bezier,
 };
 use gpui::{
-    Animation, AnimationExt, Div, ElementId, FocusHandle, Stateful, Window, canvas, div,
-    prelude::*, px,
+    Animation, AnimationExt, Div, ElementId, FocusHandle, ScrollHandle, ScrollWheelEvent, Stateful,
+    Window, canvas, div, point, prelude::*, px, svg,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -19,6 +19,8 @@ const ROW: f32 = 44.0;
 const GAP: f32 = 36.0;
 /// The selected tab's bar, which sits on the strip's hairline.
 const BAR: f32 = 3.0;
+/// The buttons that page a row longer than the column.
+const PAGER: f32 = 28.0;
 
 /// Where a strip's tabs sat last frame, so the bar can slide from the old tab to a new one.
 #[derive(Default)]
@@ -28,6 +30,8 @@ pub struct Slide {
     shown: Cell<Option<usize>>,
     /// The span the bar is sliding from, kept until the next pick.
     from: Cell<Option<(f32, f32)>>,
+    /// The strip's sideways scroll, for a row longer than the column.
+    scroll: ScrollHandle,
 }
 
 impl Slide {
@@ -38,6 +42,8 @@ impl Slide {
             self.from
                 .set(previous.and_then(|i| self.spans.borrow().get(i).copied()));
             self.shown.set(Some(index));
+            // A picked tab, or the one a page opens on, is brought into view.
+            self.scroll.scroll_to_item(index);
         }
         self.from.get()
     }
@@ -126,27 +132,98 @@ pub fn tab(
     )
 }
 
-/// The tabs in a row across `width`, over a hairline the selected tab's bar rests on.
+/// The tabs in a row across `width`, over a hairline the selected tab's bar rests on. A row
+/// longer than the column scrolls sideways: a mouse's vertical wheel turns it, as a Windows
+/// mouse has no other, and a button beside each clipped end pages it.
 pub fn strip(
     id: &'static str,
     label: &'static str,
     width: f32,
     theme: Theme,
+    slide: &Slide,
     tabs: impl IntoIterator<Item = Stateful<Div>>,
-) -> Stateful<Div> {
-    div()
+) -> Div {
+    let scroll = slide.scroll.clone();
+    let max = f32::from(scroll.max_offset().x).max(0.0);
+    let position = crate::carousel::clamped(scroll.offset().x, max);
+    let wheel = scroll.clone();
+    let row = div()
         .id(id)
         .role(gpui::Role::TabList)
         .aria_label(label)
-        .w(px(width))
+        .flex_1()
+        .min_w_0()
         // A scroll container takes no height from its row; this is one tab.
-        .h(px(ROW + 1.0))
+        .h(px(ROW))
         .overflow_x_scroll()
-        .border_b_1()
-        .border_color(theme.rule)
+        .track_scroll(&scroll)
         .flex()
         .gap(px(GAP))
-        .children(tabs)
+        .on_scroll_wheel(move |event: &ScrollWheelEvent, window, cx| {
+            let max = f32::from(wheel.max_offset().x);
+            if max <= 0.0 {
+                return;
+            }
+            let delta = event.delta.pixel_delta(px(20.0));
+            if delta.y.abs() > delta.x.abs() {
+                let x = (f32::from(wheel.offset().x) + f32::from(delta.y)).clamp(-max, 0.0);
+                wheel.set_offset(point(px(x), wheel.offset().y));
+                cx.stop_propagation();
+            }
+            window.refresh();
+        })
+        .children(tabs);
+    let pager = |forward: bool| {
+        let scroll = scroll.clone();
+        div()
+            .id((id, usize::from(forward)))
+            .flex_none()
+            .size(px(PAGER))
+            .rounded_full()
+            .bg(theme.arrow)
+            .border_1()
+            .border_color(theme.arrow_rim)
+            .hover(|style| style.bg(theme.arrow_hover))
+            .cursor_pointer()
+            .flex()
+            .items_center()
+            .justify_center()
+            .role(gpui::Role::Button)
+            .aria_label(if forward {
+                "Later tabs"
+            } else {
+                "Earlier tabs"
+            })
+            .on_click(move |_, window, _| {
+                let max = f32::from(scroll.max_offset().x);
+                let step = width * 0.7 * if forward { -1.0 } else { 1.0 };
+                let x = (f32::from(scroll.offset().x) + step).clamp(-max, 0.0);
+                scroll.set_offset(point(px(x), scroll.offset().y));
+                window.refresh();
+            })
+            .child(
+                svg()
+                    .path(if forward {
+                        "chevron-right.svg"
+                    } else {
+                        "chevron-left.svg"
+                    })
+                    .size(px(16.0))
+                    .text_color(theme.ink),
+            )
+    };
+    // The buttons sit beside the row on its hairline rather than over the tabs, which a
+    // page-coloured fade cannot hide against a hero's photograph.
+    div()
+        .w(px(width))
+        .flex()
+        .items_center()
+        .gap(px(12.0))
+        .border_b_1()
+        .border_color(theme.rule)
+        .when(position > 1.0, |strip| strip.child(pager(false)))
+        .child(row)
+        .when(position < max - 1.0, |strip| strip.child(pager(true)))
 }
 
 #[cfg(test)]
