@@ -1,8 +1,13 @@
 /// Width of the navigation sidebar every route except the player reserves.
 pub const SIDEBAR_WIDTH: f32 = 80.0;
+/// The sidebar's icons, centred in it.
+pub const SIDEBAR_GLYPH: f32 = 24.0;
+/// The empty space between the sidebar's icons and the page. The sidebar shares the page's
+/// background, so the eye measures from its icons, not its edge: the right margin is as wide.
+pub const MARGIN: f32 = (SIDEBAR_WIDTH - SIDEBAR_GLYPH) / 2.0;
 
-/// The content column every route aligns to: from the sidebar's edge to a right margin as wide as
-/// the sidebar, so the page sits framed between two equal bands.
+/// The content column every route aligns to: from the sidebar's edge to [`MARGIN`] from the
+/// window's, so the page sits evenly between the sidebar's icons and the window edge.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Column {
     pub left: f32,
@@ -24,7 +29,7 @@ impl Column {
         };
         Self {
             left: SIDEBAR_WIDTH,
-            width: (window_width - SIDEBAR_WIDTH * 2.0).max(0.0),
+            width: (window_width - SIDEBAR_WIDTH - MARGIN).max(0.0),
             gap,
         }
     }
@@ -34,22 +39,24 @@ impl Column {
 mod tests {
     use super::*;
     #[test]
-    fn the_right_margin_matches_the_sidebar() {
+    fn the_page_sits_as_far_from_the_window_edge_as_from_the_sidebar_icons() {
+        assert_eq!(MARGIN, 28.0);
         for window in [480.0, 800.0, 1440.0, 1920.0] {
             let col = Column::at(window);
-            assert_eq!(col.left, SIDEBAR_WIDTH, "{window}");
-            assert_eq!(window - col.left - col.width, SIDEBAR_WIDTH, "{window}");
+            let icons_end = (SIDEBAR_WIDTH + SIDEBAR_GLYPH) / 2.0;
+            assert_eq!(col.left - icons_end, MARGIN, "{window}");
+            assert_eq!(window - col.left - col.width, MARGIN, "{window}");
         }
     }
 
     #[test]
     fn column_breakpoints() {
         for (width, left, column, gap) in [
-            (480.0, 80.0, 320.0, 12.0),
-            (700.0, 80.0, 540.0, 12.0),
-            (701.0, 80.0, 541.0, 20.0),
-            (1101.0, 80.0, 941.0, 24.0),
-            (1440.0, 80.0, 1280.0, 24.0),
+            (480.0, 80.0, 372.0, 12.0),
+            (700.0, 80.0, 592.0, 12.0),
+            (701.0, 80.0, 593.0, 20.0),
+            (1101.0, 80.0, 993.0, 24.0),
+            (1440.0, 80.0, 1332.0, 24.0),
             (100.0, 80.0, 0.0, 12.0),
         ] {
             assert_eq!(

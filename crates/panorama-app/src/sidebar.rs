@@ -14,7 +14,7 @@ use gpui::{
 };
 
 const ITEM: f32 = 48.0;
-const GLYPH: f32 = 24.0;
+use crate::theme::layout::SIDEBAR_GLYPH as GLYPH;
 const LOGO: f32 = 32.0;
 const LOGO_TOP: f32 = SAFE_TOP + 14.0;
 const LOGO_HEIGHT: f32 = LOGO * 197.0 / 366.0;

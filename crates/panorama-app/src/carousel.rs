@@ -237,10 +237,10 @@ const ARROW: (f32, f32) = (30.0, 52.0);
 const ARROW_MARGIN: f32 = 8.0;
 
 /// Make a carousel `row` draggable and overlay edge arrows, each shown only while the row can
-/// move that way. The forward arrow centres in the right margin, over the next card's sliver; the
-/// left margin is the sidebar, so the back arrow sits just inside the column's left edge. `col`
-/// is the column the row rests on; `rail` finds this row's carousel on the view. `art` is the height of the items' image from the row's top: the arrows centre on it,
-/// or on the whole row when the items have none.
+/// move that way. Both sit just inside the column's edges, the margins being too narrow to hold
+/// them. `col` is the column the row rests on; `rail` finds this row's carousel on the view.
+/// `art` is the height of the items' image from the row's top: the arrows centre on it, or on
+/// the whole row when the items have none.
 #[allow(clippy::too_many_arguments)]
 pub fn controls<V: 'static>(
     id: &'static str,
@@ -412,11 +412,7 @@ pub fn controls<V: 'static>(
     }
     if arrows[1].0 > 0.0 {
         let right = col.left + col.width;
-        wrap = wrap.child(arrow(
-            true,
-            right + (view.width - right - ARROW.0) / 2.0,
-            cx,
-        ));
+        wrap = wrap.child(arrow(true, right - ARROW_MARGIN - ARROW.0, cx));
     }
     wrap
 }
