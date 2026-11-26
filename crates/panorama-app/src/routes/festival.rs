@@ -73,7 +73,6 @@ pub struct Festival {
     images: Entity<ImageCache>,
     back: FocusHandle,
     retry: FocusHandle,
-    more: FocusHandle,
     years: Vec<FocusHandle>,
     request: Option<Task<()>>,
     _images: Subscription,
@@ -117,7 +116,6 @@ impl Festival {
             images,
             back: cx.focus_handle(),
             retry: cx.focus_handle(),
-            more: cx.focus_handle(),
             years: vec![],
             request: None,
             _images: image_observer,
@@ -195,6 +193,9 @@ impl Festival {
         let (Some(page), Some(year), Some(event)) = (self.next_page, self.year, &self.event) else {
             return;
         };
+        if self.loading {
+            return;
+        }
         let Some(services) = self.state.read(cx).services.clone() else {
             return;
         };
@@ -585,7 +586,7 @@ impl GridHost for Festival {
             }
         } else if forward && index >= last {
             if self.next_page.is_some() {
-                self.more.focus(window, cx);
+                self.load_more(cx);
             } else {
                 self.scroll.set_offset(point(px(0.0), px(0.0)));
                 let _ = self
@@ -818,17 +819,14 @@ impl Render for Festival {
                 cx,
             ));
         }
-        if self.next_page.is_some() {
-            section = section.child(
-                div().mt(px(40.0)).flex().child(
-                    Button::glass("festival-more", "Load More")
-                        .compact()
-                        .busy(self.loading)
-                        .focus(&self.more, view.keyboard)
-                        .tab_stop(view.active)
-                        .on_click(cx.listener(|festival, _, _, cx| festival.load_more(cx))),
-                ),
-            );
+        // A failed page shows its alert instead of retrying on every frame.
+        if self.next_page.is_some()
+            && !self.loading
+            && self.error.is_none()
+            && view.active
+            && crate::film_grid::near_end(&self.scroll, view.height)
+        {
+            cx.on_next_frame(window, |festival, _, cx| festival.load_more(cx));
         }
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());

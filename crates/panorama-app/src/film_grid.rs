@@ -848,8 +848,34 @@ pub fn reveal(scroll: &ScrollHandle, y: f32, height: f32, viewport: f32) {
     }
 }
 
+/// The page has scrolled to within a screen of its end, so the next page of films should load
+/// now and be there before the reader gets to it.
+pub fn near_end(scroll: &gpui::ScrollHandle, height: f32) -> bool {
+    left_to_scroll(scroll.offset().y.into(), scroll.max_offset().y.into()) < height
+}
+
+fn left_to_scroll(offset: f32, max: f32) -> f32 {
+    (max + offset).max(0.0)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_is_left_to_scroll() {
+        assert_eq!(super::left_to_scroll(0.0, 3000.0), 3000.0);
+        assert_eq!(super::left_to_scroll(-2500.0, 3000.0), 500.0);
+        assert_eq!(
+            super::left_to_scroll(-3100.0, 3000.0),
+            0.0,
+            "an overshoot is the end"
+        );
+        assert_eq!(
+            super::left_to_scroll(0.0, 0.0),
+            0.0,
+            "a page that fits is at its end"
+        );
+    }
+
     use super::*;
 
     #[test]

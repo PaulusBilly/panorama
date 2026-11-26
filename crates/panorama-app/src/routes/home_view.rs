@@ -1,7 +1,6 @@
 use super::lineup::lineup;
 use super::*;
 use crate::{
-    button::Button,
     continue_row::ContinueRow,
     hero::{self, HeroState},
 };
@@ -160,6 +159,7 @@ impl Render for Home {
         let empty = state.catalog.is_some() && self.grid.films.is_empty();
         let more = state.catalog.as_ref().is_some_and(|p| p.has_more);
         let fetching = state.loading_more;
+        let failed = error.is_some();
         let mut section = div()
             .ml(px(view.column().left))
             .w(px(view.column().width))
@@ -186,35 +186,17 @@ impl Render for Home {
         if !self.grid.films.is_empty() || self.state.read(cx).loading {
             section = section.child(self.grid(view, window, cx));
         }
-        if more {
+        // A failed page shows its alert instead of retrying on every frame.
+        if more
+            && !fetching
+            && !failed
+            && view.active
+            && crate::film_grid::near_end(&self.scroll, view.height)
+        {
             let state = self.state.clone();
-            section = section.child(
-                div()
-                    .pt(px(64.0))
-                    .flex()
-                    .justify_center()
-                    .key_context("PanoramaCard")
-                    .on_action(
-                        cx.listener(|home, _: &NextCard, window, cx| home.focus_top(window, cx)),
-                    )
-                    .on_action(cx.listener(|home, _: &PreviousCard, window, cx| {
-                        home.step_card(home.grid.len(), false, window, cx)
-                    }))
-                    .child(
-                        Button::glass(
-                            "catalog-more",
-                            if fetching { "Loading" } else { "Load more" },
-                        )
-                        .compact()
-                        .busy(fetching)
-                        .reduced_motion(view.reduced)
-                        .focus(&self.more, view.keyboard)
-                        .tab_stop(view.active)
-                        .on_click(move |_, _, cx| {
-                            state.update(cx, |state, cx| state.load(true, cx))
-                        }),
-                    ),
-            );
+            cx.on_next_frame(window, move |_, _, cx| {
+                state.update(cx, |state, cx| state.load(true, cx))
+            });
         }
         if view.active {
             self.images.update(cx, |images, _| images.finish_frame());

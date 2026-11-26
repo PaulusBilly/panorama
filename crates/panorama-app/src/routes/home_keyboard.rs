@@ -78,16 +78,6 @@ impl Home {
         }
         cx.stop_propagation();
     }
-    /// Wrap catalog keyboard navigation to the visible header.
-    pub(crate) fn focus_top(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.scroll.set_offset(point(px(0.0), px(0.0)));
-        self.tick(window, cx);
-        let _ = self
-            .shell
-            .update(cx, |shell, cx| shell.focus_sidebar(window, cx));
-        cx.stop_propagation();
-        cx.notify();
-    }
     /// Keep focused cards visible while navigating virtual rows.
     pub(crate) fn step_card(
         &mut self,
@@ -123,16 +113,7 @@ impl Home {
                     .shell
                     .update(cx, |shell, cx| shell.focus_sidebar(window, cx));
             } else {
-                self.more.focus(window, cx);
-                self.scroll.set_offset(point(
-                    px(0.0),
-                    px(-(self.fold
-                        + self.lead(cx)
-                        + self.grid.len().div_ceil(grid.columns) as f32 * grid.stride()
-                        + 64.0
-                        - view.height
-                        + 40.0)),
-                ));
+                self.state.update(cx, |state, cx| state.load(true, cx));
             }
         } else {
             let next = if forward { index + 1 } else { index - 1 };
