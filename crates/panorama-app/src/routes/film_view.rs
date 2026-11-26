@@ -235,7 +235,8 @@ impl Render for Film {
         // As on Home the still scrolls away with the page into black, at half its speed. The
         // card's still shows at once, its color first if it has to load. The scrims belong to
         // the still, so the bare color has none.
-        let shift = hero::parallax(hero::scrolled(&self.scroll), view.reduced);
+        let top = hero::scrolled(&self.scroll);
+        let shift = hero::parallax(top, view.reduced);
         let bounds = (view.width, view.height);
         let services = self.state.read(cx).services.clone();
         let (kind, id) = (self.kind, self.id.clone());
@@ -280,19 +281,30 @@ impl Render for Film {
                 Edge::Top,
                 relative(0.3),
                 0.6,
-            )))
-            .child(div().absolute().inset_0().opacity(scrims).child(scrim(
-                theme,
-                Edge::Bottom,
-                relative(0.45),
-                1.0,
             )));
+        // The still lags the page, so it is cut off at the hero's bottom, which keeps pace with
+        // the page, and fades to black there: every section below sits on black.
         let backdrop = div()
             .absolute()
             .inset_0()
             .overflow_hidden()
             .bg(theme.canvas)
-            .child(backdrop);
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .w_full()
+                    .h(px((view.height - top).max(0.0)))
+                    .overflow_hidden()
+                    .child(backdrop)
+                    .child(div().absolute().inset_0().opacity(scrims).child(scrim(
+                        theme,
+                        Edge::Bottom,
+                        px(view.height * 0.45),
+                        1.0,
+                    ))),
+            );
         let metadata = self.metadata.clone();
         let mut content = div()
             .relative()
