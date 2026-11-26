@@ -75,8 +75,7 @@ pub struct Film {
     tab: Option<usize>,
     tab_focus: Vec<FocusHandle>,
     episode_focus: Vec<FocusHandle>,
-    /// The episode list's top in the window last frame, for loading only nearby stills.
-    episodes_top: std::rc::Rc<std::cell::Cell<f32>>,
+    episode_rail: crate::carousel::Carousel,
     watched: HashSet<String>,
     watched_task: Option<Task<()>>,
     /// The Cast & Crew carousel.
@@ -184,7 +183,7 @@ impl Film {
             tab: None,
             tab_focus: vec![],
             episode_focus: vec![],
-            episodes_top: Default::default(),
+            episode_rail: Default::default(),
             watched: HashSet::new(),
             watched_task: None,
             shell,

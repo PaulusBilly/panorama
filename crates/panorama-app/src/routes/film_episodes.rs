@@ -1,27 +1,32 @@
 //! A show's seasons and episodes, the first section under its hero.
-use super::{credits::heading, *};
+use super::{
+    credits::{heading, rail},
+    *,
+};
 use crate::assets::Weighted;
 use crate::{
     button::Icon,
     hero,
     home_layout::TILE_RATIO,
     tab_strip,
-    theme::{Theme, Typography, caps, focus_ring},
+    theme::{
+        Theme, Typography, caps, focus_ring,
+        scrim::{Edge, scrim},
+    },
 };
-use gpui::{Div, FontWeight, canvas, div, prelude::*, px, relative, svg};
+use gpui::{Div, FontWeight, div, prelude::*, px, relative, svg};
 use panorama_core::addons::{Episode, next_after, today};
 use std::{collections::HashSet, ops::Range};
 
 /// A season past this many episodes is split, since one rail cannot hold a long anime.
 const TAB_LIMIT: usize = 100;
-/// The still's share of the column, as on MUBI; the words take the rest beside it.
-const STILL_SHARE: f32 = 0.38;
-const ROW_GAP: f32 = 24.0;
-/// Between the still and its words.
-const COPY_GAP: f32 = 32.0;
-/// A readable measure for the synopsis on a wide window.
-const COPY_MAX: f32 = 640.0;
-const PLAY_RING: f32 = 64.0;
+/// Height over width: the still, then the copy overlapping its lower edge.
+const CARD_RATIO: f32 = 0.74;
+/// How dark the shade under the words gets at the bottom edge.
+const SHADE: f32 = 0.7;
+const COPY_PAD: f32 = 16.0;
+/// Room for the copy at its longest, so every card's eyebrow sits at the same height.
+const COPY_HEIGHT: f32 = 120.0;
 
 /// One stop on the strip: a season, or a stretch of a long one.
 #[derive(Debug, PartialEq)]
@@ -211,17 +216,33 @@ impl Film {
             .resize_with(self.tabs.len(), || cx.focus_handle());
         self.episode_focus
             .resize_with(range.len(), || cx.focus_handle());
-        let still = (col.width * STILL_SHARE).round();
-        let pitch = (still * TILE_RATIO).round() + ROW_GAP;
-        // Where the list sat last frame, so only stills within a screen of the window load.
-        let top = self.episodes_top.get();
+        // As wide as a Home card, so a show's episodes read at the same size as the films.
+        let grid = crate::home_layout::Grid::fit(view.column());
+        let (tile, pitch) = (grid.width, grid.pitch());
+        self.episode_rail.settle(pitch, view.reduced);
+        let focused = self.episode_focus[..range.len()]
+            .iter()
+            .position(|focus| focus.is_focused(window));
+        let arrived = target_index
+            .filter(|index| range.contains(index) && self.tab.is_none())
+            .map(|index| index - range.start)
+            .filter(|_| f32::from(self.episode_rail.scroll.max_offset().x) > 0.0);
+        if let Some(index) = focused.or(arrived) {
+            self.episode_rail.follow(index, pitch);
+        }
         let today = today();
-        let rows = episodes[range].iter().enumerate().map(|(index, episode)| {
-            let y = top + index as f32 * pitch;
-            let near = y + pitch > -view.height && y < view.height * 2.0;
-            self.episode_row(episode, index, still, near, &today, view, window, cx)
-        });
-        let rows: Vec<Div> = rows.collect();
+        let position = self.episode_rail.position();
+        let cards = episodes[range]
+            .iter()
+            .enumerate()
+            .map(|(index, episode)| {
+                let x = col.left + index as f32 * pitch - position;
+                let near = x + tile > 0.0 && x < view.width;
+                self.episode_tile(episode, index, tile, near, &today, view, window, cx)
+                    .flex_shrink_0()
+                    .into_any_element()
+            })
+            .collect();
         let strip = (self.tabs.len() > 1).then(|| {
             let labels = self.tabs.iter().enumerate().map(|(index, tab)| {
                 tab_strip::tab(
@@ -236,60 +257,36 @@ impl Film {
             });
             tab_strip::strip("film-seasons", "Seasons", col.width, labels)
         });
-        let measured = self.episodes_top.clone();
-        let entity = cx.entity().downgrade();
-        let place = canvas(
-            move |bounds, _, _| {
-                let y = f32::from(bounds.origin.y);
-                if (measured.get() - y).abs() > 0.5 {
-                    measured.set(y);
-                    let entity = entity.clone();
-                    // Stills that came into reach load on the next frame.
-                    return Some(entity);
-                }
-                None
-            },
-            |_, entity, _, cx| {
-                if let Some(entity) = entity {
-                    cx.defer(move |cx| {
-                        entity.update(cx, |_, cx| cx.notify()).ok();
-                    });
-                }
-            },
-        )
-        .absolute()
-        .size_0();
         Some(
             div()
                 .flex()
                 .flex_col()
-                .ml(px(col.left))
-                .w(px(col.width))
                 .child(match strip {
-                    Some(strip) => div().mb(px(24.0)).child(strip),
-                    None => heading("Episodes", theme).w(px(col.width)),
+                    Some(strip) => div().ml(px(col.left)).mb(px(16.0)).child(strip),
+                    None => heading("Episodes", theme).ml(px(col.left)).w(px(col.width)),
                 })
-                .child(
-                    div()
-                        .relative()
-                        .flex()
-                        .flex_col()
-                        .gap(px(ROW_GAP))
-                        .child(place)
-                        .children(rows),
-                ),
+                .child(rail(
+                    "film-episodes",
+                    cards,
+                    grid.gap,
+                    false,
+                    Some((tile * TILE_RATIO).round()),
+                    &self.episode_rail,
+                    view,
+                    |film| &mut film.episode_rail,
+                    cx,
+                )),
         )
     }
 
     fn pick_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         self.tab = Some(index);
+        self.episode_rail.scroll.set_offset(gpui::Point::default());
         cx.notify();
     }
 
-    /// One episode as MUBI lists them: its still, and beside it which episode, its name and
-    /// what happens. The whole row plays it.
     #[allow(clippy::too_many_arguments)]
-    fn episode_row(
+    fn episode_tile(
         &self,
         episode: &Episode,
         index: usize,
@@ -301,7 +298,7 @@ impl Film {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = view.theme;
-        let height = (width * TILE_RATIO).round();
+        let height = card_height(width);
         let unaired = unaired(episode, today);
         let backdrop = self.metadata.as_ref().and_then(|m| m.background.as_ref());
         let image = episode
@@ -309,27 +306,27 @@ impl Film {
             .as_ref()
             .or(backdrop)
             .filter(|_| near)
-            .and_then(|url| self.image(url, (width, height), view, window, cx).0);
+            .and_then(|url| self.fading(url, (width, height), view, window, cx));
         let resume = self.resume.as_ref().filter(|point| {
             point.video_id.as_ref() == Some(&episode.id) && point.duration_secs > 0.0
         });
         let watched = self.watched.contains(&episode.id);
         let group: gpui::SharedString = format!("film-episode-{index}").into();
-        let mut still = div()
+        let mut card = div()
             .relative()
-            .flex_none()
             .w(px(width))
             .h(px(height))
             .overflow_hidden()
             .bg(theme.surface);
         if let Some(image) = image {
             let fade = crate::film_card::fade_in(&image, view.reduced);
-            still =
-                still.child(hero::cover(image.image, (width, height), false, 1.0).opacity(fade));
+            card = card.child(hero::cover(image.image, (width, height), false, 1.0).opacity(fade));
         }
-        let still = still
-            .when(watched && resume.is_none(), |still| {
-                still.child(
+        // The still is baked soft toward the bottom; this shade only lifts the words off it.
+        let card = card
+            .child(scrim(theme, Edge::Bottom, relative(0.62), SHADE))
+            .when(watched && resume.is_none(), |card| {
+                card.child(
                     div()
                         .absolute()
                         .top(px(10.0))
@@ -348,47 +345,18 @@ impl Film {
                         ),
                 )
             })
-            // Pointing at an aired episode shows it plays, as MUBI's ringed play mark does.
-            .when(!unaired, |still| {
-                still.child(
+            // Pointing at an aired episode lifts its still a little.
+            .when(!unaired, |card| {
+                card.child(
                     div()
                         .absolute()
                         .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(theme.scrim.opacity(0.25))
+                        .bg(theme.ink.opacity(0.06))
                         .opacity(0.0)
-                        .group_hover(group.clone(), |style| style.opacity(1.0))
-                        .child(
-                            div()
-                                .size(px(PLAY_RING))
-                                .rounded_full()
-                                .border_2()
-                                .border_color(theme.ink)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    svg()
-                                        .path(Icon::Play.path())
-                                        .size(px(PLAY_RING * 0.4))
-                                        .text_color(theme.ink),
-                                ),
-                        ),
+                        .group_hover(group.clone(), |style| style.opacity(1.0)),
                 )
             })
-            .children(resume.map(|point| {
-                let share = (point.offset_secs / point.duration_secs).clamp(0.0, 1.0) as f32;
-                div()
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .bottom_0()
-                    .h(px(3.0))
-                    .bg(theme.progress_track)
-                    .child(div().h_full().w(relative(share)).bg(theme.progress_fill))
-            }))
+            .child(self.episode_copy(episode, unaired, resume, height - COPY_HEIGHT, theme))
             .child(
                 div()
                     .absolute()
@@ -396,18 +364,16 @@ impl Film {
                     .border_1()
                     .border_color(theme.image_outline),
             );
-        let mut row = div()
+        let mut tile = div()
             .relative()
             .group(group)
-            .flex()
-            .items_start()
-            .gap(px(COPY_GAP))
-            .when(unaired, |row| row.opacity(0.5))
-            .child(still)
-            .child(self.episode_copy(episode, unaired, resume, theme));
+            .w(px(width))
+            .h(px(height))
+            .when(unaired, |tile| tile.opacity(0.5))
+            .child(card);
         if !unaired && let Some(focus) = self.episode_focus.get(index) {
             let playing = episode.clone();
-            row = row.child(
+            tile = tile.child(
                 focus_ring(
                     div()
                         .id(("film-episode", index))
@@ -429,15 +395,17 @@ impl Film {
                 .inset_0(),
             );
         }
-        row
+        tile
     }
 
-    /// Beside the still: which episode and how far into it, its name, and what happens.
+    /// The words laid over a card's lower half: which episode, its name, what happens, and
+    /// what pressing it does.
     fn episode_copy(
         &self,
         episode: &Episode,
         unaired: bool,
         resume: Option<&panorama_core::stremio::ResumePoint>,
+        top: f32,
         theme: Theme,
     ) -> Div {
         let kind = if episode.season == 0 {
@@ -450,6 +418,9 @@ impl Film {
         } else {
             kind.to_owned()
         };
+        let overview = episode.overview.clone().filter(|_| !unaired);
+        // What is left to know before pressing play, after the number: when it airs, or how
+        // much is left of it.
         let note = match (unaired, resume) {
             (true, _) => Some(
                 episode
@@ -468,12 +439,28 @@ impl Film {
             Some(note) => format!("{eyebrow} · {note}"),
             None => eyebrow,
         };
+        // Along the card's bottom edge, as on a Continue card.
+        let progress = resume.map(|point| {
+            let share = (point.offset_secs / point.duration_secs).clamp(0.0, 1.0) as f32;
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .h(px(3.0))
+                .bg(theme.progress_track)
+                .child(div().h_full().w(relative(share)).bg(theme.progress_fill))
+        });
         div()
-            .flex_1()
-            .min_w_0()
-            .max_w(px(COPY_MAX))
-            // Level with the still's upper third, as MUBI sets it.
-            .pt(px(24.0))
+            .absolute()
+            .left_0()
+            .right_0()
+            .top(px(top))
+            .bottom_0()
+            // Set like a Home card's caption: the note over the name, both in capitals.
+            .px(px(20.0))
+            .pt(px(COPY_PAD))
+            .pb(px(16.0))
             .flex()
             .flex_col()
             .text_color(theme.ink)
@@ -490,23 +477,30 @@ impl Film {
                 div()
                     .text_size(px(22.0))
                     .weight(FontWeight::MEDIUM)
-                    .line_height(relative(1.1))
-                    .mt(px(4.0))
+                    .line_height(relative(1.05))
+                    .mt(px(2.0))
+                    .truncate()
                     .child(caps(&episode.title)),
             )
-            .when_some(episode.overview.clone(), |copy, overview| {
+            .when_some(overview, |copy, overview| {
                 copy.child(
                     div()
                         .label()
                         .font_weight(gpui::FontWeight::NORMAL)
-                        .mt(px(10.0))
-                        .text_color(theme.ink.opacity(0.82))
-                        .line_clamp(5)
+                        .mt(px(6.0))
+                        .text_color(theme.ink.opacity(0.78))
+                        .line_clamp(2)
                         .text_ellipsis()
                         .child(overview),
                 )
             })
+            .children(progress)
     }
+}
+
+/// A card is its still plus room beneath for two lines of description.
+fn card_height(width: f32) -> f32 {
+    (width * CARD_RATIO).round()
 }
 
 #[cfg(test)]
