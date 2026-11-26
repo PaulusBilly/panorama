@@ -744,6 +744,7 @@ impl Render for Festival {
                     "festival-years",
                     "Editions",
                     col.width,
+                    theme,
                     tabs,
                 )))
             });

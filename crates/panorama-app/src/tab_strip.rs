@@ -1,14 +1,18 @@
-//! A row of text tabs: festival editions, a show's seasons.
+//! A row of text tabs, as MUBI sets a show's seasons: festival editions, a show's seasons.
 use crate::{
     home_layout::ViewSettings,
-    theme::{Typography, focus_ring},
+    theme::{Theme, caps, focus_ring, typography::SECTION},
 };
 use gpui::{Div, ElementId, FocusHandle, Stateful, Window, div, prelude::*, px};
 
-const ROW: f32 = 34.0;
-/// Each tab's side padding; the row hangs out by this so the first label meets the column.
-const PAD: f32 = 10.0;
+/// One tab: its label, the space under it, and its bar.
+const ROW: f32 = 44.0;
+/// Between labels.
+const GAP: f32 = 36.0;
+/// The selected tab's bar, which sits on the strip's hairline.
+const BAR: f32 = 3.0;
 
+/// A tab, its label set in capitals like a section heading.
 pub fn tab(
     id: impl Into<ElementId>,
     label: &str,
@@ -25,23 +29,20 @@ pub fn tab(
             .aria_label(label.to_owned())
             .cursor_pointer()
             .flex_none()
-            .px(px(PAD))
-            .pt(px(8.0))
-            .label()
+            .h(px(ROW))
+            .flex()
+            .flex_col()
+            .justify_end()
             .text_color(if selected { theme.ink } else { theme.ink_muted })
             .hover(|style| style.text_color(theme.ink))
-            // The underline hugs the label, not the padding around it.
             .child(
-                div()
-                    .pb(px(6.0))
-                    .border_b_2()
-                    .border_color(if selected {
-                        theme.ink
-                    } else {
-                        gpui::transparent_black().into()
-                    })
-                    .child(label.to_owned()),
-            ),
+                SECTION
+                    .apply(div())
+                    .text_size(px(SECTION.size + 2.0))
+                    .pb(px(12.0))
+                    .child(caps(label)),
+            )
+            .child(div().h(px(BAR)).when(selected, |bar| bar.bg(theme.ink))),
         focus,
         theme,
         view.active,
@@ -51,21 +52,25 @@ pub fn tab(
     )
 }
 
+/// The tabs in a row across `width`, over a hairline the selected tab's bar rests on.
 pub fn strip(
     id: &'static str,
     label: &'static str,
     width: f32,
+    theme: Theme,
     tabs: impl IntoIterator<Item = Stateful<Div>>,
 ) -> Stateful<Div> {
     div()
         .id(id)
         .role(gpui::Role::TabList)
         .aria_label(label)
-        .ml(px(-PAD))
-        .max_w(px(width + PAD))
+        .w(px(width))
         // A scroll container takes no height from its row; this is one tab.
-        .h(px(ROW))
+        .h(px(ROW + 1.0))
         .overflow_x_scroll()
+        .border_b_1()
+        .border_color(theme.rule)
         .flex()
+        .gap(px(GAP))
         .children(tabs)
 }

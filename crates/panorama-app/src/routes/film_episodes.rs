@@ -255,7 +255,7 @@ impl Film {
                 )
                 .on_click(cx.listener(move |film, _, _, cx| film.pick_tab(index, cx)))
             });
-            tab_strip::strip("film-seasons", "Seasons", col.width, labels)
+            tab_strip::strip("film-seasons", "Seasons", col.width, theme, labels)
         });
         Some(
             div()
