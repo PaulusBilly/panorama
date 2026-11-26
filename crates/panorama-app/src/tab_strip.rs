@@ -143,8 +143,8 @@ pub fn tab(
 }
 
 /// The tabs in a row across `width`, over a hairline the selected tab's bar rests on. A row
-/// longer than the column scrolls sideways: a mouse's vertical wheel turns it, as a Windows
-/// mouse has no other, and a button beside each clipped end pages it.
+/// longer than the column scrolls sideways under a sideways gesture, and a button beside each
+/// clipped end pages it for a mouse with only a vertical wheel.
 #[allow(clippy::too_many_arguments)]
 pub fn strip(
     id: &'static str,
@@ -172,7 +172,7 @@ pub fn strip(
     }
     let max = f32::from(scroll.max_offset().x).max(0.0);
     let position = crate::carousel::clamped(scroll.offset().x, max);
-    let (wheel, held) = (scroll.clone(), glide.clone());
+    let held = glide.clone();
     let row = div()
         .id(id)
         .role(gpui::Role::TabList)
@@ -185,19 +185,11 @@ pub fn strip(
         .track_scroll(&scroll)
         .flex()
         .gap(px(GAP))
-        .on_scroll_wheel(move |event: &ScrollWheelEvent, window, cx| {
-            let max = f32::from(wheel.max_offset().x);
-            if max <= 0.0 {
-                return;
-            }
-            let delta = event.delta.pixel_delta(px(20.0));
-            // The wheel takes over from a glide under way.
+        // Only sideways gestures move the row, so scrolling down over it moves the page.
+        .restrict_scroll_to_axis()
+        .on_scroll_wheel(move |_: &ScrollWheelEvent, window, _| {
+            // A swipe takes over from a glide under way.
             held.set(None);
-            if delta.y.abs() > delta.x.abs() {
-                let x = (f32::from(wheel.offset().x) + f32::from(delta.y)).clamp(-max, 0.0);
-                wheel.set_offset(point(px(x), wheel.offset().y));
-                cx.stop_propagation();
-            }
             window.refresh();
         })
         .children(tabs);
