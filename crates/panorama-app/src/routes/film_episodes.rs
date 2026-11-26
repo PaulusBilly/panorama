@@ -490,6 +490,7 @@ impl Film {
                         .mt(px(6.0))
                         .text_color(theme.ink.opacity(0.78))
                         .line_clamp(2)
+                        .text_ellipsis()
                         .child(overview),
                 )
             })

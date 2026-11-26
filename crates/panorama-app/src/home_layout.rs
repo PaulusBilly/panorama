@@ -14,13 +14,13 @@ pub struct Grid {
     pub gap: f32,
 }
 impl Grid {
-    /// The most columns whose tiles stay wide enough: 280 up to three, 360 for four, and 400
+    /// The most columns whose tiles stay wide enough: 280 up to three, 300 for four, and 400
     /// from five on, up to eight. Tiles stretch so the grid's right edge meets the column's.
     pub fn fit(col: crate::theme::Column) -> Self {
         let (column_width, gap) = (col.width.max(0.0), col.gap);
         let min_tile = |columns: usize| match columns {
             0..=3 => 280.0,
-            4 => 360.0,
+            4 => 300.0,
             _ => 400.0,
         };
         let columns = (2..=MAX_COLUMNS)
@@ -90,8 +90,10 @@ mod tests {
             (851.0, 2, 422.0),
             (852.0, 3, 280.0),
             (920.0, 3, 302.0),
-            (1270.0, 3, 419.0),
-            (1457.0, 3, 481.0),
+            (1217.0, 3, 401.0),
+            (1218.0, 4, 300.0),
+            (1270.0, 4, 313.0),
+            (1457.0, 4, 359.0),
             (1458.0, 4, 360.0),
             (1500.0, 4, 370.0),
             (1720.0, 4, 425.0),
