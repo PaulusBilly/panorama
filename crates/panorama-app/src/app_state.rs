@@ -253,7 +253,12 @@ impl AppState {
 
     /// Refresh or append a page, retaining the visible cached cards.
     pub fn load(&mut self, more: bool, cx: &mut Context<Self>) {
-        if more && (self.loading_more || self.catalog.as_ref().is_none_or(|p| !p.has_more)) {
+        // An append waits out a refresh, which would replace the catalog it extends.
+        if more
+            && (self.loading
+                || self.loading_more
+                || self.catalog.as_ref().is_none_or(|p| !p.has_more))
+        {
             return;
         }
         if !more {

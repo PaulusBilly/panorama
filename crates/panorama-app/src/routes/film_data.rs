@@ -148,7 +148,7 @@ impl Film {
     }
     /// TMDB's episodes for a show, asked for once its own have arrived and told the seasons.
     fn load_tmdb_episodes(&mut self, cx: &mut Context<Self>) {
-        if self.kind == Kind::Movie || self.tmdb_task.is_some() || self.episodes.is_empty() {
+        if self.kind == Kind::Movie || self.episodes.is_empty() {
             return;
         }
         let Some(services) = self.state.read(cx).services.clone() else {
@@ -157,6 +157,10 @@ impl Film {
         let mut seasons: Vec<u32> = self.episodes.iter().map(|episode| episode.season).collect();
         seasons.sort_unstable();
         seasons.dedup();
+        if seasons == self.tmdb_seasons {
+            return;
+        }
+        self.tmdb_seasons = seasons.clone();
         let mut job = services.tmdb_episodes(self.id.clone(), seasons);
         self.tmdb_task = Some(cx.spawn(async move |entity, cx| {
             let Some(tmdb) = (&mut job.0).await.ok().flatten() else {
@@ -165,6 +169,8 @@ impl Film {
             let _ = entity.update(cx, |film, cx| {
                 film.tmdb_episodes = Some(Arc::new(tmdb));
                 film.set_episodes((*film.episodes).clone());
+                // TMDB's air date can make an episode the addon left undated unaired.
+                film.sync_target(cx);
                 cx.notify();
             });
         }));

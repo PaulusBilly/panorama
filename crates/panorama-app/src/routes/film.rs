@@ -69,6 +69,8 @@ pub struct Film {
     /// TMDB's stills and synopses, laid over `episodes` whenever either arrives.
     tmdb_episodes: Option<Arc<Vec<panorama_core::tmdb::TmdbEpisode>>>,
     tmdb_task: Option<Task<()>>,
+    /// The seasons `tmdb_task` asked for, so seasons the addon adds later are asked for too.
+    tmdb_seasons: Vec<u32>,
     /// The tab picked by hand; until then the strip follows `target`.
     tab: Option<usize>,
     tab_focus: Vec<FocusHandle>,
@@ -238,6 +240,7 @@ impl Film {
             original_task: None,
             tmdb_episodes: None,
             tmdb_task: None,
+            tmdb_seasons: vec![],
             _state: observer,
             _shell: shell_observer,
             _images: image_observer,
