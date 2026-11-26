@@ -58,25 +58,6 @@ impl Film {
         }
         (None, false, None)
     }
-    /// A copy cropped to fill `bounds`, sharp at the top and blurred toward the bottom.
-    pub(super) fn fading(
-        &self,
-        url: &url::Url,
-        bounds: (f32, f32),
-        view: ViewSettings,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<CachedImage> {
-        let services = self
-            .state
-            .read(cx)
-            .services
-            .clone()
-            .filter(|_| view.active)?;
-        self.images.update(cx, |images, cx| {
-            images.request_fading(url.as_str(), bounds, &services, window, cx)
-        })
-    }
     pub(super) fn blurred(
         &self,
         url: &url::Url,
