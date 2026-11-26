@@ -394,8 +394,3 @@ impl Render for Film {
             .child(back)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-}
