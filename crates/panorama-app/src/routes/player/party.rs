@@ -152,6 +152,17 @@ impl Player {
                 || (state != MemberState::Playing && (position - at_position).abs() > 1.0)
         });
         if due {
+            if state != MemberState::Playing {
+                crate::party::trace(|| {
+                    format!(
+                        "player state={state:?} pos={position:.3} paused={} seeking={} cache={:?} status={:?}",
+                        self.model.paused,
+                        self.model.seeking(),
+                        self.model.cache_seconds,
+                        self.model.status
+                    )
+                });
+            }
             self.party.reported = Some((state, position, now));
             self.state.read(cx).party_report(state, position, duration);
         }

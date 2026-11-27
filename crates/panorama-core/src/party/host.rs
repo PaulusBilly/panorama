@@ -237,8 +237,10 @@ impl Participant {
         self.state == MemberState::Paused && (self.position - anchor).abs() > OFF_SPOT
     }
 
+    /// The host's stalls always hold: the timeline is its picture, so playing on without it
+    /// only plays friends ahead until the timeline snaps back to it.
     fn can_hold(&self) -> bool {
-        self.waits < WAITS_PER_MEDIA
+        self.id == HOST_ID || self.waits < WAITS_PER_MEDIA
     }
 
     fn view(&self, is_host: bool) -> MemberView {
@@ -592,8 +594,12 @@ impl HostSession {
         };
         showing.set(now, phase, position, self.host.duration);
         let at = showing.anchor_position;
+        // A host already paused at the new spot keeps its state: its player barely moves for
+        // so small a seek, and may report nothing more that would release the party.
         if kind == NoticeKind::Seeked && matches!(phase, Phase::WaitingForReady { .. }) {
-            for p in self.participants_mut() {
+            for p in self.participants_mut().filter(|p| {
+                p.id != HOST_ID || p.state != MemberState::Paused || p.paused_elsewhere(at)
+            }) {
                 if !matches!(p.state, MemberState::Failed | MemberState::Away) {
                     p.state = MemberState::Loading;
                 }
@@ -627,19 +633,25 @@ impl HostSession {
             Phase::WaitingForReady { since } => {
                 let timed_out = now - since > READY_TIMEOUT_MS;
                 let anchor = self.showing.as_ref().map(|showing| showing.anchor_position);
-                let mut held = false;
+                let (mut friends_held, mut host_held) = (false, false);
                 for member in self
                     .participants_mut()
                     .filter(|p| p.holds_start() || anchor.is_some_and(|at| p.paused_elsewhere(at)))
                 {
-                    held = true;
-                    member.late |= timed_out && member.id != HOST_ID;
+                    // The host's picture is the party's: starting without it only plays
+                    // friends ahead until the timeline snaps back to the host.
+                    if member.id == HOST_ID {
+                        host_held = true;
+                        continue;
+                    }
+                    friends_held = true;
+                    member.late |= timed_out;
                     // Given up on: the stall it is still in holds nothing more. A new one does.
                     if timed_out {
                         member.buffering_since = None;
                     }
                 }
-                (!held || timed_out).then_some(Phase::Playing)
+                (!host_held && (!friends_held || timed_out)).then_some(Phase::Playing)
             }
             Phase::Playing
                 if wait
@@ -657,7 +669,7 @@ impl HostSession {
                             .is_some_and(|since| now - since > BUFFER_GRACE_MS)
                 })
                 .map(|holder| {
-                    holder.waits += 1;
+                    holder.waits = holder.waits.saturating_add(1);
                     stopped_at = Some(holder.position);
                     notices.push((NoticeKind::WaitingFor, holder.name.clone()));
                     Phase::WaitingFor {
@@ -666,7 +678,7 @@ impl HostSession {
                     }
                 }),
             Phase::WaitingFor { member, since } => {
-                let timed_out = now - since > WAIT_LIMIT_MS;
+                let timed_out = member != HOST_ID && now - since > WAIT_LIMIT_MS;
                 let mut held = false;
                 for p in self.participants_mut() {
                     if p.id == member && timed_out {

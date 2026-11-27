@@ -1282,3 +1282,70 @@ fn a_friend_still_buffering_when_the_start_times_out_holds_no_more() {
     report_at(&mut host, 31_000, SAM, MemberState::Buffering, 111.0);
     assert_eq!(playing(&tick(&mut host, 33_000), SAM), Some(false));
 }
+
+fn local_buffering_at(host: &mut HostSession, now: i64, position: f64) -> Vec<HostOutput> {
+    host.handle(
+        now,
+        HostInput::LocalReport {
+            state: MemberState::Buffering,
+            position,
+            duration: Some(LENGTH),
+        },
+    )
+}
+
+#[test]
+fn a_host_slower_than_its_friends_to_land_a_seek_is_never_left_behind() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    report_at(&mut host, 10_500, SAM, MemberState::Paused, 500.0);
+    local_buffering_at(&mut host, 10_200, 500.0);
+    for now in (10_250..=45_000).step_by(250) {
+        assert_ne!(playing(&tick(&mut host, now), SAM), Some(true), "at {now}");
+    }
+    let out = local_paused_at(&mut host, 45_100, 500.0);
+    let (_, playback, _) = states(&out, SAM)[0];
+    assert!(playback.playing);
+    assert_eq!(playback.anchor_position, 500.0);
+}
+
+#[test]
+fn a_late_friend_still_stops_holding_the_start_after_20s() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    local_paused_at(&mut host, 10_500, 500.0);
+    report_at(&mut host, 10_600, SAM, MemberState::Buffering, 500.0);
+    assert_ne!(playing(&tick(&mut host, 30_000), SAM), Some(true));
+    assert_eq!(playing(&tick(&mut host, 30_001), SAM), Some(true));
+}
+
+#[test]
+fn the_host_stalling_holds_the_party_for_as_long_and_as_often_as_it_takes() {
+    let mut host = party();
+    let mut now = 1_000;
+    for stall in 1..=5 {
+        local_buffering_at(&mut host, now, 100.0);
+        tick(&mut host, now + 1_600);
+        assert_ne!(
+            playing(&tick(&mut host, now + 60_000), SAM),
+            Some(true),
+            "stall {stall} still holds after a minute"
+        );
+        let out = local_paused_at(&mut host, now + 60_100, 100.0);
+        assert_eq!(playing(&out, SAM), Some(true), "stall {stall} ends");
+        local_at(&mut host, now + 60_200, 100.0);
+        now += 70_000;
+    }
+}
+
+#[test]
+fn a_tiny_seek_while_waiting_does_not_strand_a_host_already_there() {
+    let mut host = party();
+    host.handle(10_000, HostInput::Local(Action::Seek { to: 500.0 }));
+    local_paused_at(&mut host, 10_500, 500.0);
+    report_at(&mut host, 10_600, SAM, MemberState::Buffering, 500.0);
+    // Close enough that the host's own player does not move, so it reports nothing new.
+    host.handle(11_000, HostInput::Local(Action::Seek { to: 500.3 }));
+    let out = report_at(&mut host, 11_500, SAM, MemberState::Paused, 500.3);
+    assert_eq!(playing(&out, SAM), Some(true));
+}

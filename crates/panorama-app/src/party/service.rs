@@ -418,7 +418,17 @@ impl Host {
                     host.handle(HostInput::Connected { conn: id });
                 }
                 Some((conn, line)) = incoming.recv() => match line.map(|line| decode_up(&line)) {
-                    Some(Ok(msg)) => host.handle(HostInput::Message { conn, msg }),
+                    Some(Ok(msg)) => {
+                        if let panorama_core::party::Up::Report { state, position, .. } = &msg {
+                            trace(|| {
+                                format!(
+                                    "member report conn={} state={state:?} pos={position:.3}",
+                                    conn.0
+                                )
+                            });
+                        }
+                        host.handle(HostInput::Message { conn, msg });
+                    }
                     Some(Err(_)) => {
                         host.handle(HostInput::Disconnected { conn });
                         host.drop_peer(conn);
