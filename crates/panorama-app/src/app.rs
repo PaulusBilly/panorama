@@ -1,6 +1,6 @@
 //! The retained window shell and route presentation.
 use crate::{
-    account_menu::AccountMenu,
+    account_menu::{AccountMenu, MenuKind},
     app_state::{Account, AppState},
     args::Args,
     assets, debug,
@@ -178,7 +178,10 @@ impl AppShell {
             });
         }
         if args.open_account_menu {
-            shell.menu.set_open(true);
+            shell.menu.toggle(MenuKind::Account);
+        }
+        if args.open_update_menu {
+            shell.menu.toggle(MenuKind::Update);
         }
         if args.open_join {
             shell.toggle_join(window, cx);

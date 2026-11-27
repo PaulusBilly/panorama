@@ -34,6 +34,7 @@ impl AssetSource for Assets {
             "users.svg" => Some(include_bytes!("../assets/icons/users.svg")),
             // Tabler Icons "link" (MIT), joining a watch party from an invite link.
             "link.svg" => Some(include_bytes!("../assets/icons/link.svg")),
+            "download.svg" => Some(include_bytes!("../assets/icons/download.svg")),
             "player-play-filled.svg" => {
                 Some(include_bytes!("../assets/icons/player-play-filled.svg"))
             }

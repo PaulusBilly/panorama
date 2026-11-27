@@ -14,6 +14,27 @@ impl AppShell {
     }
     /// Quit into the downloaded update; Velopack's updater reopens Panorama once it's applied.
     /// If the updater can't start, Panorama stays open and still tries again when it quits.
+    /// Open or close the sidebar popup for `kind`; from the keyboard, focus its row.
+    pub(crate) fn open_menu(
+        &mut self,
+        kind: crate::account_menu::MenuKind,
+        event: &gpui::ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu.toggle(kind);
+        if self.menu.open && matches!(event, gpui::ClickEvent::Keyboard(_)) {
+            self.menu.focus_first(window, cx);
+        }
+        cx.notify();
+    }
+    /// The sidebar control the popup belongs to, for focus to return to.
+    pub(crate) fn menu_owner(&self) -> &gpui::FocusHandle {
+        match self.menu.kind {
+            crate::account_menu::MenuKind::Account => &self.sidebar.account,
+            crate::account_menu::MenuKind::Update => &self.sidebar.update,
+        }
+    }
     pub fn restart_to_update(&mut self, cx: &mut Context<Self>) {
         let Some(ready) = self.state.read(cx).update.clone() else {
             return;

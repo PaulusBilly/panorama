@@ -1,13 +1,13 @@
 use crate::{
     app::AppShell,
     app_state::Account,
-    sidebar::{SIDEBAR_WIDTH, avatar_bounds},
+    sidebar::SIDEBAR_WIDTH,
     theme::{Typography, focus_ring, motion::*},
     transition::Tween,
 };
 use gpui::{
-    BoxShadow, Context, Div, FocusHandle, MouseDownEvent, ScrollWheelEvent, Stateful, Window, div,
-    point, prelude::*, px, rgba,
+    Bounds, BoxShadow, Context, Div, FocusHandle, MouseDownEvent, Pixels, ScrollWheelEvent,
+    Stateful, Window, div, point, prelude::*, px, rgba,
 };
 use std::time::Instant;
 
@@ -62,36 +62,57 @@ pub fn popover_shadow() -> Vec<BoxShadow> {
     ]
 }
 
-/// Entries in display order: the sidebar already has Addons and the watch party, so a ready
-/// update and the session remain.
-pub fn entries(signed_in: bool, update_ready: bool) -> Vec<MenuEntry> {
-    let session = if signed_in {
-        MenuEntry::LogOut
-    } else {
-        MenuEntry::LogIn
-    };
-    update_ready
-        .then_some(MenuEntry::Update)
-        .into_iter()
-        .chain([session])
-        .collect()
+/// Which sidebar control the popup belongs to.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MenuKind {
+    /// The avatar: the session.
+    #[default]
+    Account,
+    /// The update item: the downloaded version.
+    Update,
+}
+
+/// The popup's one row. The sidebar has its own items for Addons, the watch party and a ready
+/// update, so the account popup holds the session alone.
+pub fn entry(kind: MenuKind, signed_in: bool) -> MenuEntry {
+    match kind {
+        MenuKind::Update => MenuEntry::Update,
+        MenuKind::Account if signed_in => MenuEntry::LogOut,
+        MenuKind::Account => MenuEntry::LogIn,
+    }
 }
 
 /// Retained account-popup presence and keyboard focus.
 pub struct AccountMenu {
     /// Whether the popup accepts interaction.
     pub open: bool,
+    /// The control it opened from; kept through the exit so the closing popup stays put.
+    pub kind: MenuKind,
     presence: Tween,
-    focus: Vec<FocusHandle>,
+    focus: FocusHandle,
 }
 impl AccountMenu {
     /// Allocate a focus target for each possible row.
     pub fn new(cx: &mut Context<AppShell>) -> Self {
         Self {
             open: false,
+            kind: MenuKind::Account,
             presence: Tween::fixed(0.0),
-            focus: (0..2).map(|_| cx.focus_handle().tab_stop(false)).collect(),
+            focus: cx.focus_handle().tab_stop(false),
         }
+    }
+    /// Whether the popup is open for `kind`.
+    pub fn is_open(&self, kind: MenuKind) -> bool {
+        self.open && self.kind == kind
+    }
+    /// Open for `kind`, or close when already open for it. Another control's open popup
+    /// switches over without an exit.
+    pub fn toggle(&mut self, kind: MenuKind) {
+        if self.open && self.kind != kind {
+            self.dismiss();
+        }
+        self.kind = kind;
+        self.set_open(!self.open);
     }
     /// Reverse popup presence from its current pose.
     pub fn set_open(&mut self, open: bool) {
@@ -117,9 +138,7 @@ impl AccountMenu {
         self.open || self.moving(reduced)
     }
     pub fn focus_first(&self, window: &mut Window, cx: &mut Context<AppShell>) {
-        if let Some(first) = self.focus.first() {
-            first.focus(window, cx);
-        }
+        self.focus.focus(window, cx);
     }
     /// While open, a full-window transparent layer under the popup: any press or wheel outside
     /// the popup lands here and closes it without reaching the page.
@@ -144,29 +163,36 @@ impl AccountMenu {
         view: crate::home_layout::ViewSettings,
         account: &Account,
         update: Option<&str>,
+        anchor: Bounds<Pixels>,
         window: &Window,
         cx: &mut Context<AppShell>,
     ) -> Stateful<Div> {
         let theme = view.theme;
-        let ready = update.map(|version| format!("Panorama {version} is ready"));
         let reduced = view.reduced;
         let viewport = window.viewport_size();
-        let avatar = avatar_bounds(viewport);
         let progress = self.presence.value(Instant::now(), reduced);
         let rise = if reduced { 0.0 } else { 6.0 * (1.0 - progress) };
         let email = match account {
-            Account::SignedIn(email) => Some(email.clone()),
+            Account::SignedIn(email) if self.kind == MenuKind::Account => Some(email.clone()),
             _ => None,
         };
+        let entry = entry(self.kind, matches!(account, Account::SignedIn(_)));
+        let label = entry.label();
+        let caption = (entry == MenuEntry::Update)
+            .then(|| update.map(|version| format!("Panorama {version} is ready")))
+            .flatten();
         let mut shadow = popover_shadow();
         shadow[0].color = theme.rule.into();
         div()
             .id("account-menu")
             .role(gpui::Role::Menu)
-            .aria_label("Account")
+            .aria_label(match self.kind {
+                MenuKind::Account => "Account",
+                MenuKind::Update => "Update",
+            })
             .absolute()
             .left(px(SIDEBAR_WIDTH + 8.0))
-            .bottom(viewport.height - avatar.bottom() - px(rise))
+            .bottom(viewport.height - anchor.bottom() - px(rise))
             .w(px(WIDTH))
             .p(px(4.0))
             .bg(theme.surface)
@@ -192,66 +218,44 @@ impl AccountMenu {
                         .child(div().label().truncate().child(email)),
                 )
             })
-            .children(
-                entries(email_present(account), update.is_some())
-                    .into_iter()
-                    .zip(&self.focus)
-                    .map(|(entry, focus)| {
-                        let label = entry.label();
-                        let caption = (entry == MenuEntry::Update)
-                            .then(|| ready.clone())
-                            .flatten();
-                        focus_ring(
-                            div()
-                                .id(("account-entry", entry as usize))
-                                .w_full()
-                                .min_h(px(40.0))
-                                .px(px(12.0))
-                                .flex()
-                                .flex_col()
-                                .justify_center()
-                                .cursor_pointer()
-                                .hover(|style| style.bg(theme.hover))
-                                .role(gpui::Role::MenuItem)
-                                .aria_label(label)
-                                .on_click(cx.listener(move |shell, _, window, cx| {
-                                    match entry {
-                                        MenuEntry::Update => {
-                                            shell.menu.set_open(false);
-                                            shell.restart_to_update(cx);
-                                        }
-                                        MenuEntry::LogOut => {
-                                            shell.menu.set_open(false);
-                                            shell.state.update(cx, |state, cx| state.sign_out(cx));
-                                            shell.sidebar.account.focus(window, cx);
-                                        }
-                                        MenuEntry::LogIn => {
-                                            shell.menu.set_open(false);
-                                            shell.open_login(window, cx);
-                                        }
-                                    }
-                                    cx.notify();
-                                }))
-                                .child(div().label().child(label))
-                                .when_some(caption, |row, caption| {
-                                    row.pb(px(2.0)).child(
-                                        div().caption().text_color(theme.ink_muted).child(caption),
-                                    )
-                                }),
-                            focus,
-                            theme,
-                            self.open,
-                            view.keyboard,
-                            0.0,
-                            window,
-                        )
+            .child(focus_ring(
+                div()
+                    .id(("account-entry", entry as usize))
+                    .w_full()
+                    .min_h(px(40.0))
+                    .px(px(12.0))
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.hover))
+                    .role(gpui::Role::MenuItem)
+                    .aria_label(label)
+                    .on_click(cx.listener(move |shell, _, window, cx| {
+                        shell.menu.set_open(false);
+                        match entry {
+                            MenuEntry::Update => shell.restart_to_update(cx),
+                            MenuEntry::LogOut => {
+                                shell.state.update(cx, |state, cx| state.sign_out(cx));
+                                shell.sidebar.account.focus(window, cx);
+                            }
+                            MenuEntry::LogIn => shell.open_login(window, cx),
+                        }
+                        cx.notify();
+                    }))
+                    .child(div().label().child(label))
+                    .when_some(caption, |row, caption| {
+                        row.pb(px(2.0))
+                            .child(div().caption().text_color(theme.ink_muted).child(caption))
                     }),
-            )
+                &self.focus,
+                theme,
+                self.open,
+                view.keyboard,
+                0.0,
+                window,
+            ))
     }
-}
-
-fn email_present(account: &Account) -> bool {
-    matches!(account, Account::SignedIn(_))
 }
 
 #[cfg(test)]
@@ -259,17 +263,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_account_menu_has_no_party_entry() {
-        assert_eq!(entries(false, false), [MenuEntry::LogIn]);
-        assert_eq!(entries(true, false), [MenuEntry::LogOut]);
-        for entry in entries(true, true).iter().chain(&entries(false, true)) {
-            assert!(!entry.label().contains("party"), "{entry:?}");
-        }
-    }
-
-    #[test]
-    fn a_ready_update_leads_the_menu() {
-        assert_eq!(entries(true, true), [MenuEntry::Update, MenuEntry::LogOut]);
-        assert_eq!(entries(false, true), [MenuEntry::Update, MenuEntry::LogIn]);
+    fn the_account_popup_holds_the_session_and_the_update_popup_the_update() {
+        assert_eq!(entry(MenuKind::Account, false), MenuEntry::LogIn);
+        assert_eq!(entry(MenuKind::Account, true), MenuEntry::LogOut);
+        assert_eq!(entry(MenuKind::Update, true), MenuEntry::Update);
+        assert_eq!(entry(MenuKind::Update, false), MenuEntry::Update);
     }
 }

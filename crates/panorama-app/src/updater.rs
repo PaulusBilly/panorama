@@ -40,33 +40,48 @@ pub fn startup() {
         .run();
 }
 
-/// Checks for a newer release in the background and downloads it, then records it on `state`.
+/// How often a running Panorama looks again: it is often left open for days, and a release
+/// published meanwhile would otherwise wait for the next launch.
+#[cfg(target_os = "windows")]
+const RECHECK: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Checks for a newer release in the background at launch and every [`RECHECK`] after, and
+/// downloads it, then records it on `state`.
 pub fn check(state: Entity<AppState>, cx: &mut App) {
     #[cfg(target_os = "windows")]
-    {
-        let work = cx
-            .background_executor()
-            .spawn(async { find_and_download() });
-        cx.spawn(async move |cx| {
-            if let Some(ready) = work.await {
-                state.update(cx, |state, cx| {
+    cx.spawn(async move |cx| {
+        use velopack::{UpdateManager, sources::GithubSource};
+        let executor = cx.background_executor().clone();
+        // Fails outside a Velopack install, which is the normal case for zips and dev builds.
+        let Some(manager) = executor
+            .spawn(async {
+                UpdateManager::new(GithubSource::new(REPO, None, false), None, None).ok()
+            })
+            .await
+        else {
+            return;
+        };
+        loop {
+            let manager = manager.clone();
+            if let Some(ready) = executor.spawn(async { find_and_download(manager) }).await {
+                let _ = state.update(cx, |state, cx| {
                     state.update = Some(ready);
                     cx.notify();
                 });
+                return;
             }
-        })
-        .detach();
-    }
+            executor.timer(RECHECK).await;
+        }
+    })
+    .detach();
     #[cfg(not(target_os = "windows"))]
     let _ = (state, cx);
 }
 
 #[cfg(target_os = "windows")]
-fn find_and_download() -> Option<Ready> {
-    use velopack::{UpdateCheck, UpdateManager, sources::GithubSource};
+fn find_and_download(manager: velopack::UpdateManager) -> Option<Ready> {
+    use velopack::{UpdateCheck, UpdateManager};
     let log = |message: String| crate::debug::log(format!("Update: {message}"));
-    // Fails outside a Velopack install, which is the normal case for zips and dev builds.
-    let manager = UpdateManager::new(GithubSource::new(REPO, None, false), None, None).ok()?;
     let ready = |manager: UpdateManager, asset: velopack::VelopackAsset| Ready {
         version: asset.Version.clone(),
         inner: Some(std::sync::Arc::new((manager, asset))),

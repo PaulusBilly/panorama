@@ -1,5 +1,6 @@
 pub use crate::theme::SIDEBAR_WIDTH;
 use crate::{
+    account_menu::MenuKind,
     app::AppShell,
     app_state::Account,
     assets::Weighted,
@@ -24,6 +25,7 @@ pub const LOGO_CENTER: f32 = LOGO_TOP + LOGO_HEIGHT * 0.5;
 pub struct Sidebar {
     items: [FocusHandle; Destination::ALL.len()],
     pub(crate) join: FocusHandle,
+    pub(crate) update: FocusHandle,
     pub(crate) account: FocusHandle,
 }
 
@@ -67,8 +69,9 @@ pub struct SidebarStatus {
     pub account_menu: bool,
     pub join: bool,
     pub in_party: bool,
-    /// A downloaded update waits in the account menu.
+    /// A downloaded update waits behind its own item.
     pub update_ready: bool,
+    pub update_menu: bool,
 }
 
 impl Sidebar {
@@ -76,6 +79,7 @@ impl Sidebar {
         Self {
             items: std::array::from_fn(|_| cx.focus_handle()),
             join: cx.focus_handle(),
+            update: cx.focus_handle(),
             account: cx.focus_handle(),
         }
     }
@@ -106,9 +110,12 @@ impl Sidebar {
         cx: &mut Context<AppShell>,
     ) -> Stateful<Div> {
         let theme = view.theme;
-        let party =
-            PartyEntry::for_session(matches!(account, Account::SignedIn(_)), status.in_party)
-                .map(|entry| self.party_item(entry, status.join, view, window, cx));
+        let party_entry =
+            PartyEntry::for_session(matches!(account, Account::SignedIn(_)), status.in_party);
+        let update = status
+            .update_ready
+            .then(|| self.update_item(status.update_menu, party_entry.is_some(), view, window, cx));
+        let party = party_entry.map(|entry| self.party_item(entry, status.join, view, window, cx));
         let items = Destination::ALL
             .iter()
             .zip(&self.items)
@@ -203,6 +210,7 @@ impl Sidebar {
                     .gap(px(8.0))
                     .children(items),
             )
+            .children(update)
             .children(party)
             .child(focus_ring(
                 div()
@@ -224,30 +232,10 @@ impl Sidebar {
                     .hover(|style| style.bg(theme.glass_hover))
                     .role(gpui::Role::Button)
                     .aria_label("Account menu")
-                    .when(status.update_ready, |avatar| {
-                        avatar.aria_description("Update ready")
-                    })
                     .aria_expanded(menu_open)
                     .on_click(cx.listener(|shell, event: &gpui::ClickEvent, window, cx| {
-                        shell.menu.set_open(!shell.menu.open);
-                        if shell.menu.open && matches!(event, gpui::ClickEvent::Keyboard(_)) {
-                            shell.menu.focus_first(window, cx);
-                        }
-                        cx.notify();
+                        shell.open_menu(MenuKind::Account, event, window, cx)
                     }))
-                    .when(status.update_ready, |avatar| {
-                        avatar.child(
-                            div()
-                                .absolute()
-                                .top(px(0.0))
-                                .right(px(0.0))
-                                .size(px(10.0))
-                                .rounded_full()
-                                .border_2()
-                                .border_color(theme.canvas)
-                                .bg(theme.accent),
-                        )
-                    })
                     .map(|avatar| match initial {
                         Some(initial) => avatar
                             .child(LABEL.apply(div()).weight(FontWeight::MEDIUM).child(initial)),
@@ -269,6 +257,66 @@ impl Sidebar {
 }
 
 impl Sidebar {
+    /// A downloaded update, above the party item: it opens a popup that restarts into it, so a
+    /// stray click never quits a film.
+    fn update_item(
+        &self,
+        open: bool,
+        party: bool,
+        view: ViewSettings,
+        window: &Window,
+        cx: &mut Context<AppShell>,
+    ) -> Div {
+        let theme = view.theme;
+        let at = update_bounds(window.viewport_size(), party);
+        div()
+            .absolute()
+            .left(at.origin.x)
+            .top(at.origin.y)
+            .child(focus_ring(
+                div()
+                    .id("sidebar-update")
+                    .relative()
+                    .size(px(ITEM))
+                    .rounded_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .when(open, |item| item.bg(theme.glass))
+                    .hover(|style| style.bg(theme.glass))
+                    .role(gpui::Role::Button)
+                    .aria_label("Update ready")
+                    .aria_expanded(open)
+                    .on_click(cx.listener(|shell, event: &gpui::ClickEvent, window, cx| {
+                        shell.open_menu(MenuKind::Update, event, window, cx)
+                    }))
+                    .child(
+                        svg()
+                            .path("download.svg")
+                            .size(px(GLYPH))
+                            .text_color(theme.ink),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top(px(10.0))
+                            .right(px(9.0))
+                            .size(px(8.0))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(theme.canvas)
+                            .bg(theme.accent),
+                    ),
+                &self.update,
+                theme,
+                view.active,
+                view.keyboard,
+                ITEM * 0.5,
+                window,
+            ))
+    }
+
     /// Join watch party, or in a party, Watch party with a live dot, just above the avatar.
     fn party_item(
         &self,
@@ -350,6 +398,17 @@ pub fn join_bounds(viewport: Size<Pixels>) -> Bounds<Pixels> {
     )
 }
 
+/// Where the update item sits: above the party item, or in its place when there is none. The
+/// update popup anchors to it.
+pub fn update_bounds(viewport: Size<Pixels>, party: bool) -> Bounds<Pixels> {
+    let slot = join_bounds(viewport);
+    if party {
+        slot - point(px(0.0), px(PARTY_GAP + ITEM))
+    } else {
+        slot
+    }
+}
+
 /// Gap between the avatar and the window's bottom edge.
 pub const AVATAR_INSET: f32 = 24.0;
 
@@ -395,5 +454,15 @@ mod tests {
             avatar_bounds(viewport).origin.y
         );
         assert_eq!(item.center().x, avatar_bounds(viewport).center().x);
+    }
+
+    #[test]
+    fn the_update_item_stacks_above_the_party_item_or_takes_its_place() {
+        let viewport = size(px(1280.0), px(800.0));
+        let party = join_bounds(viewport);
+        assert_eq!(update_bounds(viewport, false), party);
+        let above = update_bounds(viewport, true);
+        assert_eq!(above.bottom() + px(PARTY_GAP), party.origin.y);
+        assert_eq!(above.center().x, party.center().x);
     }
 }

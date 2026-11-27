@@ -275,7 +275,7 @@ impl AppShell {
         match key {
             "escape" if self.menu.open => {
                 self.menu.set_open(false);
-                self.sidebar.account.focus(window, cx);
+                self.menu_owner().clone().focus(window, cx);
                 cx.notify();
             }
             "escape" if self.join.open => self.close_join(window, cx),

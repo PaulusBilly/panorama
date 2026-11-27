@@ -95,7 +95,8 @@ impl Render for AppShell {
                 route.destination(),
                 &account,
                 crate::sidebar::SidebarStatus {
-                    account_menu: self.menu.open,
+                    account_menu: self.menu.is_open(MenuKind::Account),
+                    update_menu: self.menu.is_open(MenuKind::Update),
                     join: self.join.open,
                     in_party,
                     update_ready: update.is_some(),
@@ -106,8 +107,20 @@ impl Render for AppShell {
             )
         });
         let menu = self.menu.visible(self.reduced_motion).then(|| {
+            let viewport = window.viewport_size();
+            let anchor = match self.menu.kind {
+                MenuKind::Account => crate::sidebar::avatar_bounds(viewport),
+                MenuKind::Update => crate::sidebar::update_bounds(
+                    viewport,
+                    crate::sidebar::PartyEntry::for_session(
+                        matches!(account, Account::SignedIn(_)),
+                        in_party,
+                    )
+                    .is_some(),
+                ),
+            };
             self.menu
-                .render(view, &account, update.as_deref(), window, cx)
+                .render(view, &account, update.as_deref(), anchor, window, cx)
         });
         let pill = (!matches!(route, Route::Player { .. }) && self.lobby.is_none())
             .then(|| self.state.read(cx).party.as_ref())
