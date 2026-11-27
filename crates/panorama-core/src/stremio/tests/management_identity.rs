@@ -1,5 +1,3 @@
-use stremio_core::{constants::PROFILE_STORAGE_KEY, runtime::Env};
-
 use super::{
     TestEnv,
     manage::{body, server},
@@ -7,10 +5,14 @@ use super::{
 };
 use crate::{
     store::Key,
-    stremio::{CoreSession, Descriptor, env::PanoramaEnv},
+    stremio::{CoreSession, Descriptor},
 };
 
-async fn configured_session(fixture: &TestEnv, urls: &[(&str, &str)]) -> CoreSession {
+async fn configured_session(
+    fixture: &TestEnv,
+    api: &MockApi,
+    urls: &[(&str, &str)],
+) -> CoreSession {
     let mut session = CoreSession::start().await.unwrap();
     session
         .sign_in(EMAIL.into(), PASSWORD.into())
@@ -28,9 +30,7 @@ async fn configured_session(fixture: &TestEnv, urls: &[(&str, &str)]) -> CoreSes
         .collect();
     drop(session);
     drop(fixture.state.session_gate.lock().await);
-    PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-        .await
-        .unwrap();
+    api.seed_account(&profile).await;
     CoreSession::start().await.unwrap()
 }
 
@@ -49,6 +49,7 @@ fn reinstall_shared_id_updates_matching_transport_and_only_its_cache_after_resta
     fixture.runtime.block_on(async {
         let mut session = configured_session(
             &fixture,
+            &api,
             &[
                 ("X", "https://addon.test/u1/manifest.json"),
                 ("X", url.as_str()),
@@ -112,6 +113,7 @@ fn third_transport_with_shared_id_adds_installation_and_keeps_existing_caches_af
     fixture.runtime.block_on(async {
         let mut session = configured_session(
             &fixture,
+            &api,
             &[
                 ("X", "https://addon.test/u1/manifest.json"),
                 ("X", "https://addon.test/u2/manifest.json"),
@@ -167,6 +169,7 @@ fn protected_transport_collision_is_rejected_and_reorder_keeps_descriptors_cache
     fixture.runtime.block_on(async {
         let session = configured_session(
             &fixture,
+            &api,
             &[
                 ("X", "https://addon.test/u1/manifest.json"),
                 ("Y", url.as_str()),
@@ -178,9 +181,7 @@ fn protected_transport_collision_is_rejected_and_reorder_keeps_descriptors_cache
         profile.addons[1].flags.official = true;
         drop(session);
         drop(fixture.state.session_gate.lock().await);
-        PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-            .await
-            .unwrap();
+        api.seed_account(&profile).await;
         let mut session = CoreSession::start().await.unwrap();
         let before = session.installed_addons();
         let first = session.addon_key(&before[0]).await.unwrap();
@@ -233,6 +234,7 @@ fn existing_transport_cannot_claim_another_protected_manifest_id() {
     fixture.runtime.block_on(async {
         let session = configured_session(
             &fixture,
+            &api,
             &[
                 ("X", "https://addon.test/u1/manifest.json"),
                 ("Y", url.as_str()),
@@ -243,9 +245,7 @@ fn existing_transport_cannot_claim_another_protected_manifest_id() {
         profile.addons[0].flags.protected = true;
         drop(session);
         drop(fixture.state.session_gate.lock().await);
-        PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-            .await
-            .unwrap();
+        api.seed_account(&profile).await;
         let mut session = CoreSession::start().await.unwrap();
         *server.body.lock().unwrap() = serde_json::to_vec(&body("X")).unwrap();
         assert_eq!(
@@ -264,6 +264,7 @@ fn confirmation_does_not_retarget_after_a_shared_id_installation_is_removed() {
     fixture.runtime.block_on(async {
         let mut session = configured_session(
             &fixture,
+            &api,
             &[
                 ("X", "https://addon.test/u1/manifest.json"),
                 ("X", "https://addon.test/u2/manifest.json"),

@@ -321,9 +321,7 @@ fn same_id_replaces_in_position_and_protected_official_impersonation_is_rejected
             profile.addons[0].flags.protected = !official;
             profile.addons[0].flags.official = official;
             profile.addons[0].transport_url = "https://trusted.test/manifest.json".parse().unwrap();
-            PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-                .await
-                .unwrap();
+            api.seed_account(&profile).await;
             let mut session = CoreSession::start().await.unwrap();
             assert_eq!(
                 session.preview(url.clone()).await.unwrap_err(),
@@ -442,9 +440,7 @@ fn configuration_required_is_not_installed_and_same_url_upgrade_preserves_flags(
         profile.addons[2].flags.official = true;
         drop(session);
         drop(fixture.state.session_gate.lock().await);
-        PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-            .await
-            .unwrap();
+        api.seed_account(&profile).await;
         let mut session = CoreSession::start().await.unwrap();
         manifest["version"] = json!("2.0.0");
         *server.body.lock().unwrap() = serde_json::to_vec(&manifest).unwrap();
@@ -459,9 +455,7 @@ fn configuration_required_is_not_installed_and_same_url_upgrade_preserves_flags(
         profile.addons[2].flags.protected = true;
         drop(session);
         drop(fixture.state.session_gate.lock().await);
-        PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-            .await
-            .unwrap();
+        api.seed_account(&profile).await;
         let mut session = CoreSession::start().await.unwrap();
         manifest["version"] = json!("3.0.0");
         *server.body.lock().unwrap() = serde_json::to_vec(&manifest).unwrap();

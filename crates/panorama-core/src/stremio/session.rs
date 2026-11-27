@@ -186,8 +186,14 @@ impl CoreSession {
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = Arc::downgrade(&lease);
         let ctx = model::rehydrate().await?;
+        let signed_in = ctx.profile.auth_key().is_some();
         let (changes, _) = broadcast::channel(64);
         let running = Running::new(ctx, &state, changes.clone());
+        // The stored collection is only this device's last copy: another device on the same
+        // account may have changed it since. The pull lands as `AddonsChanged`.
+        if signed_in {
+            running.dispatch(ActionCtx::PullAddonsFromAPI);
+        }
         Ok(Self {
             sign_in_deadline: TIMEOUT,
             running: Some(running),

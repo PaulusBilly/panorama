@@ -150,9 +150,7 @@ fn stale_preferences_fall_back_after_external_collection_change() {
         profile.addons.remove(0);
         drop(session);
         drop(fixture.state.session_gate.lock().await);
-        PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-            .await
-            .unwrap();
+        api.seed_account(&profile).await;
         let mut session = CoreSession::start().await.unwrap();
         assert_eq!(session.meta_source().await.unwrap(), None);
         assert_eq!(
@@ -215,9 +213,7 @@ fn protected_reorder_allowed_official_unprotected_remove_allowed() {
         profile.addons[1].flags.official = true;
         drop(session);
         drop(fixture.state.session_gate.lock().await);
-        PanoramaEnv::set_storage(PROFILE_STORAGE_KEY, Some(&profile))
-            .await
-            .unwrap();
+        api.seed_account(&profile).await;
         let mut session = CoreSession::start().await.unwrap();
         let addons = session.installed_addons();
         let protected = session.addon_key(&addons[0]).await.unwrap();

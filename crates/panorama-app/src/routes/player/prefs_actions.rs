@@ -173,6 +173,9 @@ impl Player {
         let Some(lang) = self.ui.prefs.language.filter(|_| self.ui.loaded) else {
             return;
         };
+        if self.follows_host_subtitles(cx) {
+            return;
+        }
         let source = self.ui.prefs.source.as_ref();
         if let Some(id) = self.ui.subs.restore(lang, source, &self.model.subtitles) {
             self.select_subtitle(Some(id), cx);

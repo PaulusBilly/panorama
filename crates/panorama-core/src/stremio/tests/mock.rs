@@ -30,10 +30,28 @@ pub(super) struct MockApi {
     pub(super) reject_logout: Arc<AtomicBool>,
     pub(super) redirect_target: Arc<Mutex<Option<Url>>>,
     pub(super) calls: Arc<Mutex<Vec<String>>>,
+    /// The account's collection, as another device may change it.
+    pub(super) collection: Arc<Mutex<Vec<Value>>>,
     worker: Option<thread::JoinHandle<()>>,
 }
 
 impl MockApi {
+    /// Stores `profile` as this device's copy and its addons as the account's, the way a
+    /// signed-in device holds them: a restart pulls the account's collection.
+    pub(super) async fn seed_account(&self, profile: &stremio_core::types::profile::Profile) {
+        *self.collection.lock().unwrap() = serde_json::to_value(&profile.addons)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+        <crate::stremio::env::PanoramaEnv as stremio_core::runtime::Env>::set_storage(
+            stremio_core::constants::PROFILE_STORAGE_KEY,
+            Some(profile),
+        )
+        .await
+        .unwrap();
+    }
+
     pub(super) fn start() -> Self {
         let server = Server::http("127.0.0.1:0").unwrap();
         let base = format!("http://{}/", server.server_addr()).parse().unwrap();
@@ -56,6 +74,8 @@ impl MockApi {
         let redirect_target: Arc<Mutex<Option<Url>>> = Arc::new(Mutex::new(None));
         let worker_redirect = redirect_target.clone();
         let calls = Arc::new(Mutex::new(vec![]));
+        let collection = Arc::new(Mutex::new(vec![addon("second"), addon("first")]));
+        let worker_collection = collection.clone();
         let (worker_stop, worker_reject, worker_login, worker_network, worker_calls) = (
             stop.clone(),
             reject_addons.clone(),
@@ -146,7 +166,8 @@ impl MockApi {
                         if worker_reject.load(Ordering::Relaxed) {
                             json!({"error": {"code": 1, "message": "mock collection unavailable"}})
                         } else {
-                            json!({"result": {"addons": [addon("second"), addon("first")],
+                            let addons = worker_collection.lock().unwrap().clone();
+                            json!({"result": {"addons": addons,
                                 "lastModified": "2025-01-01T00:00:00Z"}})
                         }
                     }
@@ -161,6 +182,9 @@ impl MockApi {
                         if worker_reject_push.load(Ordering::Relaxed) {
                             json!({"error":{"code":500,"message":"secret-path mock-token mock-secret"}})
                         } else {
+                            if let Some(addons) = body["addons"].as_array() {
+                                *worker_collection.lock().unwrap() = addons.clone();
+                            }
                             json!({"result":{"success":true}})
                         }
                     }
@@ -178,6 +202,7 @@ impl MockApi {
             }
         });
         Self {
+            collection,
             base,
             stop,
             reject_addons,

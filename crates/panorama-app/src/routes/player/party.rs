@@ -4,6 +4,7 @@
 use super::*;
 use crate::{
     party::{
+        PartySync,
         follow::{self, Followed},
         member_state, release_matches, user_action,
     },
@@ -102,14 +103,7 @@ impl Player {
     /// A host track nothing here matches leaves the member's own pick, and is tried again when
     /// the track list grows, because an addon's subtitles arrive after the file's.
     pub(super) fn follow_host_tracks(&mut self, cx: &mut Context<Self>) {
-        let wanted = self
-            .state
-            .read(cx)
-            .party
-            .as_ref()
-            .filter(|party| !party.view.is_host() && party.view.ended().is_none())
-            .and_then(|party| Some((party.host_tracks()?.clone(), party.view.sync)));
-        let Some((choice, sync)) = wanted else {
+        let Some((choice, sync)) = self.host_tracks(cx) else {
             self.party.followed = None;
             return;
         };
@@ -128,6 +122,22 @@ impl Player {
             self.follow_subtitle(id, cx);
         }
         self.party.followed = Some(followed);
+    }
+
+    /// Member: the host's announced tracks and this install's sync setting.
+    fn host_tracks(&self, cx: &Context<Self>) -> Option<(TrackChoice, PartySync)> {
+        let party = self.state.read(cx).party.as_ref()?;
+        if party.view.is_host() || party.view.ended().is_some() {
+            return None;
+        }
+        Some((party.host_tracks()?.clone(), party.view.sync))
+    }
+
+    /// Member: the host's subtitle choice governs, so the viewer's remembered language must
+    /// not turn a track on. Without this, a host with subtitles off settles the follow before
+    /// an addon's file arrives, and the remembered language then switches that file on.
+    pub(super) fn follows_host_subtitles(&self, cx: &Context<Self>) -> bool {
+        self.host_tracks(cx).is_some_and(|(_, sync)| sync.subtitles)
     }
 
     fn report(&mut self, cx: &mut Context<Self>) {

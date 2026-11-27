@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[test]
-fn mock_sign_in_persists_account_order_across_file_reopen_without_network() {
+fn mock_sign_in_persists_account_order_and_reopen_pulls_other_devices_changes() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("account.db");
     let api = MockApi::start();
@@ -56,22 +56,27 @@ fn mock_sign_in_persists_account_order_across_file_reopen_without_network() {
     });
     fixture.replace(Store::open_in_memory().unwrap(), Some(api.base.clone()));
     fixture.replace(Store::open(&path).unwrap().0, Some(api.base.clone()));
-    let calls = api.calls.lock().unwrap().len();
+    // Another device on the account changes the collection while this one is closed.
+    *api.collection.lock().unwrap() = vec![addon("first"), addon("third")];
     fixture.runtime.block_on(async {
         let session = CoreSession::start().await.unwrap();
         assert!(session.is_signed_in());
-        assert_eq!(
+        let mut changes = session.subscribe();
+        let ids = |session: &CoreSession| {
             session
                 .installed_addons()
                 .iter()
                 .map(|addon| addon.as_core().manifest.id.clone())
-                .collect::<Vec<_>>(),
-            ["second", "first"]
-        );
-        assert_eq!(api.calls.lock().unwrap().len(), calls);
+                .collect::<Vec<_>>()
+        };
+        while ids(&session) != ["first", "third"] {
+            tokio::time::timeout(std::time::Duration::from_secs(5), changes.recv())
+                .await
+                .expect("the reopened session never pulled the account's addons")
+                .unwrap();
+        }
     });
     fixture.idle();
-    assert_eq!(api.calls.lock().unwrap().len(), calls);
 }
 
 #[test]
