@@ -333,7 +333,7 @@ impl Player {
         cx: &mut Context<Self>,
     ) -> Option<KeyAction> {
         let id = self.panels.active()?;
-        let content = self.panel_content(id)?;
+        let content = self.panel_content(id, cx)?;
         match key {
             "up" | "left" | "down" | "right" => {
                 let delta = if matches!(key, "up" | "left") { -1 } else { 1 };
@@ -396,7 +396,7 @@ impl Player {
     }
 
     /// The rows a panel shows now; the sources page is rebuilt only when its inputs change.
-    pub(super) fn panel_content(&mut self, id: PanelId) -> Option<Rc<Content>> {
+    pub(super) fn panel_content(&mut self, id: PanelId, cx: &Context<Self>) -> Option<Rc<Content>> {
         match id {
             PanelId::Audio => Some(Rc::new(content::audio(&self.model))),
             PanelId::Sources => {
@@ -416,6 +416,7 @@ impl Player {
             }
             PanelId::Subtitles => Some(Rc::new(content::subtitles(
                 &self.ui.subs.view(&self.model.subtitles),
+                self.follows_host_subtitles(cx),
             ))),
             PanelId::Settings | PanelId::Party => None,
         }
@@ -508,7 +509,7 @@ impl Player {
         if matches!(change, Change::Opened) && self.panels.take_focus_on_open() {
             window.focus(&self.focus.panel, cx);
             if let Some(id) = self.panels.active()
-                && let Some(content) = self.panel_content(id)
+                && let Some(content) = self.panel_content(id, cx)
             {
                 self.panels.row = initial_row(content.selected(), &self.navigable(id, &content));
             }

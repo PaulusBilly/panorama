@@ -215,7 +215,7 @@ fn subtitle_rows_follow_the_view_and_explain_empty_columns() {
         track(1, "eng", "English", false),
         track(2, "ind", "Indonesian", false),
     ];
-    let off = subtitles(&State::default().view(&tracks));
+    let off = subtitles(&State::default().view(&tracks), false);
     assert_eq!(off.title, "Subtitles");
     assert_eq!(off.sections[0].rows.len(), 3);
     assert!(off.sections[0].rows[0].selected, "Off is highlighted");
@@ -224,7 +224,7 @@ fn subtitle_rows_follow_the_view_and_explain_empty_columns() {
         Some("Subtitles are off.")
     );
     tracks[1].selected = true;
-    let on = subtitles(&State::default().view(&tracks));
+    let on = subtitles(&State::default().view(&tracks), false);
     assert_eq!(
         on.sections[0].rows[2].key,
         RowKey::Language(Choice::Lang(Lang::Id))
@@ -236,11 +236,11 @@ fn subtitle_rows_follow_the_view_and_explain_empty_columns() {
     assert_eq!(on.sections[1].note, None);
     // The flat row order is languages, then tracks (keyboard rows share it).
     assert_eq!(on.selected(), Some(2));
-    let none = subtitles(&State::default().view(&[]));
+    let none = subtitles(&State::default().view(&[]), false);
     assert_eq!(none.sections[0].rows.len(), 1);
     let mut chosen = State::default();
     chosen.choose(Choice::Lang(Lang::En), &[track(9, "fra", "French", false)]);
-    let empty = subtitles(&chosen.view(&[track(9, "fra", "French", false)]));
+    let empty = subtitles(&chosen.view(&[track(9, "fra", "French", false)]), false);
     assert_eq!(
         empty.sections[1]
             .note
@@ -248,6 +248,17 @@ fn subtitle_rows_follow_the_view_and_explain_empty_columns() {
             .map(|note| note.text.as_str()),
         Some("No subtitles")
     );
+    // Following the host: every row shows the host's pick but takes no input, and says why.
+    let locked = subtitles(&State::default().view(&tracks), true);
+    assert!(locked.rows().all(|row| row.disabled));
+    assert!(locked.enabled().iter().all(|on| !on));
+    assert_eq!(locked.selected(), Some(2), "the host's pick still shows");
+    for section in &locked.sections {
+        assert_eq!(
+            section.note.as_ref().map(|note| note.text.as_str()),
+            Some("Following the host's subtitles.")
+        );
+    }
 }
 
 #[test]

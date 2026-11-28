@@ -138,7 +138,7 @@ impl Player {
                 None,
             ),
             _ => {
-                let content = self.panel_content(id)?;
+                let content = self.panel_content(id, cx)?;
                 let width = content.width.min(window_width - 16.0);
                 let highlight = self.panels.row.filter(|_| {
                     self.panels.active() == Some(id)

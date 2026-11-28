@@ -161,15 +161,16 @@ pub fn audio(model: &PlaybackModel) -> Content {
     }
 }
 
-/// The Subtitles panel's two row sections; the Appearance column has no rows.
-pub fn subtitles(view: &subtitles::View) -> Content {
+/// The Subtitles panel's two row sections; the Appearance column has no rows. `locked` while a
+/// party member follows the host's subtitles: the rows show the host's pick but take no input.
+pub fn subtitles(view: &subtitles::View, locked: bool) -> Content {
     let row = |key, label: String, description, selected| Row {
         key,
         label,
         description,
         tags: vec![],
         selected,
-        disabled: false,
+        disabled: locked,
         multiline: false,
     };
     let languages = view
@@ -206,7 +207,9 @@ pub fn subtitles(view: &subtitles::View) -> Content {
             danger: false,
         })
     };
+    let locked_note = locked.then(|| note("Following the host's subtitles.")).flatten();
     let track_note = match (view.active, tracks.is_empty()) {
+        _ if locked => locked_note.clone(),
         (subtitles::Choice::Off, _) => note("Subtitles are off."),
         (_, true) => note("No subtitles"),
         _ => None,
@@ -218,7 +221,7 @@ pub fn subtitles(view: &subtitles::View) -> Content {
             Section {
                 label: Some("Language".into()),
                 rows: languages,
-                note: None,
+                note: locked_note,
             },
             Section {
                 label: Some("Track".into()),
