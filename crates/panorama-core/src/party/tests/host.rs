@@ -1349,3 +1349,27 @@ fn a_tiny_seek_while_waiting_does_not_strand_a_host_already_there() {
     let out = report_at(&mut host, 11_500, SAM, MemberState::Paused, 500.3);
     assert_eq!(playing(&out, SAM), Some(true));
 }
+
+#[test]
+fn a_host_player_that_reopens_unpaused_is_paused_again_while_the_party_waits() {
+    let (mut host, _) = lobby();
+    host.handle(2_000, HostInput::Start);
+    // Start reopened the host's player, so it never took the pause and played on alone.
+    local(&mut host, 2_000, MemberState::Loading);
+    local_buffering_at(&mut host, 4_500, 42.0);
+    report_at(&mut host, 5_000, SAM, MemberState::Paused, 42.0);
+    let out = local_at(&mut host, 6_400, 42.04);
+    let told = out.iter().find_map(|o| match o {
+        HostOutput::Apply(playback) => Some(*playback),
+        _ => None,
+    });
+    assert!(
+        told.is_some_and(|p| !p.playing && p.anchor_position == 42.0),
+        "{told:?}"
+    );
+    // Still playing a moment later only means it has not heard yet: tell it once.
+    let out = local_at(&mut host, 6_650, 42.29);
+    assert!(!out.iter().any(|o| matches!(o, HostOutput::Apply(_))));
+    let out = local_paused_at(&mut host, 6_900, 42.0);
+    assert_eq!(playing(&out, SAM), Some(true));
+}

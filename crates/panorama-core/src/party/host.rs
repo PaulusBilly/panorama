@@ -326,7 +326,17 @@ impl HostSession {
                 state,
                 position,
                 duration,
-            } => self.host.report(now_ms, state, position, duration),
+            } => {
+                let started = state == MemberState::Playing && self.host.state != state;
+                self.host.report(now_ms, state, position, duration);
+                // A player that reopens drops the pause it was told, so the host would play
+                // on alone while the party waits for it to stop at the spot. Tell it again.
+                if let Some(published) = self.published.as_ref().filter(|p| !p.playback.playing)
+                    && started
+                {
+                    out.push(HostOutput::Apply(published.playback));
+                }
+            }
             HostInput::SetMedia { media, at } => self.load(now_ms, media, at, &mut out),
             HostInput::Start => {
                 if let Some(showing) = &mut self.showing
